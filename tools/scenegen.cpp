@@ -248,7 +248,7 @@ void skyHdr(const fs::path& path) {
       Vec3f c;
       if (d.y > 0) c = pen::lerp(Vec3f(0.9f, 0.95f, 1.0f), Vec3f(0.25f, 0.45f, 0.9f), std::pow(d.y, 0.5f));
       else c = Vec3f(0.3f, 0.27f, 0.22f) * (1 + d.y * 0.5f);
-      if (pen::dot(d, sunDir) > 0.9995f) c = Vec3f(4000, 3600, 3000);
+      if (pen::dot(d, sunDir) > 0.9995f) c = Vec3f(300, 270, 225);
       px[(y * W + x) * 3] = c.x;
       px[(y * W + x) * 3 + 1] = c.y;
       px[(y * W + x) * 3 + 2] = c.z;

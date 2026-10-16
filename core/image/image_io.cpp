@@ -1,6 +1,7 @@
 #include "core/image/image_io.h"
 
 #include <ImathBox.h>
+#include <half.h>
 #include <ImfChannelList.h>
 #include <ImfFrameBuffer.h>
 #include <ImfHeader.h>
@@ -231,11 +232,20 @@ void writeExr(const std::filesystem::path& path, uint32_t width, uint32_t height
     for (const auto& [k, v] : metadata) header.insert("penumbra:" + k, Imf::StringAttribute(v));
     Imf::OutputFile file(pathToUtf8(path).c_str(), header);
     Imf::FrameBuffer fb;
+    // OpenEXR does not convert float to half on write, so half output gets its own buffer.
+    std::vector<Imath::half> halfs;
     char* base = const_cast<char*>(reinterpret_cast<const char*>(rgb.data()));
-    const size_t xs = 3 * sizeof(float), ys = xs * width;
-    fb.insert("R", Imf::Slice(Imf::FLOAT, base, xs, ys));
-    fb.insert("G", Imf::Slice(Imf::FLOAT, base + sizeof(float), xs, ys));
-    fb.insert("B", Imf::Slice(Imf::FLOAT, base + 2 * sizeof(float), xs, ys));
+    size_t elem = sizeof(float);
+    if (type == Imf::HALF) {
+      halfs.resize(rgb.size());
+      for (size_t i = 0; i < rgb.size(); ++i) halfs[i] = Imath::half(rgb[i]);
+      base = reinterpret_cast<char*>(halfs.data());
+      elem = sizeof(Imath::half);
+    }
+    const size_t xs = 3 * elem, ys = xs * width;
+    fb.insert("R", Imf::Slice(type, base, xs, ys));
+    fb.insert("G", Imf::Slice(type, base + elem, xs, ys));
+    fb.insert("B", Imf::Slice(type, base + 2 * elem, xs, ys));
     file.setFrameBuffer(fb);
     file.writePixels(static_cast<int>(height));
   } catch (const std::exception& e) {
