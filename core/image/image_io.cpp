@@ -1,19 +1,13 @@
 #include "core/image/image_io.h"
 
 #include <ImathBox.h>
-#include <half.h>
 #include <ImfChannelList.h>
 #include <ImfFrameBuffer.h>
 #include <ImfHeader.h>
 #include <ImfInputFile.h>
-#include <ImfOutputFile.h>
-#include <ImfStringAttribute.h>
-#include <png.h>
 
 #include <algorithm>
-#include <cmath>
-#include <csetjmp>
-#include <cstdio>
+#include <cctype>
 #include <fmt/format.h>
 #include <fstream>
 #include <vector>
@@ -44,21 +38,32 @@ std::string lowerExt(const std::filesystem::path& p) {
   return e;
 }
 
-// Reads R, G, B, A from an EXR as float. Single-channel Y images are expanded to grey.
-void readExr(const std::filesystem::path& path, uint32_t& width, uint32_t& height, std::vector<float>& rgba) {
+// Reads R, G, B, A of an EXR (or of a crop of it) as float. Single-channel Y images are expanded to grey.
+// Only the rows of the crop are decoded, so a tile of a gigapixel EXR can be read with little memory.
+void readExr(const std::filesystem::path& path, const std::optional<ImageCrop>& crop, uint32_t& width,
+             uint32_t& height, std::vector<float>& rgba) {
   try {
     Imf::InputFile file(pathToUtf8(path).c_str());
     const Imath::Box2i dw = file.header().dataWindow();
-    const int w = dw.max.x - dw.min.x + 1, h = dw.max.y - dw.min.y + 1;
-    width = static_cast<uint32_t>(w);
-    height = static_cast<uint32_t>(h);
-    rgba.assign(size_t(w) * h * 4, 0.0f);
+    const int fullW = dw.max.x - dw.min.x + 1, fullH = dw.max.y - dw.min.y + 1;
+    int x0 = 0, y0 = 0, x1 = fullW, y1 = fullH;
+    if (crop) {
+      x0 = static_cast<int>(crop->x0);
+      y0 = static_cast<int>(crop->y0);
+      x1 = static_cast<int>(crop->x1);
+      y1 = static_cast<int>(crop->y1);
+      if (x1 > fullW || y1 > fullH || x0 >= x1 || y0 >= y1)
+        throw ImageIoError(fmt::format("crop {},{},{},{} is outside the {}x{} image", x0, y0, x1, y1, fullW, fullH));
+    }
+    // Decode whole rows [y0, y1) (OpenEXR needs full-width slices), then keep columns [x0, x1).
+    const int rows = y1 - y0;
+    std::vector<float> band(size_t(fullW) * rows * 4, 0.0f);
     const bool hasRgb = file.header().channels().findChannel("R") != nullptr;
     const bool hasY = file.header().channels().findChannel("Y") != nullptr;
     Imf::FrameBuffer fb;
-    char* base = reinterpret_cast<char*>(rgba.data()) -
-                 (static_cast<ptrdiff_t>(dw.min.x) + static_cast<ptrdiff_t>(dw.min.y) * w) * 4 * sizeof(float);
-    const size_t xs = 4 * sizeof(float), ys = xs * size_t(w);
+    const size_t xs = 4 * sizeof(float), ys = xs * size_t(fullW);
+    char* base = reinterpret_cast<char*>(band.data()) - static_cast<ptrdiff_t>(dw.min.x) * xs -
+                 static_cast<ptrdiff_t>(dw.min.y + y0) * ys;
     if (hasRgb || !hasY) {
       fb.insert("R", Imf::Slice(Imf::FLOAT, base, xs, ys, 1, 1, 0.0));
       fb.insert("G", Imf::Slice(Imf::FLOAT, base + sizeof(float), xs, ys, 1, 1, 0.0));
@@ -68,10 +73,19 @@ void readExr(const std::filesystem::path& path, uint32_t& width, uint32_t& heigh
     }
     fb.insert("A", Imf::Slice(Imf::FLOAT, base + 3 * sizeof(float), xs, ys, 1, 1, 1.0));
     file.setFrameBuffer(fb);
-    file.readPixels(dw.min.y, dw.max.y);
-    if (!hasRgb && hasY) {
-      for (size_t i = 0; i < size_t(w) * h; ++i) rgba[i * 4 + 1] = rgba[i * 4 + 2] = rgba[i * 4];
+    file.readPixels(dw.min.y + y0, dw.min.y + y1 - 1);
+    width = static_cast<uint32_t>(x1 - x0);
+    height = static_cast<uint32_t>(rows);
+    rgba.resize(size_t(width) * height * 4);
+    for (int y = 0; y < rows; ++y) {
+      const float* src = band.data() + (size_t(y) * fullW + x0) * 4;
+      std::copy(src, src + size_t(width) * 4, rgba.data() + size_t(y) * width * 4);
     }
+    if (!hasRgb && hasY) {
+      for (size_t i = 0; i < size_t(width) * height; ++i) rgba[i * 4 + 1] = rgba[i * 4 + 2] = rgba[i * 4];
+    }
+  } catch (const ImageIoError&) {
+    throw;
   } catch (const std::exception& e) {
     throw ImageIoError(fmt::format("cannot read EXR '{}': {}", pathToUtf8(path), e.what()));
   }
@@ -107,15 +121,40 @@ Texture loadTextureFile(const std::filesystem::path& path) {
     Texture t;
     t.name = pathToUtf8(path.filename());
     t.is_float = true;
-    readExr(path, t.width, t.height, t.hdr);
+    readExr(path, std::nullopt, t.width, t.height, t.hdr);
     return t;
   }
   const std::vector<uint8_t> bytes = readFile(path);
   return decodeTexture(bytes, pathToUtf8(path.filename()));
 }
 
-ImageRGB loadImageRGB(const std::filesystem::path& path) {
-  const Texture t = loadTextureFile(path);
+ImageRGB loadImageRGB(const std::filesystem::path& path, const std::optional<ImageCrop>& crop) {
+  Texture t;
+  if (lowerExt(path) == ".exr") {
+    t.is_float = true;
+    readExr(path, crop, t.width, t.height, t.hdr);
+  } else {
+    t = loadTextureFile(path);
+    if (crop) {
+      if (crop->x1 > t.width || crop->y1 > t.height || crop->x0 >= crop->x1 || crop->y0 >= crop->y1)
+        throw ImageIoError(fmt::format("crop is outside the {}x{} image", t.width, t.height));
+      Texture c = t;
+      c.width = crop->x1 - crop->x0;
+      c.height = crop->y1 - crop->y0;
+      if (t.is_float) {
+        c.hdr.resize(size_t(c.width) * c.height * 4);
+        for (uint32_t y = 0; y < c.height; ++y)
+          std::copy_n(t.hdr.data() + (size_t(y + crop->y0) * t.width + crop->x0) * 4, size_t(c.width) * 4,
+                      c.hdr.data() + size_t(y) * c.width * 4);
+      } else {
+        c.ldr.resize(size_t(c.width) * c.height * 4);
+        for (uint32_t y = 0; y < c.height; ++y)
+          std::copy_n(t.ldr.data() + (size_t(y + crop->y0) * t.width + crop->x0) * 4, size_t(c.width) * 4,
+                      c.ldr.data() + size_t(y) * c.width * 4);
+      }
+      t = std::move(c);
+    }
+  }
   ImageRGB img;
   img.width = t.width;
   img.height = t.height;
@@ -129,128 +168,6 @@ ImageRGB loadImageRGB(const std::filesystem::path& path) {
     }
   }
   return img;
-}
-
-namespace {
-
-struct PngError {
-  char message[256] = "unknown libpng error";
-};
-
-void pngErrorFn(png_structp png, png_const_charp msg) {
-  auto* err = static_cast<PngError*>(png_get_error_ptr(png));
-  std::snprintf(err->message, sizeof(err->message), "%s", msg);
-  png_longjmp(png, 1);
-}
-void pngWarnFn(png_structp, png_const_charp) {}
-
-// All libpng calls live here, with no C++ objects whose lifetime crosses setjmp.
-#if defined(_MSC_VER)
-#pragma warning(disable : 4611)  // setjmp and C++ destruction: this function has no destructible objects
-#endif
-bool writePngRaw(FILE* fp, uint32_t width, uint32_t height, const float* rgb, uint32_t bitDepth, png_text* texts,
-                 int textCount, uint8_t* row, PngError* err) {
-  png_structp png = png_create_write_struct(PNG_LIBPNG_VER_STRING, err, pngErrorFn, pngWarnFn);
-  if (!png) return false;
-  png_infop info = png_create_info_struct(png);
-  if (!info || setjmp(png_jmpbuf(png))) {
-    png_destroy_write_struct(&png, &info);
-    return false;
-  }
-  png_init_io(png, fp);
-  png_set_IHDR(png, info, width, height, static_cast<int>(bitDepth), PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
-               PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
-  if (textCount > 0) png_set_text(png, info, texts, textCount);
-  png_write_info(png, info);
-  const float maxV = bitDepth == 16 ? 65535.0f : 255.0f;
-  for (uint32_t y = 0; y < height; ++y) {
-    const float* src = rgb + size_t(y) * width * 3;
-    for (uint32_t i = 0; i < width * 3; ++i) {
-      const float v = src[i] < 0 ? 0 : (src[i] > 1 ? 1 : src[i]);
-      const uint32_t q = static_cast<uint32_t>(std::lround(v * maxV));
-      if (bitDepth == 16) {
-        row[i * 2] = static_cast<uint8_t>(q >> 8);  // PNG is big-endian
-        row[i * 2 + 1] = static_cast<uint8_t>(q & 0xff);
-      } else {
-        row[i] = static_cast<uint8_t>(q);
-      }
-    }
-    png_write_row(png, row);
-  }
-  png_write_end(png, nullptr);
-  png_destroy_write_struct(&png, &info);
-  return true;
-}
-
-FILE* openForWrite(const std::filesystem::path& path) {
-#if defined(_WIN32)
-  return _wfopen(path.wstring().c_str(), L"wb");
-#else
-  return std::fopen(path.c_str(), "wb");
-#endif
-}
-
-}  // namespace
-
-void writePng(const std::filesystem::path& path, uint32_t width, uint32_t height, std::span<const float> rgb,
-              uint32_t bitDepth, const ImageMetadata& metadata) {
-  if (bitDepth != 8 && bitDepth != 16) throw ImageIoError("PNG supports 8 or 16 bits per channel");
-  FILE* fp = openForWrite(path);
-  if (!fp) throw ImageIoError(fmt::format("cannot create '{}'", pathToUtf8(path)));
-  std::vector<std::string> keys, values;
-  for (const auto& [k, v] : metadata) {
-    keys.push_back(k.substr(0, 79));  // PNG keyword limit
-    values.push_back(v);
-  }
-  std::vector<png_text> texts(keys.size());
-  for (size_t i = 0; i < keys.size(); ++i) {
-    texts[i] = {};
-    texts[i].compression = PNG_TEXT_COMPRESSION_NONE;
-    texts[i].key = keys[i].data();
-    texts[i].text = values[i].data();
-    texts[i].text_length = values[i].size();
-  }
-  std::vector<uint8_t> row(size_t(width) * 3 * (bitDepth / 8));
-  PngError err;
-  const bool ok = writePngRaw(fp, width, height, rgb.data(), bitDepth, texts.data(), static_cast<int>(texts.size()),
-                              row.data(), &err);
-  const bool closed = std::fclose(fp) == 0;
-  if (!ok) throw ImageIoError(fmt::format("cannot write PNG '{}': {}", pathToUtf8(path), err.message));
-  if (!closed) throw ImageIoError(fmt::format("cannot write PNG '{}' (disk full?)", pathToUtf8(path)));
-}
-
-void writeExr(const std::filesystem::path& path, uint32_t width, uint32_t height, std::span<const float> rgb,
-              uint32_t bitDepth, const ImageMetadata& metadata) {
-  if (bitDepth != 16 && bitDepth != 32) throw ImageIoError("EXR supports 16 (half) or 32 (float) bits per channel");
-  try {
-    Imf::Header header(static_cast<int>(width), static_cast<int>(height));
-    header.compression() = Imf::ZIP_COMPRESSION;
-    const Imf::PixelType type = bitDepth == 16 ? Imf::HALF : Imf::FLOAT;
-    header.channels().insert("R", Imf::Channel(type));
-    header.channels().insert("G", Imf::Channel(type));
-    header.channels().insert("B", Imf::Channel(type));
-    for (const auto& [k, v] : metadata) header.insert("penumbra:" + k, Imf::StringAttribute(v));
-    Imf::OutputFile file(pathToUtf8(path).c_str(), header);
-    Imf::FrameBuffer fb;
-    // OpenEXR does not convert float to half on write, so half output gets its own buffer.
-    std::vector<Imath::half> halfs;
-    char* base = const_cast<char*>(reinterpret_cast<const char*>(rgb.data()));
-    size_t elem = sizeof(float);
-    if (type == Imf::HALF) {
-      halfs.resize(rgb.size());
-      for (size_t i = 0; i < rgb.size(); ++i) halfs[i] = Imath::half(rgb[i]);
-      base = reinterpret_cast<char*>(halfs.data());
-      elem = sizeof(Imath::half);
-    }
-    const size_t xs = 3 * elem, ys = xs * width;
-    fb.insert("R", Imf::Slice(type, base, xs, ys));
-    fb.insert("G", Imf::Slice(type, base + elem, xs, ys));
-    fb.insert("B", Imf::Slice(type, base + 2 * elem, xs, ys));
-    file.setFrameBuffer(fb);
-    file.writePixels(static_cast<int>(height));
-  } catch (const std::exception& e) {
-    throw ImageIoError(fmt::format("cannot write EXR '{}': {}", pathToUtf8(path), e.what()));
-  }
 }
 
 }  // namespace pen

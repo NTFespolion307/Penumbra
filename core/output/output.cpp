@@ -1,9 +1,11 @@
 #include "core/output/output.h"
 
+#include <algorithm>
 #include <cmath>
 #include <fmt/format.h>
 
 #include "core/image/image.h"
+#include "core/output/writers.h"
 
 namespace pen {
 
@@ -11,38 +13,48 @@ float displayEncode(float linear, float exposureScale) {
   return linearToSrgb(std::fmin(std::fmax(linear * exposureScale, 0.0f), 1.0f));
 }
 
-void writeOutput(const Film& film, const RenderSettings& s, const ImageMetadata& metadata,
-                 std::vector<std::string>& notes) {
-  const float exposure = std::exp2(static_cast<float>(s.exposure));
+TileRect outputRect(const RenderSettings& s) {
+  if (s.region) return {s.region->x0, s.region->y0, s.region->x1, s.region->y1};
+  return {0, 0, s.outputWidth(), s.outputHeight()};
+}
+
+void writeImage(const RowSource& source, uint32_t width, uint32_t height, const RenderSettings& s,
+                const ImageMetadata& metadata, std::vector<std::string>& notes) {
   const ImageFormat format = s.format.value_or(ImageFormat::Png);
-  std::vector<float> rgb(size_t(film.width()) * film.height() * 3);
-  const auto& means = film.means();
-
-  if (format == ImageFormat::Exr) {
-    for (size_t i = 0; i < means.size(); ++i) {
-      rgb[i * 3] = means[i].x * exposure;
-      rgb[i * 3 + 1] = means[i].y * exposure;
-      rgb[i * 3 + 2] = means[i].z * exposure;
-    }
+  const float exposure = std::exp2(static_cast<float>(s.exposure));
+  auto writer = makeImageWriter(s.output, format, s.bit_depth, width, height, metadata);
+  if (writer->wantsLinear()) {
     if (s.tonemap != Tonemap::None)
-      notes.push_back(fmt::format("EXR output is linear; --tonemap {} applies to display formats only",
-                                  toString(s.tonemap)));
-    writeExr(s.output, film.width(), film.height(), rgb, s.bit_depth, metadata);
-    return;
-  }
-
-  if (format != ImageFormat::Png)
-    throw ImageIoError(fmt::format("{} output is built in milestone M2; use .png or .exr", toString(format)));
-  if (s.tonemap != Tonemap::None)
+      notes.push_back(fmt::format("{}-bit {} output is linear; --tonemap {} applies to display formats only",
+                                  s.bit_depth, toString(format), toString(s.tonemap)));
+  } else if (s.tonemap != Tonemap::None) {
     notes.push_back(fmt::format("tonemap {} is built in milestone M11; this render uses the sRGB curve with "
                                 "clipping (--tonemap none)",
                                 toString(s.tonemap)));
-  for (size_t i = 0; i < means.size(); ++i) {
-    rgb[i * 3] = displayEncode(means[i].x, exposure);
-    rgb[i * 3 + 1] = displayEncode(means[i].y, exposure);
-    rgb[i * 3 + 2] = displayEncode(means[i].z, exposure);
   }
-  writePng(s.output, film.width(), film.height(), rgb, s.bit_depth, metadata);
+
+  std::vector<Vec3f> band;
+  std::vector<float> rgb;
+  for (uint32_t y0 = 0; y0 < height; y0 += ImageWriter::kBandRows) {
+    const uint32_t rows = std::min(ImageWriter::kBandRows, height - y0);
+    source({0, y0, width, y0 + rows}, band);
+    rgb.resize(band.size() * 3);
+    for (size_t i = 0; i < band.size(); ++i) {
+      for (int c = 0; c < 3; ++c)
+        rgb[i * 3 + c] = writer->wantsLinear() ? band[i][c] * exposure : displayEncode(band[i][c], exposure);
+    }
+    writer->writeBand(y0, rows, rgb);
+  }
+  writer->finish();
+}
+
+void writeOutput(const Film& film, const RenderSettings& s, const ImageMetadata& metadata,
+                 std::vector<std::string>& notes) {
+  const TileRect area = outputRect(s);
+  const RowSource source = [&](const TileRect& rows, std::vector<Vec3f>& out) {
+    film.readRect({area.x0 + rows.x0, area.y0 + rows.y0, area.x0 + rows.x1, area.y0 + rows.y1}, out);
+  };
+  writeImage(source, area.width(), area.height(), s, metadata, notes);
 }
 
 }  // namespace pen

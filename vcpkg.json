@@ -6,6 +6,7 @@
   "license": "MIT",
   "builtin-baseline": "3cd21e48a75f67acfef289da52893ce79144aaa1",
   "dependencies": [
+    "blake3",
     "cgltf",
     "cli11",
     {
@@ -14,7 +15,13 @@
       "features": [ "filter-function", "geometry-instance", "geometry-triangle", "tasking-tbb" ]
     },
     "fmt",
+    "libjpeg-turbo",
     "libpng",
+    {
+      "name": "libwebp",
+      "default-features": false,
+      "features": [ "simd" ]
+    },
     "nlohmann-json",
     "openexr",
     "spdlog",
@@ -22,6 +29,11 @@
     {
       "name": "tbb",
       "default-features": false
+    },
+    {
+      "name": "tiff",
+      "default-features": false,
+      "features": [ "zip" ]
     },
     "tinyobjloader"
   ],
