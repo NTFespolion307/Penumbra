@@ -1,6 +1,8 @@
 # CLI definition is a library so the tests can parse command lines without launching the exe.
 add_library(penumbra_cli STATIC cli/cli.cpp)
 target_link_libraries(penumbra_cli PUBLIC penumbra_core PRIVATE CLI11::CLI11)
+# GCC 12 false positive (bug 105329) in std::string code inlined from CLI11's add_option.
+target_compile_options(penumbra_cli PRIVATE $<$<CXX_COMPILER_ID:GNU>:-Wno-restrict>)
 
 # Console subsystem on Windows (so --terminal/--worker output works in cmd and PowerShell); the UI mode
 # detaches the console when started from Explorer. See docs/GUIDE.md "Windows console gotcha".
