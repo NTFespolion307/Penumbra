@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <format>
+#include <fmt/format.h>
 #include <nlohmann/json.hpp>
 
 #include "core/settings/parse.h"
@@ -28,7 +28,7 @@ std::string text(const json& v) {
   if (v.is_string()) return v.get<std::string>();
   if (v.is_boolean()) return v.get<bool>() ? "true" : "false";
   if (v.is_number()) return v.dump();
-  throw ValueError(std::format("expected a value, got {}", v.dump()));
+  throw ValueError(fmt::format("expected a value, got {}", v.dump()));
 }
 
 uint64_t asUint(const json& v, uint64_t lo, uint64_t hi) { return parseUint(text(v), lo, hi); }
@@ -43,7 +43,7 @@ E asEnum(const json& v) {
   if (auto e = enumFromString<E>(t)) return *e;
   std::string choices;
   for (const auto& [value, name] : EnumNames<E>::items) choices += (choices.empty() ? "" : ", ") + std::string(name);
-  throw ValueError(std::format("'{}' is not one of: {}", t, choices));
+  throw ValueError(fmt::format("'{}' is not one of: {}", t, choices));
 }
 
 bool isWord(const json& v, std::string_view word) { return v.is_string() && toLower(trim(text(v))) == word; }
@@ -72,7 +72,7 @@ std::string normalizeDevices(const json& v) {
       try {
         parseUint(item, 0, 255);
       } catch (const ValueError&) {
-        throw ValueError(std::format("'{}' is not 'all', 'gpu' or a list like '0,1,cpu'", text(v)));
+        throw ValueError(fmt::format("'{}' is not 'all', 'gpu' or a list like '0,1,cpu'", text(v)));
       }
     }
     if (comma == std::string::npos) break;
@@ -99,7 +99,7 @@ std::vector<std::string> parseAovs(const json& v) {
   std::vector<std::string> out;
   for (const auto& item : items) {
     if (item != "albedo" && item != "normal" && item != "depth")
-      throw ValueError(std::format("'{}' is not an AOV (albedo, normal, depth)", item));
+      throw ValueError(fmt::format("'{}' is not an AOV (albedo, normal, depth)", item));
     if (std::find(out.begin(), out.end(), item) == out.end()) out.push_back(item);
   }
   return out;
@@ -201,14 +201,14 @@ const std::array kSchema = {
                     return;
                   }
                   s.format = formatFromName(trim(text(v)));
-                  if (!s.format) throw ValueError(std::format("'{}' is not one of: png, exr, jpg, tiff, webp", text(v)));
+                  if (!s.format) throw ValueError(fmt::format("'{}' is not one of: png, exr, jpg, tiff, webp", text(v)));
                 }},
     SettingSpec{"bit_depth", "--bit-depth", "Output", K::Value, "8, 16, 32 (per format)", "png/jpg/webp 8, tiff/exr 16",
                 false, "--bit-depth 32", "Bits per channel",
                 [](S& s, const json& v) {
                   s.bit_depth = isWord(v, "auto") ? 0 : asU32(v, 8, 32);
                   if (s.bit_depth != 0 && s.bit_depth != 8 && s.bit_depth != 16 && s.bit_depth != 32)
-                    throw ValueError(std::format("{} is not 8, 16 or 32", s.bit_depth));
+                    throw ValueError(fmt::format("{} is not 8, 16 or 32", s.bit_depth));
                 }},
     SettingSpec{"denoise", "--denoise", "Output", K::Value, "none, oidn, optix", "none", true, "--denoise oidn",
                 "Denoiser",
@@ -231,7 +231,7 @@ const std::array kSchema = {
                 "--checkpoint 5m", "Checkpoint period",
                 [](S& s, const json& v) {
                   const uint64_t d = parseDuration(text(v));
-                  if (d < 10 || d > 7 * 86400) throw ValueError(std::format("{} is not between 10s and 7d", text(v)));
+                  if (d < 10 || d > 7 * 86400) throw ValueError(fmt::format("{} is not between 10s and 7d", text(v)));
                   s.checkpoint_s = d;
                 }},
     SettingSpec{"region", "--region", "Film", K::Value, "x0,y0,x1,y1 (x1, y1 exclusive) or none", "none", true,
@@ -282,7 +282,7 @@ const std::array kSchema = {
                 "--cache-size 100G", "Scene cache size before least-recently-used eviction",
                 [](S& s, const json& v) {
                   const uint64_t b = parseByteSize(text(v));
-                  if (b < (1ull << 30)) throw ValueError(std::format("'{}' is smaller than 1G", text(v)));
+                  if (b < (1ull << 30)) throw ValueError(fmt::format("'{}' is smaller than 1G", text(v)));
                   s.cache_size = b;
                 }},
 };
@@ -330,9 +330,9 @@ void applySetting(RenderSettings& s, const SettingSpec& spec, const json& value,
   try {
     spec.apply(s, value);
   } catch (const ValueError& e) {
-    throw SettingsError(1, std::format("{}: {}", where, e.what()));
+    throw SettingsError(1, fmt::format("{}: {}", where, e.what()));
   } catch (const json::exception& e) {
-    throw SettingsError(1, std::format("{}: {}", where, e.what()));
+    throw SettingsError(1, fmt::format("{}: {}", where, e.what()));
   }
 }
 
@@ -357,11 +357,11 @@ void finalizeSettings(RenderSettings& s) {
     if (ext.empty()) {
       s.output += std::string(canonicalExtension(*s.format));
     } else if (fromExt != s.format) {
-      fail(std::format("--format {} does not match the output file '{}'", toString(*s.format), pathToUtf8(s.output)));
+      fail(fmt::format("--format {} does not match the output file '{}'", toString(*s.format), pathToUtf8(s.output)));
     }
   } else {
     if (!fromExt)
-      fail(std::format("cannot tell the image format from '{}': use .png, .exr, .jpg, .tiff or .webp, or set --format",
+      fail(fmt::format("cannot tell the image format from '{}': use .png, .exr, .jpg, .tiff or .webp, or set --format",
                        pathToUtf8(s.output)));
     s.format = fromExt;
   }
@@ -375,24 +375,24 @@ void finalizeSettings(RenderSettings& s) {
                     ((f == ImageFormat::Jpeg || f == ImageFormat::Webp) && s.bit_depth == 8) ||
                     f == ImageFormat::Tiff;
     if (!ok)
-      fail(std::format("{} does not support --bit-depth {} (PNG 8/16, EXR 16/32, JPEG 8, WebP 8, TIFF 8/16/32)",
+      fail(fmt::format("{} does not support --bit-depth {} (PNG 8/16, EXR 16/32, JPEG 8, WebP 8, TIFF 8/16/32)",
                        formatLabel(f), s.bit_depth));
   }
 
   const uint32_t w = s.outputWidth(), h = s.outputHeight();
   if (const uint32_t maxSide = formatMaxSide(f); maxSide != 0 && (w > maxSide || h > maxSide)) {
-    const std::string res = s.res.preset.empty() ? std::format("{}x{}", s.res.width, s.res.height) : s.res.preset;
-    fail(std::format("{} images are limited to {} px per side, but {} is {}x{}. Use EXR, PNG or TIFF, or a smaller "
+    const std::string res = s.res.preset.empty() ? fmt::format("{}x{}", s.res.width, s.res.height) : s.res.preset;
+    fail(fmt::format("{} images are limited to {} px per side, but {} is {}x{}. Use EXR, PNG or TIFF, or a smaller "
                      "--res or --scale.",
                      formatLabel(f), maxSide, res, w, h));
   }
 
   if (s.region && (s.region->x1 > w || s.region->y1 > h))
-    fail(std::format("--region {},{},{},{} is outside the {}x{} image", s.region->x0, s.region->y0, s.region->x1,
+    fail(fmt::format("--region {},{},{},{} is outside the {}x{} image", s.region->x0, s.region->y0, s.region->x1,
                      s.region->y1, w, h));
 
   if (s.sample_range && s.spp != 0 && s.sample_range->last >= s.spp)
-    fail(std::format("--sample-range {}-{} goes past --spp {} (the last sample is {})", s.sample_range->first,
+    fail(fmt::format("--sample-range {}-{} goes past --spp {} (the last sample is {})", s.sample_range->first,
                      s.sample_range->last, s.spp, s.spp - 1));
 }
 

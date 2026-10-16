@@ -1,6 +1,6 @@
 #include "core/system/sysinfo.h"
 
-#include <format>
+#include <fmt/format.h>
 #include <thread>
 
 #if defined(_WIN32)
@@ -45,8 +45,8 @@ std::string windowsVersion() {
   const char* name = vi.dwBuildNumber >= 22000 ? "Windows 11" : "Windows 10";
   const std::string display =
       narrow(regString(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", L"DisplayVersion"));
-  return display.empty() ? std::format("{} (build {})", name, vi.dwBuildNumber)
-                         : std::format("{} ({}, build {})", name, display, vi.dwBuildNumber);
+  return display.empty() ? fmt::format("{} (build {})", name, vi.dwBuildNumber)
+                         : fmt::format("{} ({}, build {})", name, display, vi.dwBuildNumber);
 }
 
 #else
@@ -106,7 +106,7 @@ SystemInfo querySystem() {
   std::string pretty = readKey("/etc/os-release", "PRETTY_NAME=", '=');
   if (pretty.empty()) pretty = "Linux";
   utsname u{};
-  info.os = uname(&u) == 0 ? std::format("{} (kernel {})", pretty, u.release) : pretty;
+  info.os = uname(&u) == 0 ? fmt::format("{} (kernel {})", pretty, u.release) : pretty;
   info.cpu = readKey("/proc/cpuinfo", "model name", ':');
   info.ram_total = meminfoBytes("MemTotal");
   info.ram_available = meminfoBytes("MemAvailable");

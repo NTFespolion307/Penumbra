@@ -2,7 +2,7 @@
 // --worker = headless worker. See docs/GUIDE.md "Application modes and CLI".
 
 #include <cstdio>
-#include <format>
+#include <fmt/format.h>
 #include <string>
 #include <vector>
 
@@ -28,7 +28,7 @@ int notYet(std::string_view what, std::string_view milestone) {
 }
 
 int runUiPlaceholder(bool fromExplorer) {
-  const std::string text = std::format(
+  const std::string text = fmt::format(
       "{}\n\nThe Penumbra UI is built in milestone M10.\nFor now, run Penumbra from a terminal, for example:\n\n"
       "  penumbra --help\n  penumbra --diagnose",
       pen::versionString());

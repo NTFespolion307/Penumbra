@@ -43,6 +43,7 @@ else()
 endif()
 
 find_package(CLI11 CONFIG REQUIRED)
+find_package(fmt CONFIG REQUIRED)  # GCC 12 has no <format>; fmt is also spdlog's formatter (DECISIONS D-018)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 find_package(Git QUIET)

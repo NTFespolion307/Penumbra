@@ -1,7 +1,7 @@
 #include "apps/penumbra/cli/cli.h"
 
 #include <CLI/CLI.hpp>
-#include <format>
+#include <fmt/format.h>
 #include <map>
 #include <nlohmann/json.hpp>
 #include <sstream>
@@ -88,8 +88,8 @@ std::vector<OptionRow> allRows() {
 
 std::string optionDescription(const OptionRow& r) {
   std::string d(r.help);
-  if (!r.values.empty()) d += std::format("\n  values: {}", r.values);
-  if (!r.default_text.empty() && r.kind == kValue) d += std::format("\n  default: {}", r.default_text);
+  if (!r.values.empty()) d += fmt::format("\n  values: {}", r.values);
+  if (!r.default_text.empty() && r.kind == kValue) d += fmt::format("\n  default: {}", r.default_text);
   return d;
 }
 
@@ -112,11 +112,11 @@ ParseResult parse(std::span<const std::string> args, const ParseOptions& options
   const auto fail = [&](const std::string& msg, int code = toInt(ExitCode::BadArguments)) {
     result.exit_now = true;
     result.exit_code = code;
-    result.err = std::format("error: {}\nRun with --help for more information.\n", msg);
+    result.err = fmt::format("error: {}\nRun with --help for more information.\n", msg);
     return result;
   };
 
-  CLI::App app{std::format("Penumbra {}: distributed multi-GPU path tracer", appVersion()), "penumbra"};
+  CLI::App app{fmt::format("Penumbra {}: distributed multi-GPU path tracer", appVersion()), "penumbra"};
   app.footer(std::string(kFooter));
   app.get_formatter()->column_width(34);
 
@@ -237,7 +237,7 @@ std::string helpMarkdown() {
     for (size_t pos = 0; (pos = out.find('|', pos)) != std::string::npos; pos += 2) out.replace(pos, 1, "\\|");
     return out;
   };
-  const auto code = [&](std::string_view s) { return s.empty() ? std::string() : std::format("`{}`", cell(s)); };
+  const auto code = [&](std::string_view s) { return s.empty() ? std::string() : fmt::format("`{}`", cell(s)); };
 
   std::string md =
       "| Group | Flag | Values | Default | Example | Config / `.pen.json` key | Description |\n"
@@ -249,13 +249,13 @@ std::string helpMarkdown() {
       const size_t comma = n.find(',');
       const std::string_view part = n.substr(0, comma);
       if (part.starts_with("-")) names += (names.empty() ? "" : ", ") + code(part);
-      else names += (names.empty() ? "" : ", ") + std::format("`<{}>`", part);
+      else names += (names.empty() ? "" : ", ") + fmt::format("`<{}>`", part);
       if (comma == std::string_view::npos) break;
       n.remove_prefix(comma + 1);
     }
     const std::string example =
-        r.example.starts_with("penumbra") ? code(r.example) : code(std::format("penumbra {}", r.example));
-    md += std::format("| {} | {} | {} | {} | {} | {} | {} |\n", r.group, names, cell(r.values), cell(r.default_text),
+        r.example.starts_with("penumbra") ? code(r.example) : code(fmt::format("penumbra {}", r.example));
+    md += fmt::format("| {} | {} | {} | {} | {} | {} | {} |\n", r.group, names, cell(r.values), cell(r.default_text),
                       example, r.spec ? code(r.spec->key) : "CLI only", cell(r.help));
   }
   md += "| Subcommand | `merge <films...> -o <output>` |  |  | `penumbra merge a.penfilm b.penfilm -o out.exr` "
@@ -265,12 +265,12 @@ std::string helpMarkdown() {
 
 std::string describe(const RenderSettings& s) {
   std::string scene = s.scene.empty() ? "(none)" : pathToUtf8(s.scene);
-  if (!s.scene_description.empty()) scene += std::format(" (from {})", pathToUtf8(s.scene_description));
+  if (!s.scene_description.empty()) scene += fmt::format(" (from {})", pathToUtf8(s.scene_description));
   const std::string res = s.res.preset.empty() ? "custom" : s.res.preset;
-  return std::format(
+  return fmt::format(
       "scene {}, {}x{} ({}{}), {} spp, {} bounces, integrator {}, seed {}, backend {}, devices {}, output {} ({} "
       "{}-bit, tonemap {}, denoise {})",
-      scene, s.outputWidth(), s.outputHeight(), res, s.scale != 1.0 ? std::format(" at scale {}", s.scale) : "",
+      scene, s.outputWidth(), s.outputHeight(), res, s.scale != 1.0 ? fmt::format(" at scale {}", s.scale) : "",
       s.spp == 0 ? std::string("until time limit") : std::to_string(s.spp), s.max_bounces, toString(s.integrator),
       s.seed, toString(s.backend), s.devices, pathToUtf8(s.output), s.format ? toString(*s.format) : "?",
       s.bit_depth, toString(s.tonemap), toString(s.denoise));

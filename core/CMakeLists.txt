@@ -21,7 +21,7 @@ add_library(penumbra_core STATIC
   system/sysinfo.cpp)
 add_dependencies(penumbra_core penumbra_git_version)
 target_include_directories(penumbra_core PUBLIC "${PROJECT_SOURCE_DIR}")
-target_link_libraries(penumbra_core PUBLIC nlohmann_json::nlohmann_json spdlog::spdlog)
+target_link_libraries(penumbra_core PUBLIC fmt::fmt nlohmann_json::nlohmann_json spdlog::spdlog)
 if(WIN32)
   target_link_libraries(penumbra_core PRIVATE shell32 ole32 advapi32)
 endif()

@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <fmt/format.h>
 #include <string>
 #include <vector>
 
@@ -25,6 +26,9 @@ Invocation ok(const ParseResult& r) {
   REQUIRE(r.invocation);
   return *r.invocation;
 }
+
+// "`text`" (built with fmt: GCC 12 warns falsely on "`" + std::string(...)).
+std::string quoted(std::string_view text) { return fmt::format("`{}`", text); }
 
 int errorCode(const ParseResult& r) {
   REQUIRE(r.exit_now);
@@ -122,12 +126,12 @@ TEST_CASE("help and markdown cover every setting", "[cli]") {
   for (const auto& spec : settingSchema()) {
     INFO(std::string(spec.key));
     CHECK(help.find(std::string(longFlag(spec))) != std::string::npos);
-    CHECK(md.find("`" + std::string(longFlag(spec)) + "`") != std::string::npos);
-    CHECK(md.find("`" + std::string(spec.key) + "`") != std::string::npos);
+    CHECK(md.find(quoted(longFlag(spec))) != std::string::npos);
+    CHECK(md.find(quoted(spec.key)) != std::string::npos);
   }
   for (const char* flag : {"--terminal", "--worker", "--join", "--code", "--host", "--resume", "--config", "--version",
                            "--list-devices", "--diagnose", "--benchmark"})
-    CHECK(md.find(std::string("`") + flag + "`") != std::string::npos);
+    CHECK(md.find(quoted(flag)) != std::string::npos);
   const auto mdRun = run({"--help-markdown"});
   CHECK(errorCode(mdRun) == 0);
   CHECK(mdRun.out == md);

@@ -1,6 +1,6 @@
 #include "core/config/config.h"
 
-#include <format>
+#include <fmt/format.h>
 #include <fstream>
 
 #include "core/settings/parse.h"
@@ -17,14 +17,14 @@ enum class Layer { ConfigFile, SceneDescription, CommandLine };
 
 json readJsonObject(const std::filesystem::path& file, int exitCode, std::string_view what) {
   std::ifstream in(file, std::ios::binary);
-  if (!in) throw SettingsError(exitCode, std::format("cannot open {} '{}'", what, pathToUtf8(file)));
+  if (!in) throw SettingsError(exitCode, fmt::format("cannot open {} '{}'", what, pathToUtf8(file)));
   json j;
   try {
     j = json::parse(in, nullptr, true, /*ignore_comments=*/true);
   } catch (const json::parse_error& e) {
-    throw SettingsError(exitCode, std::format("{} '{}' is not valid JSON: {}", what, pathToUtf8(file), e.what()));
+    throw SettingsError(exitCode, fmt::format("{} '{}' is not valid JSON: {}", what, pathToUtf8(file), e.what()));
   }
-  if (!j.is_object()) throw SettingsError(exitCode, std::format("{} '{}' must be a JSON object", what, pathToUtf8(file)));
+  if (!j.is_object()) throw SettingsError(exitCode, fmt::format("{} '{}' must be a JSON object", what, pathToUtf8(file)));
   return j;
 }
 
@@ -32,21 +32,21 @@ void applyLayer(RenderSettings& s, const json& layer, Layer kind, std::string_vi
                 std::vector<std::string>& warnings) {
   for (const auto& [key, value] : layer.items()) {
     if (key == "code" || key == "join_code") {
-      warnings.push_back(std::format("{}: the join code is never read from a file; use --code or PENUMBRA_CODE "
+      warnings.push_back(fmt::format("{}: the join code is never read from a file; use --code or PENUMBRA_CODE "
                                      "(ignored)", source));
       continue;
     }
     if (key == "scene" && kind != Layer::CommandLine) {
-      warnings.push_back(std::format("{}: 'scene' is not a setting here (ignored)", source));
+      warnings.push_back(fmt::format("{}: 'scene' is not a setting here (ignored)", source));
       continue;
     }
     const SettingSpec* spec = findSetting(key);
     if (!spec) {
-      warnings.push_back(std::format("{}: unknown setting '{}' (ignored)", source, key));
+      warnings.push_back(fmt::format("{}: unknown setting '{}' (ignored)", source, key));
       continue;
     }
     const std::string where =
-        kind == Layer::CommandLine ? std::string(longFlag(*spec)) : std::format("{}: {}", source, key);
+        kind == Layer::CommandLine ? std::string(longFlag(*spec)) : fmt::format("{}: {}", source, key);
     applySetting(s, *spec, value, where);
   }
 }
@@ -55,7 +55,7 @@ void loadSceneDescription(RenderSettings& s, const std::filesystem::path& file, 
   const json pen = readJsonObject(file, 2, "scene description");
   const std::string src = pathToUtf8(file);
   const std::filesystem::path base = file.parent_path();
-  const auto fail = [&](const std::string& msg) { throw SettingsError(2, std::format("{}: {}", src, msg)); };
+  const auto fail = [&](const std::string& msg) { throw SettingsError(2, fmt::format("{}: {}", src, msg)); };
   const auto relative = [&](const json& v) {
     const std::filesystem::path p = pathFromUtf8(v.get<std::string>());
     return p.is_absolute() ? p : base / p;
@@ -79,16 +79,16 @@ void loadSceneDescription(RenderSettings& s, const std::filesystem::path& file, 
         } else if (ek == "rotation_deg" && ev.is_number()) {
           s.environment.rotation_deg = ev.get<double>();
         } else if (ek == "hdri" || ek == "strength" || ek == "rotation_deg") {
-          fail(std::format("environment.{} has an invalid value {}", ek, ev.dump()));
+          fail(fmt::format("environment.{} has an invalid value {}", ek, ev.dump()));
         } else {
-          warnings.push_back(std::format("{}: unknown key 'environment.{}' (ignored)", src, ek));
+          warnings.push_back(fmt::format("{}: unknown key 'environment.{}' (ignored)", src, ek));
         }
       }
     } else if (key == "render") {
       if (!value.is_object()) fail("'render' must be an object");
       applyLayer(s, value, Layer::SceneDescription, src + " render", warnings);
     } else {
-      warnings.push_back(std::format("{}: unknown key '{}' (ignored)", src, key));
+      warnings.push_back(fmt::format("{}: unknown key '{}' (ignored)", src, key));
     }
   }
   if (s.scene.empty()) fail("'scene' is missing");
@@ -112,10 +112,10 @@ ResolvedSettings resolveSettings(const SettingsSources& sources) {
     std::error_code ec;
     if (std::filesystem::is_regular_file(cfg, ec)) {
       applyLayer(s, readJsonObject(cfg, 1, "config file"), Layer::ConfigFile,
-                 std::format("config file {}", pathToUtf8(cfg)), out.warnings);
+                 fmt::format("config file {}", pathToUtf8(cfg)), out.warnings);
       out.config_file = cfg;
     } else if (sources.config_file) {
-      throw SettingsError(1, std::format("--config: file not found: {}", pathToUtf8(cfg)));
+      throw SettingsError(1, fmt::format("--config: file not found: {}", pathToUtf8(cfg)));
     }
   }
 
@@ -136,11 +136,11 @@ ResolvedSettings resolveSettings(const SettingsSources& sources) {
   if (!s.scene.empty()) {
     const std::string ext = toLower(pathToUtf8(s.scene.extension()));
     if (ext != ".glb" && ext != ".gltf" && ext != ".obj")
-      throw SettingsError(2, std::format("unsupported scene file '{}': use .glb, .gltf, .obj or .pen.json",
+      throw SettingsError(2, fmt::format("unsupported scene file '{}': use .glb, .gltf, .obj or .pen.json",
                                          pathToUtf8(s.scene)));
     std::error_code ec;
     if (!std::filesystem::is_regular_file(s.scene, ec))
-      throw SettingsError(2, std::format("scene file not found: {}", pathToUtf8(s.scene)));
+      throw SettingsError(2, fmt::format("scene file not found: {}", pathToUtf8(s.scene)));
   }
   return out;
 }

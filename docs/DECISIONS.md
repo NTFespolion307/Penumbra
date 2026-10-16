@@ -100,3 +100,8 @@ it never goes stale after a commit.
 `backends/` (and `apps/penumbra/ui/` for the swapchain from M10), socket/TLS headers only in `net/`,
 `controller/hosting/`, `worker/client/`. Libraries not built yet (`net`, `backends`, `controller`, `worker`) exist
 as empty CMake interface targets.
+
+**D-018 {fmt} instead of `std::format`.** GCC 12 (the guide's minimum, the default `g++-12` on Ubuntu 22.04)
+ships no `<format>`; it arrived in GCC 13. {fmt} 12.2.0 was already in the build as spdlog's formatter, so it
+is now declared in `vcpkg.json` and used directly (`fmt::format`, same syntax). Not a new library in the
+build, but it is not in the guide's dependency table: flagged to the user.

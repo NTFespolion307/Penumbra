@@ -1,6 +1,6 @@
 #include "core/log/log.h"
 
-#include <format>
+#include <fmt/format.h>
 #include <memory>
 #include <spdlog/sinks/rotating_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -34,12 +34,12 @@ std::filesystem::path initLogging(const LogOptions& options) {
   }
 
   std::filesystem::path file = options.file;
-  if (file.empty()) file = paths::logDir() / std::format("penumbra-{}.log", toString(options.role));
+  if (file.empty()) file = paths::logDir() / fmt::format("penumbra-{}.log", toString(options.role));
   std::string fileError;
   try {
     if (file.has_parent_path()) std::filesystem::create_directories(file.parent_path());
     auto rotating = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(pathToUtf8(file), 10 * 1024 * 1024, 5);
-    rotating->set_pattern(std::format("[%Y-%m-%d %H:%M:%S.%e] [%l] [{}@{}] %v", toString(options.role), hostName()));
+    rotating->set_pattern(fmt::format("[%Y-%m-%d %H:%M:%S.%e] [%l] [{}@{}] %v", toString(options.role), hostName()));
     sinks.push_back(rotating);
   } catch (const std::exception& e) {
     fileError = e.what();

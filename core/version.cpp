@@ -1,6 +1,6 @@
 #include "core/version.h"
 
-#include <format>
+#include <fmt/format.h>
 
 namespace pen {
 
@@ -8,11 +8,11 @@ namespace {
 
 std::string compilerName() {
 #if defined(_MSC_VER)
-  return std::format("MSVC {}.{}", _MSC_VER / 100, _MSC_VER % 100);
+  return fmt::format("MSVC {}.{}", _MSC_VER / 100, _MSC_VER % 100);
 #elif defined(__clang__)
-  return std::format("Clang {}.{}", __clang_major__, __clang_minor__);
+  return fmt::format("Clang {}.{}", __clang_major__, __clang_minor__);
 #elif defined(__GNUC__)
-  return std::format("GCC {}.{}", __GNUC__, __GNUC_MINOR__);
+  return fmt::format("GCC {}.{}", __GNUC__, __GNUC_MINOR__);
 #else
   return "unknown compiler";
 #endif
@@ -44,7 +44,7 @@ constexpr std::string_view kBuildType =
 }  // namespace
 
 std::string versionString() {
-  return std::format("Penumbra {} (git {}, {}, {}, {})", appVersion(), gitHash(), kBuildType, compilerName(),
+  return fmt::format("Penumbra {} (git {}, {}, {}, {})", appVersion(), gitHash(), kBuildType, compilerName(),
                      kPlatform);
 }
 

@@ -2,7 +2,7 @@
 
 #include <cstdio>
 #include <filesystem>
-#include <format>
+#include <fmt/format.h>
 #include <string>
 
 #include "core/settings/parse.h"
@@ -24,7 +24,7 @@ std::string freeSpace(std::filesystem::path p) {
     p = p.parent_path();
   }
   const auto space = std::filesystem::space(p, ec);
-  return ec ? "free space unknown" : std::format("{} free", formatBytes(space.available));
+  return ec ? "free space unknown" : fmt::format("{} free", formatBytes(space.available));
 }
 
 std::string existsNote(const std::filesystem::path& p) {
@@ -35,35 +35,35 @@ std::string existsNote(const std::filesystem::path& p) {
 }  // namespace
 
 int printVersion() {
-  print(std::format("{}\nprotocol {}\n", versionString(), kProtocolVersion));
+  print(fmt::format("{}\nprotocol {}\n", versionString(), kProtocolVersion));
   return 0;
 }
 
 int listDevices() {
   const SystemInfo sys = querySystem();
-  print(std::format("Render devices on {}:\n", sys.host));
-  print(std::format("  cpu   {}, {} threads   backend cpu (Embree, from M1)\n", sys.cpu, sys.logical_cores));
+  print(fmt::format("Render devices on {}:\n", sys.host));
+  print(fmt::format("  cpu   {}, {} threads   backend cpu (Embree, from M1)\n", sys.cpu, sys.logical_cores));
   print("GPU detection is built with the GPU backends: Vulkan RT in M5, CUDA in M6.\n");
   return 0;
 }
 
 int diagnose() {
   const SystemInfo sys = querySystem();
-  const auto row = [](std::string_view k, const std::string& v) { print(std::format("{:<13}{}\n", k, v)); };
+  const auto row = [](std::string_view k, const std::string& v) { print(fmt::format("{:<13}{}\n", k, v)); };
   row("Version", versionString());
   row("Protocol", std::to_string(kProtocolVersion));
   row("OS", sys.os);
   row("Host", sys.host);
-  row("CPU", std::format("{}, {} logical cores", sys.cpu, sys.logical_cores));
-  row("RAM", std::format("{} total, {} available", formatBytes(sys.ram_total), formatBytes(sys.ram_available)));
+  row("CPU", fmt::format("{}, {} logical cores", sys.cpu, sys.logical_cores));
+  row("RAM", fmt::format("{} total, {} available", formatBytes(sys.ram_total), formatBytes(sys.ram_available)));
   const auto cfg = paths::userConfigFile();
-  row("Config", std::format("{} ({})", pathToUtf8(cfg), existsNote(cfg)));
+  row("Config", fmt::format("{} ({})", pathToUtf8(cfg), existsNote(cfg)));
   const auto logs = paths::logDir();
-  row("Logs", std::format("{} ({})", pathToUtf8(logs), freeSpace(logs)));
+  row("Logs", fmt::format("{} ({})", pathToUtf8(logs), freeSpace(logs)));
   const auto cache = paths::sceneCacheDir();
-  row("Scene cache", std::format("{} ({})", pathToUtf8(cache), freeSpace(cache)));
+  row("Scene cache", fmt::format("{} ({})", pathToUtf8(cache), freeSpace(cache)));
   row("User data", pathToUtf8(paths::userDataDir()));
-  row("Film", std::format("output folder by default ({} in the current folder)", freeSpace(std::filesystem::current_path())));
+  row("Film", fmt::format("output folder by default ({} in the current folder)", freeSpace(std::filesystem::current_path())));
   row("Vulkan", "not probed yet (Vulkan RT backend arrives in M5)");
   row("CUDA", "not probed yet (CUDA backend arrives in M6)");
   row("TCP 7420", "bind check arrives with networking in M4");
