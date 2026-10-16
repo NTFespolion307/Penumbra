@@ -1,4 +1,4 @@
-# core: math, scene, settings, config, sampling, film, output, package, memory, log.
+# core: math, scene, settings, config, sampling, shading, film, output, log.
 # No GPU API or socket headers here (checked by the "layering" test).
 
 set(PEN_VERSION_CPP "${CMAKE_CURRENT_BINARY_DIR}/generated/version_info.cpp")
@@ -13,15 +13,31 @@ add_library(penumbra_core STATIC
   version.cpp
   "${PEN_VERSION_CPP}"
   config/config.cpp
+  film/film.cpp
+  image/image.cpp
+  image/image_io.cpp
   log/log.cpp
+  output/output.cpp
+  render/camera.cpp
+  render/lights.cpp
+  render/surface.cpp
+  sampling/alias_table.cpp
+  scene/gltf_loader.cpp
+  scene/obj_loader.cpp
+  scene/scene.cpp
+  scene/scene_loader.cpp
   settings/parse.cpp
   settings/presets.cpp
   settings/schema.cpp
+  shading/bsdf.cpp
   system/paths.cpp
   system/sysinfo.cpp)
 add_dependencies(penumbra_core penumbra_git_version)
 target_include_directories(penumbra_core PUBLIC "${PROJECT_SOURCE_DIR}")
-target_link_libraries(penumbra_core PUBLIC fmt::fmt nlohmann_json::nlohmann_json spdlog::spdlog)
+target_include_directories(penumbra_core SYSTEM PRIVATE ${CGLTF_INCLUDE_DIRS} ${STB_INCLUDE_DIRS})
+target_link_libraries(penumbra_core
+  PUBLIC fmt::fmt nlohmann_json::nlohmann_json spdlog::spdlog
+  PRIVATE tinyobjloader::tinyobjloader OpenEXR::OpenEXR PNG::PNG)
 if(WIN32)
   target_link_libraries(penumbra_core PRIVATE shell32 ole32 advapi32)
 endif()

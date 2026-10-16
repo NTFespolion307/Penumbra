@@ -80,9 +80,19 @@ struct SampleRange {
 
 struct EnvironmentSettings {
   std::filesystem::path hdri;  // empty: no HDRI
+  std::array<double, 3> color{0, 0, 0};  // uniform radiance when there is no HDRI
   double strength = 1.0;
   double rotation_deg = 0.0;
   bool operator==(const EnvironmentSettings&) const = default;
+};
+
+// Camera settings glTF cannot carry, from the .pen.json "camera" object.
+struct CameraOverrides {
+  std::string projection;       // empty: from the scene; "perspective", "orthographic", "equirectangular"
+  double fstop = 0;             // 0: pinhole (no depth of field)
+  double focus_distance = 0;    // scene units; 0: distance to the scene centre
+  double sensor_width_mm = 36;  // for converting f-stop to an aperture
+  bool operator==(const CameraOverrides&) const = default;
 };
 
 // Every render-affecting or persistent setting. The CLI, .pen.json "render" section and the user config
@@ -97,6 +107,7 @@ struct RenderSettings {
   std::filesystem::path scene;              // geometry file actually loaded (.glb, .gltf, .obj)
   std::filesystem::path scene_description;  // the .pen.json it came from, if any
   std::string camera;                       // empty: first camera in the scene
+  CameraOverrides camera_overrides;
   EnvironmentSettings environment;
 
   // Render

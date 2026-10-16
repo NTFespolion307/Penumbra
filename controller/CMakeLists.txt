@@ -1,3 +1,3 @@
-# controller: session, scheduler (items, leases), film writer, local worker, hosting, session file. Built from M2.
-add_library(penumbra_controller INTERFACE)
-target_link_libraries(penumbra_controller INTERFACE penumbra_core)
+# controller: scheduler, render controller, local worker; film writer, hosting and session file from M2/M4.
+add_library(penumbra_controller STATIC local_worker.cpp render_controller.cpp scheduler.cpp solo_render.cpp)
+target_link_libraries(penumbra_controller PUBLIC penumbra_worker)

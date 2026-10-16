@@ -9,6 +9,8 @@
 #include "apps/penumbra/cli/cli.h"
 #include "apps/penumbra/modes/info.h"
 #include "apps/penumbra/platform.h"
+#include "apps/penumbra/progress.h"
+#include "controller/solo_render.h"
 #include "core/exit_codes.h"
 #include "core/log/log.h"
 #include "core/system/paths.h"
@@ -22,8 +24,7 @@ using pen::cli::Mode;
 void write(FILE* f, const std::string& s) { std::fwrite(s.data(), 1, s.size(), f); }
 
 int notYet(std::string_view what, std::string_view milestone) {
-  spdlog::error("{} is built in milestone {}; this build is M0 (foundation) and only validates arguments.", what,
-                milestone);
+  spdlog::error("{} is built in milestone {}; this build only validates its arguments.", what, milestone);
   return pen::toInt(pen::ExitCode::BadArguments);
 }
 
@@ -42,8 +43,8 @@ int dispatch(const Invocation& inv, bool fromExplorer) {
     case Mode::Ui: return runUiPlaceholder(fromExplorer);
     case Mode::Terminal:
       spdlog::info("render: {}", pen::cli::describe(inv.settings));
-      if (inv.host) spdlog::info("hosting on port {} requested", inv.settings.port);
-      return notYet("Rendering", "M1");
+      if (inv.host) return notYet("Hosting workers (--host)", "M4");
+      return pen::runLocalRender(inv.settings, pen::app::makeProgressPrinter(inv.settings.progress));
     case Mode::Worker:
       spdlog::info("worker for controller {}", inv.join);
       return notYet("Joining a render", "M4");

@@ -1,5 +1,6 @@
 #include "core/config/config.h"
 
+#include <algorithm>
 #include <fmt/format.h>
 #include <fstream>
 
@@ -67,18 +68,44 @@ void loadSceneDescription(RenderSettings& s, const std::filesystem::path& file, 
       if (!value.is_string() || value.get<std::string>().empty()) fail("'scene' must be the path to a .glb or .gltf");
       s.scene = relative(value);
     } else if (key == "camera") {
-      if (!value.is_string()) fail("'camera' must be a camera name");
-      s.camera = value.get<std::string>();
+      if (value.is_string()) {
+        s.camera = value.get<std::string>();
+        continue;
+      }
+      if (!value.is_object()) fail("'camera' must be a camera name or an object");
+      CameraOverrides& co = s.camera_overrides;
+      for (const auto& [ck, cv] : value.items()) {
+        if (ck == "name" && cv.is_string()) {
+          s.camera = cv.get<std::string>();
+        } else if (ck == "projection" && cv.is_string() &&
+                   (cv == "perspective" || cv == "orthographic" || cv == "equirectangular")) {
+          co.projection = cv.get<std::string>();
+        } else if (ck == "fstop" && cv.is_number() && cv.get<double>() >= 0) {
+          co.fstop = cv.get<double>();
+        } else if (ck == "focus_distance" && cv.is_number() && cv.get<double>() >= 0) {
+          co.focus_distance = cv.get<double>();
+        } else if (ck == "sensor_width_mm" && cv.is_number() && cv.get<double>() > 0) {
+          co.sensor_width_mm = cv.get<double>();
+        } else if (ck == "name" || ck == "projection" || ck == "fstop" || ck == "focus_distance" ||
+                   ck == "sensor_width_mm") {
+          fail(fmt::format("camera.{} has an invalid value {}", ck, cv.dump()));
+        } else {
+          warnings.push_back(fmt::format("{}: unknown key 'camera.{}' (ignored)", src, ck));
+        }
+      }
     } else if (key == "environment") {
       if (!value.is_object()) fail("'environment' must be an object");
       for (const auto& [ek, ev] : value.items()) {
         if (ek == "hdri" && ev.is_string()) {
           s.environment.hdri = relative(ev);
+        } else if (ek == "color" && ev.is_array() && ev.size() == 3 &&
+                   std::all_of(ev.begin(), ev.end(), [](const json& c) { return c.is_number() && c.get<double>() >= 0; })) {
+          for (int c = 0; c < 3; ++c) s.environment.color[c] = ev[c].get<double>();
         } else if (ek == "strength" && ev.is_number() && ev.get<double>() >= 0) {
           s.environment.strength = ev.get<double>();
         } else if (ek == "rotation_deg" && ev.is_number()) {
           s.environment.rotation_deg = ev.get<double>();
-        } else if (ek == "hdri" || ek == "strength" || ek == "rotation_deg") {
+        } else if (ek == "hdri" || ek == "color" || ek == "strength" || ek == "rotation_deg") {
           fail(fmt::format("environment.{} has an invalid value {}", ek, ev.dump()));
         } else {
           warnings.push_back(fmt::format("{}: unknown key 'environment.{}' (ignored)", src, ek));

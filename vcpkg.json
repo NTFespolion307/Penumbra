@@ -6,10 +6,24 @@
   "license": "MIT",
   "builtin-baseline": "3cd21e48a75f67acfef289da52893ce79144aaa1",
   "dependencies": [
+    "cgltf",
     "cli11",
+    {
+      "name": "embree",
+      "default-features": false,
+      "features": [ "filter-function", "geometry-instance", "geometry-triangle", "tasking-tbb" ]
+    },
     "fmt",
+    "libpng",
     "nlohmann-json",
-    "spdlog"
+    "openexr",
+    "spdlog",
+    "stb",
+    {
+      "name": "tbb",
+      "default-features": false
+    },
+    "tinyobjloader"
   ],
   "features": {
     "tests": {

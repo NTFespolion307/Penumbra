@@ -109,3 +109,61 @@ as empty CMake interface targets.
 ships no `<format>`; it arrived in GCC 13. {fmt} 12.2.0 was already in the build as spdlog's formatter, so it
 is now declared in `vcpkg.json` and used directly (`fmt::format`, same syntax). Not a new library in the
 build, but it is not in the guide's dependency table: flagged to the user.
+
+## M1: CPU reference renderer
+
+User approved the M1 plan and these choices on 2026-10-16 ("you are the chef").
+
+**D-019 Tonemapping before M11.** Until AgX, Filmic and ACES land in M11, PNG output uses the sRGB transfer
+curve with clipping after exposure, and the log says so once per render at `info`. EXR output is linear and is
+what golden images use.
+
+**D-020 Emitter sampling.** Lights (emissive triangles, punctual lights, environment) are chosen through one
+alias table weighted by estimated power; the light BVH for scenes with more than 64 emitters moves to M9. It
+only changes noise, never the expected image.
+
+**D-021 Cornell box acceptance.** Rendered by Penumbra and judged by the user from a PNG; once approved, its
+linear EXR becomes the first golden image under `tests/golden/`.
+
+**D-022 penumbra-diff metrics.** relMSE, max absolute difference and an exact (bitwise) mode in M1. FLIP needs
+NVIDIA's header, which is not in the guide's dependency list; ask before adding it.
+
+**D-023 Light units.** KHR_lights_punctual intensities are photometric (candela, lux). Penumbra divides by
+683 lm/W to get radiometric W/sr and W/m^2, which matches how Blender's exporter converts watts ("Standard"
+lighting mode). Emissive materials use emissiveFactor x emissiveStrength directly as radiance. To be checked
+against Blender renders in M11 (AgX comparison); any change there is a decision entry, not a silent fix.
+
+**D-024 Alpha.** `MASK` uses alphaCutoff in an Embree filter function (cutout, shadows included). `BLEND` is
+rendered as a 0.5 cutout (no stochastic transparency in v1).
+
+**D-025 Transmission is solid glass.** KHR_materials_volume is not in the guide's extension list; without it
+glTF says transmissive materials are thin-walled, but Blender glass is almost always meant as solid. Penumbra
+treats every transmissive material as a closed dielectric (refracts in and out) and warns when a file uses
+KHR_materials_volume. Front face = outside (glTF winding); hits from the back side are inside.
+
+**D-026 Texture filtering.** Bilinear (or nearest, from the glTF sampler) on mip level 0. Mip selection needs
+ray differentials or cones, which the GPU backends need too; deferred to M5 so all backends share it. Texture
+downsizing for memory tier 2 (M8) builds the mip chain.
+
+**D-027 `debug:bvh`** needs traversal counts that Embree does not expose; it is available from the GPU
+backends (M5/M6) and the CPU backend refuses it with a clear message.
+
+**D-028 Not yet built, refused before rendering:** JPEG/TIFF/WebP output (M2, streamed writers), `--spp 0`
+(M3, progressive passes), `--host` (M4); `--denoise` and `--aov` warn and are ignored until M11.
+
+**D-029 Environment mapping** follows Blender's equirectangular environment texture with glTF axes (+Y up,
+Blender -Y forward = glTF +Z), so an HDRI looks the same as in Blender. `rotation_deg` turns it about +Y.
+
+**D-030 `.pen.json` additions:** `environment.color` (uniform radiance when there is no HDRI; the furnace scenes
+use it) and `camera` as an object `{name, projection, fstop, focus_distance, sensor_width_mm}` for what glTF
+cannot carry (depth of field; scene units are metres for the f-stop conversion).
+
+**D-031 Sampling layout.** Owen-scrambled Sobol per dimension pair (Burley 2020) seeded by hash(pixel, seed,
+dimension); dimensions 0-1 are the camera (pixel jitter, lens), then 5 per bounce (light select, light point,
+lobe, direction, Russian roulette), so the same pixel/sample index draws the same numbers on any device.
+GCC builds use `-ffp-contract=off` so no compiler-chosen FMA changes results between hosts.
+
+**D-032 BSDF energy model.** Single-scattering GGX (no multiple-scattering compensation) with albedo scaling of
+the lower layers; rough materials lose a little energy at high roughness, never gain any (unit-tested). The
+furnace sphere uses specularFactor 0 (pure Lambert) and the glass sphere a smooth dielectric, both exactly
+energy-conserving.

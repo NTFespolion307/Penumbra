@@ -42,7 +42,7 @@ int printVersion() {
 int listDevices() {
   const SystemInfo sys = querySystem();
   print(fmt::format("Render devices on {}:\n", sys.host));
-  print(fmt::format("  cpu   {}, {} threads   backend cpu (Embree, from M1)\n", sys.cpu, sys.logical_cores));
+  print(fmt::format("  cpu   {}, {} threads   backend cpu (Embree)\n", sys.cpu, sys.logical_cores));
   print("GPU detection is built with the GPU backends: Vulkan RT in M5, CUDA in M6.\n");
   return 0;
 }

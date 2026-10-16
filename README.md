@@ -8,10 +8,11 @@ the image. Any number of **workers**, each with one or more GPUs, join with the 
 code, render tiles and send them back. A render on one machine is the same thing with no workers, and every
 combination of machines, GPUs and backends converges to the same image.
 
-> **Status: milestone M0 (foundation).** This build parses and validates every option, loads config files and
-> `.pen.json` scenes, logs, and prints version and diagnostics. It does not render yet: the CPU renderer arrives
-> in M1, networking in M4, GPU backends in M5/M6, the UI in M10. Features marked *(planned, Mx)* below are not
-> built yet. The roadmap is in [`docs/GUIDE.md`](docs/GUIDE.md).
+> **Status: milestone M1 (CPU reference renderer).** Penumbra renders glTF and OBJ scenes on the CPU (Embree)
+> with a path tracer (next-event estimation, MIS), the glTF PBR material with its common extensions, HDRI
+> lighting, and writes PNG or EXR. Gigapixel films and resume arrive in M2, networking in M4, GPU backends in
+> M5/M6, the UI in M10. Features marked *(planned, Mx)* below are not built yet. The roadmap is in
+> [`docs/GUIDE.md`](docs/GUIDE.md).
 
 <!-- A screenshot goes here once the UI exists (M10). -->
 
@@ -213,10 +214,11 @@ cmake --preset linux-gcc-release -DPEN_ENABLE_CUDA=OFF -DPEN_ENABLE_UI=OFF
 
 | Command | What it does |
 | --- | --- |
-| `penumbra` | Opens the UI as controller *(planned, M10; M0 shows a notice)* |
-| `penumbra --terminal scene.glb -o out.png` | Headless render on this machine's devices *(planned, M1)* |
-| `penumbra --terminal scene.glb --res 720p --spp 16 -o preview.png` | Quick preview *(planned, M1)* |
-| `penumbra --terminal scene.pen.json --res 4k --spp 1024 -o final.exr` | 4K final with settings from a `.pen.json` *(planned, M1)* |
+| `penumbra` | Opens the UI as controller *(planned, M10; shows a notice until then)* |
+| `penumbra --terminal scene.glb -o out.png` | Headless render on this machine's devices (CPU until M5) |
+| `penumbra --terminal scene.glb --res 720p --spp 16 -o preview.png` | Quick preview |
+| `penumbra --terminal scene.pen.json --res 4k --spp 1024 -o final.exr` | 4K final with settings from a `.pen.json` |
+| `penumbra --terminal scene.glb --integrator debug:normal -o normals.png` | Debug views: `ao`, `debug:normal`, `debug:albedo`, `debug:depth` |
 | `penumbra --terminal --resume final.session.json` | Continue an interrupted render *(planned, M2)* |
 | `penumbra --list-devices` | Lists the devices this machine can render with |
 | `penumbra --diagnose` | Prints OS, CPU, RAM, devices, folders and free disk. **Paste this into bug reports.** |
@@ -232,6 +234,25 @@ the same keys as the CLI reference (for example `{"tonemap": "filmic", "worker_n
 | Linux | `~/.config/penumbra/config.json` | `~/.local/state/penumbra/logs` |
 
 The join code is never read from or written to the config file.
+
+**Output today (M1):** PNG (8/16-bit, sRGB curve with clipping until AgX/Filmic/ACES arrive in M11) and EXR
+(linear, half or float). JPEG, TIFF and WebP arrive with the streamed writers in M2. On the controller machine
+the CPU leaves 2 threads free unless you pass `--threads`.
+
+**Test scenes and image comparison.** The build also makes two tools next to `penumbra`:
+
+1. Write the test scenes (Cornell box, furnace spheres, material spheres on an HDRI) into a folder:
+   ```
+   penumbra-scenegen scenes
+   ```
+2. Render the Cornell box:
+   ```
+   penumbra --terminal scenes/cornell.pen.json --spp 1024 -o cornell.png
+   ```
+3. Compare two renders (relMSE and max difference; `--exact` for bitwise):
+   ```
+   penumbra-diff a.exr b.exr
+   ```
 
 ## Rendering with several machines
 
@@ -429,12 +450,12 @@ are rejected before rendering.
 
 ## Scenes from Blender
 
-*(planned, M1: loading scenes is not built yet; the `.pen.json` format below is already parsed and validated.)*
-
 **Export:** in Blender, File → Export → glTF 2.0. Choose **glTF Binary (.glb)**, and under Include tick
 **Cameras** and **Punctual Lights**. Under Data → Mesh keep **Apply Modifiers** on. Materials should use the
 Principled BSDF; supported extensions include transmission, IOR, clearcoat, sheen, specular, emissive strength,
-anisotropy, texture transform, punctual lights and GPU instancing.
+anisotropy, texture transform, punctual lights and GPU instancing. Anything else is reported in the log and
+falls back to base PBR. Transmissive materials render as solid glass (refracting in and out). Without a camera
+in the file, Penumbra frames the whole scene automatically.
 
 **`.pen.json`** wraps the `.glb` with what glTF cannot carry. Paths are relative to the `.pen.json`; keys in
 `render` are the setting keys from the CLI reference:
@@ -450,6 +471,20 @@ anisotropy, texture transform, punctual lights and GPU instancing.
 
 Render it with `penumbra --terminal living_room.pen.json -o living_room.exr`; flags on the command line override
 the `render` section.
+
+More `.pen.json` options:
+
+| Key | Meaning |
+| --- | --- |
+| `environment.hdri` | Equirectangular `.hdr` or `.exr`, mapped like Blender's Environment Texture |
+| `environment.color` | `[r, g, b]` uniform sky radiance when there is no HDRI |
+| `environment.strength`, `environment.rotation_deg` | Multiplier, and rotation about the up axis |
+| `camera` | A camera name, or an object `{ "name", "projection", "fstop", "focus_distance", "sensor_width_mm" }` |
+| `camera.projection` | `perspective`, `orthographic` or `equirectangular` (360° panorama) |
+| `camera.fstop` | Depth of field: f-number (scene units in metres); `focus_distance` defaults to the scene centre |
+
+Light units: glTF point and spot intensities (candela) and sun illuminance (lux) are divided by 683 lm/W, which
+matches Blender's "Standard" export; emissive materials use emissive colour × strength as radiance.
 
 ## Troubleshooting
 
