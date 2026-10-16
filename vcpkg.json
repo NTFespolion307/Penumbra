@@ -1,0 +1,21 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "penumbra",
+  "version": "0.1.0",
+  "description": "Distributed multi-GPU path tracer",
+  "license": "MIT",
+  "builtin-baseline": "3cd21e48a75f67acfef289da52893ce79144aaa1",
+  "dependencies": [
+    "cli11",
+    "nlohmann-json",
+    "spdlog"
+  ],
+  "features": {
+    "tests": {
+      "description": "Unit tests",
+      "dependencies": [
+        "catch2"
+      ]
+    }
+  }
+}

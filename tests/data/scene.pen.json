@@ -1,0 +1,6 @@
+{
+  "scene": "empty.gltf",
+  "environment": { "hdri": "studio.exr", "strength": 2.0, "rotation_deg": 90 },
+  "camera": "Camera.001",
+  "render": { "res": "2k", "spp": 512, "max_bounces": 8, "tonemap": "filmic" }
+}
