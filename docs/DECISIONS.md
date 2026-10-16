@@ -182,3 +182,8 @@ to min(cores, available RAM / 2 GB) unless already set, and print the choice.
 **D-035 vcpkg compiles the libraries with the distro's default compiler** (GCC 11 on Ubuntu 22.04), while
 Penumbra itself builds with `g++-12` from the preset. Both use the same libstdc++ ABI, so no custom vcpkg
 triplet is needed; Penumbra's own code still gets GCC 12 as the guide requires.
+
+**D-036 Build folders are tied to one vcpkg.** The dev laptop's main build folder had been configured once with
+the vcpkg bundled in Visual Studio (before `build.ps1` restored `VCPKG_ROOT`), so its libraries never landed in
+`C:\dev\vcpkg`'s cache and the Windows fresh clone rebuilt everything. CMakeLists.txt now refuses to configure
+when the cached vcpkg root differs from the toolchain's, telling the user to delete the folder or use `-Clean`.

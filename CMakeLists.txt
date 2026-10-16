@@ -13,6 +13,23 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# A build folder remembers the vcpkg it was first configured with. If the toolchain now points at another vcpkg
+# (e.g. the copy bundled with Visual Studio was picked up once), stop instead of silently mixing them.
+if(DEFINED Z_VCPKG_ROOT_DIR AND CMAKE_TOOLCHAIN_FILE)
+  cmake_path(GET CMAKE_TOOLCHAIN_FILE PARENT_PATH _pen_tc_dir)  # .../scripts/buildsystems
+  cmake_path(GET _pen_tc_dir PARENT_PATH _pen_tc_dir)
+  cmake_path(GET _pen_tc_dir PARENT_PATH _pen_expected_root)
+  file(REAL_PATH "${_pen_expected_root}" _pen_expected_root)
+  file(REAL_PATH "${Z_VCPKG_ROOT_DIR}" _pen_used_root)
+  string(TOLOWER "${_pen_expected_root}" _pen_a)
+  string(TOLOWER "${_pen_used_root}" _pen_b)
+  if(NOT _pen_a STREQUAL _pen_b)
+    message(FATAL_ERROR "This build folder was configured with the vcpkg in '${_pen_used_root}', but VCPKG_ROOT now "
+                        "points to '${_pen_expected_root}'. Delete the build folder (or run the build script with "
+                        "-Clean / --clean) and configure again.")
+  endif()
+endif()
+
 if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
   message(FATAL_ERROR "Penumbra needs a 64-bit compiler. On Windows, build from an x64 developer shell "
                       "(scripts/build.ps1 sets this up for you).")
