@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Penumbra · Settings</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#121417}
+a{color:#F2A33A}a:hover{color:#FFC371}
+</style>
+</helmet>
+<div style="display: flex; flex-wrap: wrap; min-height: 100vh; background: #121417; color: #E8EAED; font-family: 'IBM Plex Sans', sans-serif; font-size: 14px">
+<nav aria-label="Main" style="flex: 0 0 220px; box-sizing: border-box; padding: 24px 16px; background: #16191D; border-right: 1px solid #2A2E34; display: flex; flex-direction: column; gap: 4px">
+<div style="padding: 0 12px 20px 12px; display: flex; flex-direction: column; gap: 2px">
+<span style="font-size: 20px; font-weight: 600; letter-spacing: 0.02em">Penumbra</span>
+<span style="font-size: 12px; color: #A3AAB3">Controller · laptop</span>
+</div>
+<a href="Main.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #A3AAB3">Dashboard</a>
+<a href="Hosts.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #A3AAB3">Hosts</a>
+<a href="Render.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #A3AAB3">Render</a>
+<a href="Viewport.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #A3AAB3">Viewport</a>
+<a href="Settings.dc.html" aria-current="page" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #E8EAED; background: #262A30; font-weight: 500">Settings</a>
+<div style="margin-top: auto; padding: 16px 12px 0 12px; border-top: 1px solid #2A2E34; display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3AAB3">
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #4CC38A"></span>Hosting on LAN</span>
+<span style="font-family: 'IBM Plex Mono', monospace">3 hosts · 5 GPUs</span>
+</div>
+</nav>
+<main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 32px 40px; display: flex; flex-direction: column; gap: 24px">
+<header style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 28px; font-weight: 600">Settings</h1>
+<span style="color: #A3AAB3">Hosting, defaults and this machine. Join a render turns this machine into a worker.</span>
+</header>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; align-items: start">
+<section aria-label="Hosting" style="background: #1A1D21; border: 1px solid #2A2E34; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 14px">
+<h2 style="margin: 0; font-size: 16px; font-weight: 600">Hosting</h2>
+<label style="display: flex; justify-content: space-between; align-items: center; min-height: 44px; cursor: pointer">LAN hosting<input type="checkbox" checked style="width: 20px; height: 20px; accent-color: #F2A33A"></label>
+<label style="display: flex; justify-content: space-between; align-items: center; min-height: 44px; cursor: pointer"><span style="display: flex; flex-direction: column; gap: 2px">Internet hosting<span style="font-size: 12px; color: #A3AAB3">Tries UPnP; otherwise forward TCP 7420</span></span><input type="checkbox" style="width: 20px; height: 20px; accent-color: #F2A33A"></label>
+<label style="display: flex; justify-content: space-between; align-items: center; min-height: 44px; cursor: pointer">Ask before accepting new workers<input type="checkbox" style="width: 20px; height: 20px; accent-color: #F2A33A"></label>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 12px; color: #A3AAB3">Join code</span>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 15px; padding: 10px 12px; background: #121417; border: 1px solid #2A2E34; border-radius: 6px">K7QD-M2XR-9FHT-4WNB</span>
+<button type="button" style="min-height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A3F46; background: transparent; color: #E8EAED; font: inherit; cursor: pointer">Copy</button>
+<button type="button" style="min-height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A3F46; background: transparent; color: #E8EAED; font: inherit; cursor: pointer">Regenerate</button>
+</div>
+<span style="font-size: 12px; color: #A3AAB3">Kept across restarts. Regenerate disconnects every worker using it.</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 12px; color: #A3AAB3">Addresses to give workers</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">LAN 192.168.1.20:7420</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">VPN 100.84.12.10:7420 (Tailscale)</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #A3AAB3">Internet: off</span>
+</div>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3AAB3">Port
+<input type="number" value="7420" style="min-height: 44px; max-width: 160px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A3F46; background: #121417; color: #E8EAED; font: inherit; font-family: 'IBM Plex Mono', monospace">
+</label>
+</section>
+<section aria-label="Join a render" style="background: #1A1D21; border: 1px solid #3A2C14; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 14px">
+<h2 style="margin: 0; font-size: 16px; font-weight: 600">Join a render</h2>
+<span style="color: #A3AAB3">Stops hosting on this machine and lends its devices to another controller.</span>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3AAB3">Controller address
+<input type="text" placeholder="192.168.1.20 or hostname" style="min-height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A3F46; background: #121417; color: #E8EAED; font: inherit; font-family: 'IBM Plex Mono', monospace">
+</label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3AAB3">Join code
+<input type="text" placeholder="XXXX-XXXX-XXXX-XXXX" style="min-height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A3F46; background: #121417; color: #E8EAED; font: inherit; font-family: 'IBM Plex Mono', monospace; letter-spacing: 0.05em">
+</label>
+<button type="button" style="min-height: 48px; border-radius: 8px; border: none; background: #F2A33A; color: #1A1206; font: inherit; font-weight: 600; cursor: pointer">Join</button>
+</section>
+<section aria-label="This machine" style="background: #1A1D21; border: 1px solid #2A2E34; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 14px">
+<h2 style="margin: 0; font-size: 16px; font-weight: 600">This machine's devices</h2>
+<label style="display: flex; justify-content: space-between; align-items: center; min-height: 44px; cursor: pointer"><span style="display: flex; flex-direction: column; gap: 2px">CPU renders locally<span style="font-size: 12px; color: #A3AAB3">Intel Core i7 (11th gen) · no dedicated GPU</span></span><input type="checkbox" checked style="width: 20px; height: 20px; accent-color: #F2A33A"></label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3AAB3">CPU threads kept free for the UI
+<input type="number" value="2" min="0" style="min-height: 44px; max-width: 160px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A3F46; background: #121417; color: #E8EAED; font: inherit; font-family: 'IBM Plex Mono', monospace">
+</label>
+</section>
+<section aria-label="Defaults and storage" style="background: #1A1D21; border: 1px solid #2A2E34; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 14px">
+<h2 style="margin: 0; font-size: 16px; font-weight: 600">Defaults and storage</h2>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3AAB3">Default output folder
+<input type="text" value="D:\Renders" style="min-height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A3F46; background: #121417; color: #E8EAED; font: inherit; font-family: 'IBM Plex Mono', monospace">
+</label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3AAB3">Film folder (large renders)
+<input type="text" value="E:\PenumbraFilm" style="min-height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A3F46; background: #121417; color: #E8EAED; font: inherit; font-family: 'IBM Plex Mono', monospace">
+</label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3AAB3">Default tonemap
+<select style="min-height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A3F46; background: #121417; color: #E8EAED; font: inherit"><option>AgX</option><option>Filmic</option><option>ACES</option></select>
+</label>
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+<button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 8px; border: 1px solid #3A3F46; background: transparent; color: #E8EAED; font: inherit; cursor: pointer">Open logs folder</button>
+<button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 8px; border: 1px solid #3A3F46; background: transparent; color: #E8EAED; font: inherit; cursor: pointer">Run diagnostics</button>
+</div>
+</section>
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":980}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

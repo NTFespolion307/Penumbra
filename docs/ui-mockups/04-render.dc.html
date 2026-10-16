@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Penumbra · Render</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#121417}
+a{color:#F2A33A}a:hover{color:#FFC371}
+</style>
+</helmet>
+<div style="display: flex; flex-wrap: wrap; min-height: 100vh; background: #121417; color: #E8EAED; font-family: 'IBM Plex Sans', sans-serif; font-size: 14px">
+<nav aria-label="Main" style="flex: 0 0 220px; box-sizing: border-box; padding: 24px 16px; background: #16191D; border-right: 1px solid #2A2E34; display: flex; flex-direction: column; gap: 4px">
+<div style="padding: 0 12px 20px 12px; display: flex; flex-direction: column; gap: 2px">
+<span style="font-size: 20px; font-weight: 600; letter-spacing: 0.02em">Penumbra</span>
+<span style="font-size: 12px; color: #A3AAB3">Controller · laptop</span>
+</div>
+<a href="Main.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #A3AAB3">Dashboard</a>
+<a href="Hosts.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #A3AAB3">Hosts</a>
+<a href="Render.dc.html" aria-current="page" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #E8EAED; background: #262A30; font-weight: 500">Render</a>
+<a href="Viewport.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #A3AAB3">Viewport</a>
+<a href="Settings.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #A3AAB3">Settings</a>
+<div style="margin-top: auto; padding: 16px 12px 0 12px; border-top: 1px solid #2A2E34; display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3AAB3">
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #4CC38A"></span>Hosting on LAN</span>
+<span style="font-family: 'IBM Plex Mono', monospace">3 hosts · 5 GPUs</span>
+</div>
+</nav>
+<main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 32px 40px; display: flex; flex-direction: column; gap: 24px">
+<header style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 28px; font-weight: 600">Render</h1>
+<span style="color: #A3AAB3">Pick a scene, set it up, start. Workers download the scene, then join in.</span>
+</header>
+<div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start">
+<div style="flex: 1 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+<section aria-label="Scene" style="background: #1A1D21; border: 1px solid #2A2E34; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap">
+<span style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #A3AAB3">Scene</span>
+<div style="display: flex; gap: 8px">
+<button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 8px; border: 1px solid #3A3F46; background: transparent; color: #E8EAED; font: inherit; cursor: pointer">Open…</button>
+<button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 8px; border: 1px solid #3A3F46; background: transparent; color: #E8EAED; font: inherit; cursor: pointer">Recent</button>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 18px; font-weight: 600">living_room.glb</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #A3AAB3">D:\Scenes\living_room\living_room.pen.json</span>
+</div>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; font-family: 'IBM Plex Mono', monospace">
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 16px">4.2 M</span><span style="font-size: 11px; color: #A3AAB3; font-family: 'IBM Plex Sans', sans-serif">Triangles</span></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 16px">312</span><span style="font-size: 11px; color: #A3AAB3; font-family: 'IBM Plex Sans', sans-serif">Instances</span></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 16px">14</span><span style="font-size: 11px; color: #A3AAB3; font-family: 'IBM Plex Sans', sans-serif">Lights</span></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 16px">86</span><span style="font-size: 11px; color: #A3AAB3; font-family: 'IBM Plex Sans', sans-serif">Textures</span></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 16px">1.2 GB</span><span style="font-size: 11px; color: #A3AAB3; font-family: 'IBM Plex Sans', sans-serif">Package</span></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 16px; color: #4CC38A">OK</span><span style="font-size: 11px; color: #A3AAB3; font-family: 'IBM Plex Sans', sans-serif">All files found</span></div>
+</div>
+</section>
+<section aria-label="Camera and framing preview" style="background: #1A1D21; border: 1px solid #2A2E34; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 12px">
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3AAB3">Camera
+<select style="min-height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A3F46; background: #121417; color: #E8EAED; font: inherit"><option>Camera.Main</option><option>Camera.Window</option></select>
+</label>
+<div style="aspect-ratio: 16 / 9; border-radius: 8px; background: #0E1012; border: 1px dashed #3A3F46; display: flex; align-items: center; justify-content: center; color: #A3AAB3; font-size: 13px; text-align: center; padding: 16px">[Framing preview · low resolution, rendered on this machine, refreshes on change]</div>
+</section>
+</div>
+<div style="flex: 1 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+<section aria-label="Image settings" style="background: #1A1D21; border: 1px solid #2A2E34; border-radius: 12px; padding: 20px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px">
+<span style="grid-column: 1 / -1; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #A3AAB3">Image</span>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3AAB3">Resolution
+<select style="min-height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A3F46; background: #121417; color: #E8EAED; font: inherit"><option>1080p · 1920 × 1080</option><option>4K · 3840 × 2160</option><option selected>40K · 40960 × 23040</option><option>160K · 163840 × 92160</option><option>Custom…</option></select>
+</label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3AAB3">Samples per pixel
+<input type="number" value="1024" min="1" style="min-height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A3F46; background: #121417; color: #E8EAED; font: inherit; font-family: 'IBM Plex Mono', monospace">
+</label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3AAB3">Max bounces
+<input type="number" value="12" min="0" max="1024" style="min-height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A3F46; background: #121417; color: #E8EAED; font: inherit; font-family: 'IBM Plex Mono', monospace">
+</label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3AAB3">Integrator
+<select style="min-height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A3F46; background: #121417; color: #E8EAED; font: inherit"><option>Path tracing</option><option>Ambient occlusion</option><option>Debug: normals</option></select>
+</label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3AAB3">Backend
+<select style="min-height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A3F46; background: #121417; color: #E8EAED; font: inherit"><option>Auto (per GPU)</option><option>Vulkan RT</option><option>CUDA</option><option>CPU</option></select>
+</label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3AAB3">Seed
+<input type="number" value="0" style="min-height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A3F46; background: #121417; color: #E8EAED; font: inherit; font-family: 'IBM Plex Mono', monospace">
+</label>
+<button type="button" style="grid-column: 1 / -1; justify-self: start; min-height: 44px; padding: 0; border: none; background: transparent; color: #F2A33A; font: inherit; cursor: pointer">Advanced: per-type bounce caps, tile size, time limit</button>
+</section>
+<section aria-label="Output settings" style="background: #1A1D21; border: 1px solid #2A2E34; border-radius: 12px; padding: 20px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px">
+<span style="grid-column: 1 / -1; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #A3AAB3">Output</span>
+<label style="grid-column: 1 / -1; display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3AAB3">File
+<input type="text" value="D:\Renders\living_room_40k.exr" style="min-height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A3F46; background: #121417; color: #E8EAED; font: inherit; font-family: 'IBM Plex Mono', monospace">
+</label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3AAB3">Format
+<select style="min-height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A3F46; background: #121417; color: #E8EAED; font: inherit"><option>EXR · 16-bit half</option><option>EXR · 32-bit float</option><option>PNG · 16-bit</option><option>TIFF · 16-bit</option></select>
+</label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3AAB3">Denoise
+<select style="min-height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A3F46; background: #121417; color: #E8EAED; font: inherit"><option>Off</option><option>OIDN</option></select>
+</label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3AAB3">Tonemap
+<select style="min-height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A3F46; background: #121417; color: #E8EAED; font: inherit"><option>AgX</option><option>Filmic</option><option>ACES</option><option>None (linear)</option></select>
+</label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3AAB3">Extra passes
+<select style="min-height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A3F46; background: #121417; color: #E8EAED; font: inherit"><option>None</option><option>Albedo + normal</option><option>Albedo + normal + depth</option></select>
+</label>
+</section>
+<section aria-label="Estimates and start" style="background: #1A1D21; border: 1px solid #2A2E34; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 16px">
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; font-family: 'IBM Plex Mono', monospace">
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 16px">15.1 GB</span><span style="font-size: 11px; color: #A3AAB3; font-family: 'IBM Plex Sans', sans-serif">Film (in RAM)</span></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 16px">21 / 212 GB</span><span style="font-size: 11px; color: #A3AAB3; font-family: 'IBM Plex Sans', sans-serif">Disk needed / free</span></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 16px">≈ 1 h 30 m</span><span style="font-size: 11px; color: #A3AAB3; font-family: 'IBM Plex Sans', sans-serif">At 186 M samples/s</span></div>
+</div>
+<a href="Viewport.dc.html" style="display: flex; align-items: center; justify-content: center; min-height: 52px; border-radius: 10px; background: #F2A33A; color: #1A1206; font-weight: 600; font-size: 16px; text-decoration: none">Start render</a>
+<span style="font-size: 12px; color: #A3AAB3">Local devices start at once. Each worker downloads the 1.2 GB scene, builds its BVH, then joins. Workers that join later do the same.</span>
+</section>
+</div>
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":980}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

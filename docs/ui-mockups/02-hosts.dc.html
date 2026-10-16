@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Penumbra · Hosts</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#121417}
+a{color:#F2A33A}a:hover{color:#FFC371}
+</style>
+</helmet>
+<div style="display: flex; flex-wrap: wrap; min-height: 100vh; background: #121417; color: #E8EAED; font-family: 'IBM Plex Sans', sans-serif; font-size: 14px">
+<nav aria-label="Main" style="flex: 0 0 220px; box-sizing: border-box; padding: 24px 16px; background: #16191D; border-right: 1px solid #2A2E34; display: flex; flex-direction: column; gap: 4px">
+<div style="padding: 0 12px 20px 12px; display: flex; flex-direction: column; gap: 2px">
+<span style="font-size: 20px; font-weight: 600; letter-spacing: 0.02em">Penumbra</span>
+<span style="font-size: 12px; color: #A3AAB3">Controller · laptop</span>
+</div>
+<a href="Main.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #A3AAB3">Dashboard</a>
+<a href="Hosts.dc.html" aria-current="page" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #E8EAED; background: #262A30; font-weight: 500">Hosts</a>
+<a href="Render.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #A3AAB3">Render</a>
+<a href="Viewport.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #A3AAB3">Viewport</a>
+<a href="Settings.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #A3AAB3">Settings</a>
+<div style="margin-top: auto; padding: 16px 12px 0 12px; border-top: 1px solid #2A2E34; display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3AAB3">
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #4CC38A"></span>Hosting on LAN</span>
+<span style="font-family: 'IBM Plex Mono', monospace">3 hosts · 5 GPUs</span>
+</div>
+</nav>
+<main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 32px 40px; display: flex; flex-direction: column; gap: 24px">
+<header style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 28px; font-weight: 600">Hosts</h1>
+<span style="color: #A3AAB3">Every machine in the session. Click a host for details.</span>
+</div>
+<div style="display: flex; align-items: center; gap: 8px">
+<span style="font-size: 12px; color: #A3AAB3">Join code</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; padding: 6px 10px; background: #1A1D21; border: 1px solid #2A2E34; border-radius: 6px">K7QD-M2XR-9FHT-4WNB</span>
+<button type="button" style="min-height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A3F46; background: transparent; color: #E8EAED; font: inherit; cursor: pointer">Copy</button>
+</div>
+</header>
+<div style="overflow-x: auto; background: #1A1D21; border: 1px solid #2A2E34; border-radius: 12px">
+<table style="width: 100%; min-width: 980px; border-collapse: collapse; text-align: left">
+<thead>
+<tr style="color: #A3AAB3; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em">
+<th scope="col" style="padding: 14px 16px; font-weight: 500; border-bottom: 1px solid #2A2E34">Status</th>
+<th scope="col" style="padding: 14px 16px; font-weight: 500; border-bottom: 1px solid #2A2E34">Host</th>
+<th scope="col" style="padding: 14px 16px; font-weight: 500; border-bottom: 1px solid #2A2E34">OS</th>
+<th scope="col" style="padding: 14px 16px; font-weight: 500; border-bottom: 1px solid #2A2E34">Address</th>
+<th scope="col" style="padding: 14px 16px; font-weight: 500; border-bottom: 1px solid #2A2E34; text-align: right">CPU</th>
+<th scope="col" style="padding: 14px 16px; font-weight: 500; border-bottom: 1px solid #2A2E34; text-align: right">RAM</th>
+<th scope="col" style="padding: 14px 16px; font-weight: 500; border-bottom: 1px solid #2A2E34; text-align: right">GPUs</th>
+<th scope="col" style="padding: 14px 16px; font-weight: 500; border-bottom: 1px solid #2A2E34; text-align: right">Avg GPU use</th>
+<th scope="col" style="padding: 14px 16px; font-weight: 500; border-bottom: 1px solid #2A2E34; text-align: right">Tiles/s</th>
+<th scope="col" style="padding: 14px 16px; font-weight: 500; border-bottom: 1px solid #2A2E34; text-align: right">Ping</th>
+</tr>
+</thead>
+<tbody>
+<sc-for list="{{hosts}}" as="h" hint-placeholder-count="3">
+<tr style="border-bottom: 1px solid #23272D">
+<td style="padding: 16px"><span style="display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: {{h.statusBg}}; color: {{h.statusFg}}">{{h.status}}</span></td>
+<td style="padding: 16px"><a href="HostDetail.dc.html" style="display: inline-flex; flex-direction: column; gap: 2px; min-height: 44px; justify-content: center; text-decoration: none; color: #E8EAED"><span style="font-weight: 600">{{h.name}}</span><span style="font-size: 12px; color: #A3AAB3">{{h.role}}</span></a></td>
+<td style="padding: 16px; color: #A3AAB3">{{h.os}}</td>
+<td style="padding: 16px; font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #A3AAB3">{{h.addr}}</td>
+<td style="padding: 16px; text-align: right; font-family: 'IBM Plex Mono', monospace">{{h.cpu}}</td>
+<td style="padding: 16px; text-align: right; font-family: 'IBM Plex Mono', monospace">{{h.ram}}</td>
+<td style="padding: 16px; text-align: right; font-family: 'IBM Plex Mono', monospace">{{h.gpus}}</td>
+<td style="padding: 16px; text-align: right; font-family: 'IBM Plex Mono', monospace">{{h.gpuUse}}</td>
+<td style="padding: 16px; text-align: right; font-family: 'IBM Plex Mono', monospace">{{h.tiles}}</td>
+<td style="padding: 16px; text-align: right; font-family: 'IBM Plex Mono', monospace; color: #A3AAB3">{{h.ping}}</td>
+</tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 24px; color: #A3AAB3; font-size: 12px">
+<span>Status: Idle · Downloading scene x% · Building · Rendering · Upload-bound · Lost</span>
+<span>GPU use from NVIDIA drivers; AMD/Intel show Penumbra busy %</span>
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":980}}'>
+class Component extends DCLogic {
+renderVals() {
+const rendering = { status: 'Rendering', statusBg: '#3A2C14', statusFg: '#F2A33A' };
+return {
+hosts: [
+{ ...rendering, name: 'laptop', role: 'Controller · this machine', os: 'Windows 11', addr: 'local', cpu: '38%', ram: '14.2 / 32 GB', gpus: '0 (CPU)', gpuUse: '—', tiles: '0.03', ping: '—' },
+{ ...rendering, name: 'gaming-pc', role: 'Worker', os: 'Windows 11', addr: '192.168.1.35', cpu: '22%', ram: '11.8 / 32 GB', gpus: '1', gpuUse: '97%', tiles: '0.45', ping: '1 ms' },
+{ ...rendering, name: 'gpu-server', role: 'Worker · --stay', os: 'Ubuntu 24.04', addr: '100.84.12.7 (VPN)', cpu: '31%', ram: '41.0 / 128 GB', gpus: '4', gpuUse: '94%', tiles: '2.30', ping: '18 ms' }
+]
+};
+}
+}
+</script>
+</body>
+</html>

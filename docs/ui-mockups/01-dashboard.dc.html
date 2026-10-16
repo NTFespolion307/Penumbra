@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Penumbra · Dashboard</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#121417}
+a{color:#F2A33A}a:hover{color:#FFC371}
+</style>
+</helmet>
+<div style="display: flex; flex-wrap: wrap; min-height: 100vh; background: #121417; color: #E8EAED; font-family: 'IBM Plex Sans', sans-serif; font-size: 14px">
+<nav aria-label="Main" style="flex: 0 0 220px; box-sizing: border-box; padding: 24px 16px; background: #16191D; border-right: 1px solid #2A2E34; display: flex; flex-direction: column; gap: 4px">
+<div style="padding: 0 12px 20px 12px; display: flex; flex-direction: column; gap: 2px">
+<span style="font-size: 20px; font-weight: 600; letter-spacing: 0.02em">Penumbra</span>
+<span style="font-size: 12px; color: #A3AAB3">Controller · laptop</span>
+</div>
+<a href="Main.dc.html" aria-current="page" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #E8EAED; background: #262A30; font-weight: 500">Dashboard</a>
+<a href="Hosts.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #A3AAB3">Hosts</a>
+<a href="Render.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #A3AAB3">Render</a>
+<a href="Viewport.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #A3AAB3">Viewport</a>
+<a href="Settings.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #A3AAB3">Settings</a>
+<div style="margin-top: auto; padding: 16px 12px 0 12px; border-top: 1px solid #2A2E34; display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3AAB3">
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #4CC38A"></span>Hosting on LAN</span>
+<span style="font-family: 'IBM Plex Mono', monospace">3 hosts · 5 GPUs</span>
+</div>
+</nav>
+<main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 32px 40px; display: flex; flex-direction: column; gap: 24px">
+<header style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 28px; font-weight: 600">Dashboard</h1>
+<span style="color: #A3AAB3">What the cluster is doing right now</span>
+</div>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #A3AAB3">Updated every second</span>
+</header>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px">
+<section aria-label="Current render" style="grid-column: 1 / -1; background: #1A1D21; border: 1px solid #2A2E34; border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #A3AAB3">Current render</span>
+<span style="font-size: 20px; font-weight: 600">living_room.glb · 40K · 1,024 spp</span>
+</div>
+<div style="display: flex; align-items: center; gap: 12px">
+<span style="padding: 4px 10px; border-radius: 999px; background: #3A2C14; color: #F2A33A; font-size: 12px; font-weight: 600">Rendering</span>
+<a href="Viewport.dc.html" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 18px; border-radius: 8px; background: #F2A33A; color: #1A1206; font-weight: 600; text-decoration: none">Open viewport</a>
+</div>
+</div>
+<div style="height: 10px; border-radius: 999px; background: #2A2E34; overflow: hidden" role="img" aria-label="42 percent complete">
+<div style="width: 42%; height: 100%; background: #F2A33A"></div>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 32px; font-family: 'IBM Plex Mono', monospace">
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 24px; font-weight: 500">42%</span><span style="font-size: 12px; color: #A3AAB3; font-family: 'IBM Plex Sans', sans-serif">Progress</span></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 24px; font-weight: 500">6,048 / 14,400</span><span style="font-size: 12px; color: #A3AAB3; font-family: 'IBM Plex Sans', sans-serif">Tiles done</span></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 24px; font-weight: 500">36 m</span><span style="font-size: 12px; color: #A3AAB3; font-family: 'IBM Plex Sans', sans-serif">Elapsed</span></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 24px; font-weight: 500">50 m</span><span style="font-size: 12px; color: #A3AAB3; font-family: 'IBM Plex Sans', sans-serif">ETA</span></div>
+</div>
+</section>
+<section aria-label="Hosts online" style="background: #1A1D21; border: 1px solid #2A2E34; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #A3AAB3">Hosts online</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 36px; font-weight: 500">3</span>
+<span style="color: #A3AAB3">laptop, gaming-pc, gpu-server</span>
+<div style="display: flex; align-items: center; gap: 8px; margin-top: 4px">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; padding: 6px 10px; background: #121417; border: 1px solid #2A2E34; border-radius: 6px">K7QD-M2XR-9FHT-4WNB</span>
+<button type="button" style="min-height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A3F46; background: transparent; color: #E8EAED; font: inherit; cursor: pointer">Copy</button>
+</div>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #A3AAB3">192.168.1.20:7420</span>
+</section>
+<section aria-label="GPUs" style="background: #1A1D21; border: 1px solid #2A2E34; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #A3AAB3">GPUs across all hosts</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 36px; font-weight: 500">5</span>
+<div style="display: flex; flex-direction: column; gap: 6px; color: #A3AAB3">
+<span style="display: flex; justify-content: space-between"><span>Rendering</span><span style="font-family: 'IBM Plex Mono', monospace; color: #E8EAED">5</span></span>
+<span style="display: flex; justify-content: space-between"><span>Idle</span><span style="font-family: 'IBM Plex Mono', monospace; color: #E8EAED">0</span></span>
+<span style="display: flex; justify-content: space-between"><span>Skipped</span><span style="font-family: 'IBM Plex Mono', monospace; color: #E8EAED">0</span></span>
+</div>
+</section>
+<section aria-label="Cluster CPU" style="background: #1A1D21; border: 1px solid #2A2E34; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #A3AAB3">Cluster CPU</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 36px; font-weight: 500">30%</span>
+<div style="height: 8px; border-radius: 999px; background: #2A2E34; overflow: hidden" role="img" aria-label="30 percent CPU usage"><div style="width: 30%; height: 100%; background: #5AA9F6"></div></div>
+<span style="color: #A3AAB3">88 threads on 3 hosts, weighted by cores</span>
+</section>
+<section aria-label="Cluster RAM" style="background: #1A1D21; border: 1px solid #2A2E34; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #A3AAB3">Cluster RAM</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 36px; font-weight: 500">67 / 192 GB</span>
+<div style="height: 8px; border-radius: 999px; background: #2A2E34; overflow: hidden" role="img" aria-label="35 percent RAM used"><div style="width: 35%; height: 100%; background: #5AA9F6"></div></div>
+<span style="color: #A3AAB3">35% used across all hosts</span>
+</section>
+<section aria-label="Throughput" style="grid-column: span 2; background: #1A1D21; border: 1px solid #2A2E34; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px">
+<span style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #A3AAB3">Throughput</span>
+<span style="font-size: 12px; color: #A3AAB3">last 10 minutes</span>
+</div>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 36px; font-weight: 500">186 M samples/s</span>
+<svg viewBox="0 0 400 60" style="width: 100%; height: 60px" role="img" aria-label="Throughput steady around 186 million samples per second over the last 10 minutes"><polyline fill="none" stroke="#F2A33A" stroke-width="2" points="0,30 40,28 80,31 120,27 160,29 200,26 240,30 280,25 320,27 360,26 400,24"></polyline></svg>
+</section>
+<section aria-label="Controller disk" style="grid-column: span 2; background: #1A1D21; border: 1px solid #2A2E34; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #A3AAB3">Controller disk</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 36px; font-weight: 500">212 GB free</span>
+<div style="height: 8px; border-radius: 999px; background: #2A2E34; overflow: hidden" role="img" aria-label="Render needs 21 of 212 gigabytes free"><div style="width: 10%; height: 100%; background: #4CC38A"></div></div>
+<span style="color: #A3AAB3">This render needs 21 GB (film in RAM, EXR output)</span>
+</section>
+<section aria-label="Events" style="grid-column: 1 / -1; background: #1A1D21; border: 1px solid #2A2E34; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 12px">
+<span style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #A3AAB3">Events</span>
+<sc-for list="{{events}}" as="ev" hint-placeholder-count="5">
+<div style="display: flex; gap: 16px; padding: 8px 0; border-top: 1px solid #23272D">
+<span style="font-family: 'IBM Plex Mono', monospace; color: #A3AAB3; flex: 0 0 48px">{{ev.time}}</span>
+<span>{{ev.text}}</span>
+</div>
+</sc-for>
+</section>
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":980}}'>
+class Component extends DCLogic {
+renderVals() {
+return {
+events: [
+{ time: '14:32', text: 'Checkpoint written · 6,048 tiles' },
+{ time: '14:20', text: 'gpu-server · GPU 3 (GTX 1080 Ti) has no RT cores, using CUDA backend' },
+{ time: '13:59', text: 'gpu-server · GPU 2 (RTX A4000) moved textures to RAM (memory tier 1)' },
+{ time: '13:58', text: 'gpu-server joined mid-render · scene 1.2 GB downloaded and verified in 38 s' },
+{ time: '13:56', text: 'Render started · living_room.glb · 40K · 1,024 spp' },
+{ time: '13:51', text: 'gaming-pc joined' }
+]
+};
+}
+}
+</script>
+</body>
+</html>

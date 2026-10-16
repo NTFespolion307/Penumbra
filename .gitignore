@@ -1,0 +1,16 @@
+# Build output
+/build/
+/out/
+/vcpkg_installed/
+CMakeUserPresets.json
+
+# IDE
+/.vs/
+/.vscode/
+*.user
+
+# Render outputs and films (large; use Git LFS for anything that must be committed)
+*.penfilm
+*.penpkg
+*.session.json
+/renders/

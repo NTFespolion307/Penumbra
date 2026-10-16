@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Penumbra · Viewport</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#121417}
+a{color:#F2A33A}a:hover{color:#FFC371}
+</style>
+</helmet>
+<div style="display: flex; flex-wrap: wrap; min-height: 100vh; background: #121417; color: #E8EAED; font-family: 'IBM Plex Sans', sans-serif; font-size: 14px">
+<nav aria-label="Main" style="flex: 0 0 220px; box-sizing: border-box; padding: 24px 16px; background: #16191D; border-right: 1px solid #2A2E34; display: flex; flex-direction: column; gap: 4px">
+<div style="padding: 0 12px 20px 12px; display: flex; flex-direction: column; gap: 2px">
+<span style="font-size: 20px; font-weight: 600; letter-spacing: 0.02em">Penumbra</span>
+<span style="font-size: 12px; color: #A3AAB3">Controller · laptop</span>
+</div>
+<a href="Main.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #A3AAB3">Dashboard</a>
+<a href="Hosts.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #A3AAB3">Hosts</a>
+<a href="Render.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #A3AAB3">Render</a>
+<a href="Viewport.dc.html" aria-current="page" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #E8EAED; background: #262A30; font-weight: 500">Viewport</a>
+<a href="Settings.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #A3AAB3">Settings</a>
+<div style="margin-top: auto; padding: 16px 12px 0 12px; border-top: 1px solid #2A2E34; display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3AAB3">
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #4CC38A"></span>Hosting on LAN</span>
+<span style="font-family: 'IBM Plex Mono', monospace">3 hosts · 5 GPUs</span>
+</div>
+</nav>
+<main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 32px 40px; display: flex; flex-direction: column; gap: 20px">
+<header style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 28px; font-weight: 600">Viewport</h1>
+<span style="color: #A3AAB3">living_room.glb · 40960 × 23040 · 1,024 spp</span>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+<button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 8px; border: 1px solid #3A3F46; background: transparent; color: #E8EAED; font: inherit; cursor: pointer">Pause</button>
+<button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 8px; border: 1px solid #3A3F46; background: transparent; color: #E8EAED; font: inherit; cursor: pointer">Save image now</button>
+<button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 8px; border: 1px solid #7A2E2E; background: transparent; color: #FF8A80; font: inherit; cursor: pointer">Stop</button>
+</div>
+</header>
+<div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+<section aria-label="Render image" style="flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px">
+<div style="display: flex; gap: 4px; background: #1A1D21; border: 1px solid #2A2E34; border-radius: 8px; padding: 2px">
+<button type="button" style="min-height: 40px; padding: 0 12px; border-radius: 6px; border: none; background: #262A30; color: #E8EAED; font: inherit; cursor: pointer">Fit</button>
+<button type="button" style="min-height: 40px; padding: 0 12px; border-radius: 6px; border: none; background: transparent; color: #A3AAB3; font: inherit; cursor: pointer">100%</button>
+<button type="button" style="min-height: 40px; padding: 0 12px; border-radius: 6px; border: none; background: transparent; color: #A3AAB3; font: inherit; cursor: pointer">Zoom</button>
+</div>
+<label style="display: inline-flex; align-items: center; gap: 8px; min-height: 44px; color: #A3AAB3; cursor: pointer"><input type="checkbox" checked="{{showHosts}}" onChange="{{toggleHosts}}" style="width: 18px; height: 18px; accent-color: #F2A33A">Colour tiles by host</label>
+</div>
+<div role="img" aria-label="Render progress: 42 percent of tiles finished, spiralling out from the centre" style="aspect-ratio: 16 / 9; background: #0B0C0E; border: 1px solid #2A2E34; border-radius: 8px; overflow: hidden; display: grid; grid-template-columns: repeat(32, minmax(0, 1fr)); gap: 1px; padding: 1px">
+<sc-for list="{{cells}}" as="c" hint-placeholder-count="576">
+<div style="background: {{c.bg}}; outline: {{c.outline}}; outline-offset: -2px"></div>
+</sc-for>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 16px; font-size: 12px; color: #A3AAB3">
+<span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 12px; height: 12px; border-radius: 3px; background: #F2A33A"></span>gpu-server</span>
+<span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 12px; height: 12px; border-radius: 3px; background: #3D7FD9"></span>gaming-pc</span>
+<span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 12px; height: 12px; border-radius: 3px; background: #9AA3AD"></span>laptop</span>
+<span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 12px; height: 12px; border-radius: 3px; border: 2px solid #E8EAED; box-sizing: border-box"></span>in progress</span>
+<span>Each square here stands for 25 real tiles</span>
+</div>
+</section>
+<aside style="flex: 1 1 280px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+<section aria-label="Progress" style="background: #1A1D21; border: 1px solid #2A2E34; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 12px">
+<span style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #A3AAB3">Progress</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 32px; font-weight: 500">42%</span>
+<div style="height: 8px; border-radius: 999px; background: #2A2E34; overflow: hidden"><div style="width: 42%; height: 100%; background: #F2A33A"></div></div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; font-family: 'IBM Plex Mono', monospace">
+<div style="display: flex; flex-direction: column; gap: 2px"><span>6,048 / 14,400</span><span style="font-size: 11px; color: #A3AAB3; font-family: 'IBM Plex Sans', sans-serif">Tiles</span></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><span>186 M/s</span><span style="font-size: 11px; color: #A3AAB3; font-family: 'IBM Plex Sans', sans-serif">Samples/s</span></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><span>36 m</span><span style="font-size: 11px; color: #A3AAB3; font-family: 'IBM Plex Sans', sans-serif">Elapsed</span></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><span>50 m</span><span style="font-size: 11px; color: #A3AAB3; font-family: 'IBM Plex Sans', sans-serif">ETA</span></div>
+</div>
+<span style="font-size: 12px; color: #A3AAB3">Last checkpoint 14:32</span>
+</section>
+<section aria-label="Share per host" style="background: #1A1D21; border: 1px solid #2A2E34; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 12px">
+<span style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #A3AAB3">Finished tiles per host</span>
+<div style="display: flex; height: 12px; border-radius: 999px; overflow: hidden" role="img" aria-label="gpu-server 83 percent, gaming-pc 16 percent, laptop 1 percent">
+<div style="width: 83%; background: #F2A33A"></div><div style="width: 16%; background: #3D7FD9"></div><div style="width: 1%; background: #9AA3AD"></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px; font-size: 13px">
+<span style="display: flex; justify-content: space-between"><span>gpu-server</span><span style="font-family: 'IBM Plex Mono', monospace">5,020 · 83%</span></span>
+<span style="display: flex; justify-content: space-between"><span>gaming-pc</span><span style="font-family: 'IBM Plex Mono', monospace">968 · 16%</span></span>
+<span style="display: flex; justify-content: space-between"><span>laptop</span><span style="font-family: 'IBM Plex Mono', monospace">60 · 1%</span></span>
+</div>
+</section>
+<section aria-label="Live output adjustments" style="background: #1A1D21; border: 1px solid #2A2E34; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 12px">
+<span style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #A3AAB3">Adjust while rendering</span>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3AAB3">Exposure (EV)
+<input type="range" min="-5" max="5" step="0.1" value="0" style="accent-color: #F2A33A; min-height: 32px">
+</label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #A3AAB3">Tonemap
+<select style="min-height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A3F46; background: #121417; color: #E8EAED; font: inherit"><option>AgX</option><option>Filmic</option><option>ACES</option></select>
+</label>
+<label style="display: inline-flex; align-items: center; gap: 8px; min-height: 44px; color: #A3AAB3; cursor: pointer"><input type="checkbox" style="width: 18px; height: 18px; accent-color: #F2A33A">Denoised preview</label>
+</section>
+</aside>
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":980}}'>
+class Component extends DCLogic {
+renderVals() {
+const show = this.state.showHosts ?? true;
+const cols = 32, rows = 18, cx = 15.5, cy = 8.5;
+const list = [];
+for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+const dx = (x - cx) / 16, dy = (y - cy) / 9;
+list.push({ x, y, d: dx * dx + dy * dy });
+}
+const order = list.slice().sort((a, b) => a.d - b.d);
+const done = Math.round(cols * rows * 0.42);
+const rank = new Map(order.map((c, i) => [c.y * cols + c.x, i]));
+const cells = list.map((c) => {
+const r = rank.get(c.y * cols + c.x);
+const h = (c.x * 7 + c.y * 13) % 100;
+const host = h < 83 ? '#F2A33A' : h < 99 ? '#3D7FD9' : '#9AA3AD';
+if (r < done) return { bg: show ? host : '#5B5F66', outline: 'none' };
+if (r < done + 6) return { bg: '#16191D', outline: '2px solid #E8EAED' };
+return { bg: '#16191D', outline: 'none' };
+});
+return {
+showHosts: show,
+toggleHosts: () => this.setState({ showHosts: !show }),
+cells
+};
+}
+}
+</script>
+</body>
+</html>
