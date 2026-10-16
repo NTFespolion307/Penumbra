@@ -20,6 +20,10 @@ Format: what was decided, why, and what it replaces in `docs/GUIDE.md` if anythi
 
 ## M0: Foundation
 
+User approved every M0 decision below (D-001 to D-018), including {fmt} (D-018), the real JPEG/WebP size
+limits (D-010) and the 6k note (D-012), on 2026-10-16. M0 gate passed on Windows (MSVC 19.51) and WSL
+Ubuntu 22.04.5 (GCC 12.3), plus GitHub Actions on both OSes.
+
 **D-001 Toolchain: Visual Studio 2026 (18) Build Tools, MSVC 19.51.** The dev laptop has VS 18 Build Tools, not
 VS 2022. The build uses only standard C++20 and CMake/Ninja, so both work; the README lists VS 2022 17.10+ or
 VS 2026 as supported. Build scripts find either with `vswhere -latest -products *`.
