@@ -173,3 +173,12 @@ Penumbra CPU backend) on 2026-10-16. The test reference is the same scene at 256
 (`tests/golden/cornell_256_4096spp.exr`). `render.golden_cornell` renders 256 spp and requires relMSE <= 1e-3
 (measured 3.4e-4 from noise; +0.3 EV gives 1.3e-2). Any change that moves it is a bug unless the user approves a
 new golden image.
+
+**D-034 Build parallelism follows memory.** The first Linux gate run in WSL (16 cores, 15.5 GB) ran out of
+memory compiling Embree with 16 GCC jobs (~2 GB each); the kernel killed a compiler and vcpkg retried with one
+job. `scripts/build.sh` and `scripts/build.ps1` now set `VCPKG_MAX_CONCURRENCY` and `CMAKE_BUILD_PARALLEL_LEVEL`
+to min(cores, available RAM / 2 GB) unless already set, and print the choice.
+
+**D-035 vcpkg compiles the libraries with the distro's default compiler** (GCC 11 on Ubuntu 22.04), while
+Penumbra itself builds with `g++-12` from the preset. Both use the same libstdc++ ABI, so no custom vcpkg
+triplet is needed; Penumbra's own code still gets GCC 12 as the guide requires.

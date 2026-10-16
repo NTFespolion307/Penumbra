@@ -130,7 +130,9 @@ Run these in a terminal:
 ### One command (recommended)
 
 The build scripts check the prerequisites, configure, build, run the tests and a smoke test, and print where
-the binary is. The first build also compiles the C++ libraries through vcpkg and takes a few minutes.
+the binary is. The first build on a machine also compiles the C++ libraries through vcpkg: expect 20 to 60
+minutes, mostly Embree. Later builds reuse them and take minutes. The scripts run one compile job per core, but
+at most one per 2 GB of free RAM, and print the number they chose.
 
 **Windows** (any PowerShell window; the script sets up the Visual Studio x64 environment itself). Use a short
 folder such as `C:\dev`: MSVC fails on paths longer than 260 characters.
@@ -495,6 +497,7 @@ Start with `penumbra --diagnose` and include its output in any bug report.
 | Build script: "vcpkg not found" | Follow [Prerequisites](#prerequisites) steps for vcpkg, then open a new terminal so `VCPKG_ROOT` is set. |
 | Build script: "Visual Studio ... without the C++ x64 tools" | In the Visual Studio Installer, add the "Desktop development with C++" workload. |
 | Windows: configure fails with `C1083 ... Invalid argument` or "Detecting CXX compiler ABI info - failed" | The folder path is too long for MSVC (260-character limit). Clone Penumbra to a short path such as `C:\dev\Penumbra`. |
+| Build fails with `Killed signal terminated program cc1plus`, or a dependency build crawls on one core | The machine ran out of memory: some library files need about 2 GB per compiler. The build scripts already limit parallel jobs to available RAM / 2 GB; if it still happens, close other programs or lower the limit, e.g. `VCPKG_MAX_CONCURRENCY=4 ./scripts/build.sh` (PowerShell: `$env:VCPKG_MAX_CONCURRENCY=4` first). |
 | Linux: "CMake 3.26 or newer is required" | Install the official CMake as in [Prerequisites](#prerequisites); check `which cmake` points to `/opt/cmake/bin/cmake`. |
 | No Vulkan ray tracing *(M5)* | Update the GPU driver; `penumbra --diagnose` shows whether each GPU reports ray-tracing support. GPUs without it use CUDA (NVIDIA) or are skipped. |
 | CUDA not found *(M6)* | Install CUDA 12.8+ and rebuild; without it Penumbra still builds with Vulkan and CPU. |

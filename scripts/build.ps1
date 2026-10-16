@@ -76,6 +76,19 @@ if (-not $env:VCPKG_ROOT -or -not (Test-Path (Join-Path $env:VCPKG_ROOT 'scripts
 }
 Write-Host "    vcpkg: $env:VCPKG_ROOT"
 
+# Parallel jobs: one per core, but at most one per 2 GB of available RAM (Embree's kernels need about 2 GB per
+# compiler process; running out of memory makes vcpkg fall back to a single core).
+$cores = [Environment]::ProcessorCount
+if (-not $env:VCPKG_MAX_CONCURRENCY) {
+  $freeGb = [math]::Floor((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1MB)
+  $jobs = [math]::Max(1, [math]::Min($cores, [math]::Floor($freeGb / 2)))
+  $env:VCPKG_MAX_CONCURRENCY = "$jobs"
+  Write-Host "    parallel jobs: $jobs ($cores cores, $freeGb GB RAM available, ~2 GB per job; set VCPKG_MAX_CONCURRENCY to override)"
+} else {
+  Write-Host "    parallel jobs: $env:VCPKG_MAX_CONCURRENCY (from VCPKG_MAX_CONCURRENCY)"
+}
+if (-not $env:CMAKE_BUILD_PARALLEL_LEVEL) { $env:CMAKE_BUILD_PARALLEL_LEVEL = $env:VCPKG_MAX_CONCURRENCY }
+
 Push-Location $root
 try {
   if ($Clean -and (Test-Path "build\$preset")) {

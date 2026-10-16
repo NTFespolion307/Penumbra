@@ -52,6 +52,21 @@ if [[ -z "${VCPKG_ROOT:-}" || ! -f "$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake
 fi
 echo "    vcpkg: $VCPKG_ROOT"
 
+# Parallel jobs: one per core, but at most one per 2 GB of available RAM. Embree's kernels need about 2 GB per
+# GCC process; running out of memory gets a compiler killed and vcpkg falls back to a single core.
+cores="$(nproc)"
+if [[ -z "${VCPKG_MAX_CONCURRENCY:-}" ]]; then
+  mem_gb="$(awk '/MemAvailable/ {print int($2 / 1048576)}' /proc/meminfo)"
+  jobs=$(( mem_gb / 2 ))
+  (( jobs < 1 )) && jobs=1
+  (( jobs > cores )) && jobs=$cores
+  export VCPKG_MAX_CONCURRENCY=$jobs
+  echo "    parallel jobs: $jobs ($cores cores, ${mem_gb} GB RAM available, ~2 GB per job; set VCPKG_MAX_CONCURRENCY to override)"
+else
+  echo "    parallel jobs: $VCPKG_MAX_CONCURRENCY (from VCPKG_MAX_CONCURRENCY)"
+fi
+export CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-$VCPKG_MAX_CONCURRENCY}"
+
 cd "$root"
 if (( clean )) && [[ -d "build/$preset" ]]; then
   step "Removing build/$preset"
