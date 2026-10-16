@@ -167,3 +167,9 @@ GCC builds use `-ffp-contract=off` so no compiler-chosen FMA changes results bet
 the lower layers; rough materials lose a little energy at high roughness, never gain any (unit-tested). The
 furnace sphere uses specularFactor 0 (pure Lambert) and the glass sphere a smooth dielectric, both exactly
 energy-conserving.
+
+**D-033 First golden image.** The user approved `tests/golden/cornell_512_4096spp_approved.png` (512x512, 4,096 spp,
+Penumbra CPU backend) on 2026-10-16. The test reference is the same scene at 256x256, 4,096 spp, half-float EXR
+(`tests/golden/cornell_256_4096spp.exr`). `render.golden_cornell` renders 256 spp and requires relMSE <= 1e-3
+(measured 3.4e-4 from noise; +0.3 EV gives 1.3e-2). Any change that moves it is a bug unless the user approves a
+new golden image.

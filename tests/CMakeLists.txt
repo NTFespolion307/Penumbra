@@ -77,7 +77,8 @@ pen_render_test(threads_cornell threads cornell.pen.json "--res|64x64|--spp|16" 
 pen_render_test(threads_spheres threads spheres.pen.json "--res|96x54|--spp|8" "-DTHREADS=1|3|0")
 # Cornell box against the approved golden image (DECISIONS D-021).
 pen_render_test(golden_cornell reference cornell.pen.json "--res|256x256|--spp|256"
-                -DREFERENCE=${PROJECT_SOURCE_DIR}/tests/golden/cornell_256_4096spp.exr -DMAXRELMSE=2e-3)
+                -DREFERENCE=${PROJECT_SOURCE_DIR}/tests/golden/cornell_256_4096spp.exr -DMAXRELMSE=1e-3)
+# 256 spp against the 4,096 spp golden measures relMSE 3.4e-4 (noise); a 5% brightness shift exceeds 1e-3.
 # Every material, the HDRI, AO and the debug views render.
 pen_render_test(spheres runs spheres.pen.json "--res|160x90|--spp|16")
 pen_render_test(ao runs spheres.pen.json "--res|160x90|--spp|4|--integrator|ao")
