@@ -32,8 +32,8 @@ int runUiPlaceholder(bool fromExplorer) {
       "{}\n\nThe Penumbra UI is built in milestone M10.\nFor now, run Penumbra from a terminal, for example:\n\n"
       "  penumbra --help\n  penumbra --diagnose",
       pen::versionString());
-  if (fromExplorer) pen::app::showMessage("Penumbra", text, false);
   spdlog::warn("the UI is built in milestone M10; run 'penumbra --help' for terminal modes");
+  if (fromExplorer) pen::app::showMessage("Penumbra", text, false);
   return pen::toInt(pen::ExitCode::BadArguments);
 }
 
