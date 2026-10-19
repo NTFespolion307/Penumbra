@@ -97,6 +97,7 @@ void Connection::readSome() {
 }
 
 void Connection::onCipher(size_t n) {
+  last_rx_ = std::chrono::steady_clock::now().time_since_epoch().count();
   tls_.feed(std::span(cipher_in_.data(), n));
   bool more = true;
   try {

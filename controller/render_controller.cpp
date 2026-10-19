@@ -19,6 +19,7 @@ uint32_t sampleEnd(const RenderSettings& s) {
 }
 constexpr double kMinLateSeconds = 2.0;  // never call a lease late before this
 constexpr size_t kDurationWindow = 256;
+constexpr uint32_t kMaxRejects = 3;
 }  // namespace
 
 RenderController::RenderController(const RenderSettings& settings, std::shared_ptr<const Scene> scene,
@@ -145,6 +146,7 @@ void RenderController::onTileResult(WorkerId worker, TileResult&& r) {
   }
   const WorkItem item = lease->second.item;
   const double seconds = std::chrono::duration<double>(Clock::now() - lease->second.issued).count();
+  const bool wasReissued = lease->second.reissued;  // a copy of the item is queued already
   leases_.erase(lease);
 
   const bool valid = item.id == r.item_id && item.rect == r.rect && item.sample_begin == r.sample_begin &&
@@ -152,7 +154,9 @@ void RenderController::onTileResult(WorkerId worker, TileResult&& r) {
   if (!valid) {
     spdlog::warn("rejected an invalid result for lease {} from worker {}; item requeued", r.lease, worker);
     workers_[worker]->ackTile(r.lease, AckStatus::Rejected);
-    scheduler_.requeue(item);
+    if (!wasReissued) scheduler_.requeue(item);
+    if (++rejects_[worker] == kMaxRejects)  // docs/GUIDE.md "Results": 3 rejected results get a worker kicked
+      workers_[worker]->kick(fmt::format("{} invalid tile results (corrupt or not matching their lease)", kMaxRejects));
     serveLocked();
     return;
   }

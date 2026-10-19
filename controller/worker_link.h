@@ -75,6 +75,8 @@ class WorkerLink {
   virtual void ackTile(LeaseId lease, AckStatus status) = 0;
   virtual void pause(bool paused) = 0;
   virtual void complete() = 0;
+  // Disconnects a misbehaving worker with a reason (network workers; the local worker never is).
+  virtual void kick(const std::string& reason) { (void)reason; }
 };
 
 }  // namespace pen

@@ -66,6 +66,10 @@ class Connection : public std::enable_shared_from_this<Connection> {
   void closeAfterSend(const std::string& reason);
 
   bool isOpen() const { return open_.load(); }
+  // When the last bytes arrived from the peer (heartbeats included); the connection's start before that.
+  std::chrono::steady_clock::time_point lastReceived() const {
+    return std::chrono::steady_clock::time_point(std::chrono::steady_clock::duration(last_rx_.load()));
+  }
   // The TLS handshake failed (almost always a wrong join code) or timed out.
   bool handshakeFailed() const { return handshake_failed_.load(); }
   uint64_t queuedBytes() const { return queued_.load(); }
@@ -88,6 +92,7 @@ class Connection : public std::enable_shared_from_this<Connection> {
   std::atomic<bool> established_{false};
   std::atomic<bool> handshake_failed_{false};
   std::atomic<uint64_t> queued_{0};
+  std::atomic<std::chrono::steady_clock::rep> last_rx_{std::chrono::steady_clock::now().time_since_epoch().count()};
   std::atomic<uint32_t> next_transfer_{1};
 
   std::array<uint8_t, 65536> cipher_in_{};

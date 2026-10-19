@@ -117,6 +117,7 @@ class RenderController final : public WorkerEvents {
   LeaseId next_lease_ = 1;
   std::map<DeviceKey, int> wanted_;                   // devices waiting for this many more items
   std::map<uint64_t, TileResult> early_;              // results waiting for an earlier chunk of their tile
+  std::map<WorkerId, uint32_t> rejects_;              // invalid results per worker
   std::deque<double> item_seconds_;                   // recent item durations, for hang detection
   uint32_t live_devices_ = 0;
   bool hosting_ = false;

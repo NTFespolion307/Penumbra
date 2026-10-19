@@ -28,6 +28,7 @@
 #include "worker/device_prep.h"
 #include "worker/device_slot.h"
 #include "worker/scene_cache.h"
+#include "worker/test_faults.h"
 
 namespace pen {
 
@@ -40,6 +41,9 @@ using Clock = std::chrono::steady_clock;
 constexpr uint64_t kUploadBoundBytes = 512ull << 20;  // docs/GUIDE.md "Uploader and backpressure"
 constexpr auto kConnectRetry = std::chrono::seconds(15);
 constexpr auto kStatsPeriod = std::chrono::seconds(2);
+constexpr auto kHeartbeatPeriod = std::chrono::seconds(5);
+constexpr auto kPeerTimeout = std::chrono::seconds(30);
+constexpr double kLongRoundTripMs = 50;  // above this, 3 items in flight per device instead of 2
 
 uint64_t nowMicros() {
   return static_cast<uint64_t>(
@@ -133,6 +137,9 @@ class Worker {
 
   CpuUsage cpu_;
   Clock::time_point last_stats_ = Clock::now();
+  Clock::time_point last_heartbeat_ = Clock::now();
+  int in_flight_ = 2;
+  bool frozen_logged_ = false;
   bool was_upload_bound_ = false;
 };
 
@@ -246,6 +253,7 @@ int Worker::run() {
       closed = inbox_.closed;
       reason = inbox_.reason;
     }
+    if (testFrozen()) batch.clear();  // test-only: a frozen worker ignores everything until the link drops
     for (auto& msg : batch)
       if (const int rc = handle(msg); rc >= 0) return rc;
     if (closed) {
@@ -276,8 +284,21 @@ int Worker::run() {
         return leave("every device of this worker failed", toInt(ExitCode::NoUsableDevice));
       }
     }
+    if (testFrozen()) {  // test-only (D-067): a dead link; send nothing, not even heartbeats
+      if (!frozen_logged_) spdlog::warn("TEST FAULT: this worker is frozen and sends nothing");
+      frozen_logged_ = true;
+      continue;
+    }
     flushRequests();
-    if (welcomed_ && Clock::now() - last_stats_ >= kStatsPeriod) sendStats();
+    const auto now = Clock::now();
+    if (welcomed_ && now - last_stats_ >= kStatsPeriod) sendStats();
+    if (now - last_heartbeat_ >= kHeartbeatPeriod) {
+      last_heartbeat_ = now;
+      wire::HeartbeatT hb;
+      hb.sent_us = nowMicros();
+      conn_->send(hb);
+    }
+    if (now - conn_->lastReceived() > kPeerTimeout) conn_->close("no heartbeat from the controller for 30 s");
   }
 }
 
@@ -336,11 +357,17 @@ int Worker::handle(net::Message& msg) {
         return leave("render complete", -2);
       }
       case MsgType::Heartbeat: {
+        // The controller echoes our heartbeats: the round trip sets how many items each device keeps in flight
+        // (docs/GUIDE.md "Leases": 2, or 3 when the round trip exceeds 50 ms).
         const auto m = net::decode<wire::HeartbeatT>(msg.payload);
-        wire::HeartbeatT reply;
-        reply.sent_us = nowMicros();
-        reply.echo_us = m.sent_us;
-        conn_->send(reply);
+        if (m.echo_us == 0) break;
+        const double rttMs = double(nowMicros() - m.echo_us) / 1000.0;
+        const int want = rttMs > kLongRoundTripMs ? 3 : 2;
+        if (want != in_flight_) {
+          in_flight_ = want;
+          spdlog::info("round trip to the controller {:.0f} ms: {} items in flight per device", rttMs, want);
+          for (auto& s : slots_) s->setInFlight(want);
+        }
         break;
       }
       default:
@@ -558,6 +585,10 @@ void Worker::startSlots() {
       m.encoding = wire::TileEncoding::Float32Shuffled;
       m.pixels = net::encodeTilePixels(r.mean);
       m.checksum = net::tileChecksum(r.mean);
+      if (testTakeCorruptTile() && !m.pixels.empty()) {  // test-only (D-067): damaged after the checksum
+        spdlog::warn("TEST FAULT: corrupting the tile for lease {}", r.lease);
+        m.pixels[m.pixels.size() / 2] ^= 0x5A;
+      }
       m.nan_count = r.nan_count;
       m.render_seconds = r.render_seconds;
       {
@@ -585,7 +616,7 @@ void Worker::startSlots() {
       r.leases = lost;
       conn_->send(r);
     };
-    slots_.push_back(std::make_unique<DeviceSlot>(d, *devices_[d], cb));
+    slots_.push_back(std::make_unique<DeviceSlot>(d, *devices_[d], cb, in_flight_));
   }
   for (auto& s : slots_) s->start();
 }

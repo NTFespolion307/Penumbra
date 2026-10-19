@@ -12,9 +12,9 @@ combination of machines, GPUs and backends converges to the same image.
 > (Embree) with a path tracer (next-event estimation, MIS), the glTF PBR material with its common extensions and
 > HDRI lighting, at any size up to 160K, with checkpoints, `--resume` and `merge`, writing EXR, PNG, JPEG, TIFF
 > or WebP. Work is split into tile and sample chunks that any number of local devices share, with recovery from
-> failed or hung devices. Networking (M4) is being built: hosting, joining (encrypted with the join code) and
-> sending the scene to workers work; heartbeats and `--stay` come next. GPU backends arrive in M5/M6, the UI in
-> M10. Features marked
+> failed or hung devices. Networking (M4) is being built: hosting, joining (encrypted with the join code),
+> sending the scene to workers and recovery from failed, crashed, silent or misbehaving workers work; `--stay`
+> and controller `--resume` with workers come next. GPU backends arrive in M5/M6, the UI in M10. Features marked
 > *(planned, Mx)* below are not built yet. The roadmap is in [`docs/GUIDE.md`](docs/GUIDE.md).
 
 <!-- A screenshot goes here once the UI exists (M10). -->
@@ -292,8 +292,9 @@ usual time is handed out again, and the first result wins.
 ## Rendering with several machines
 
 *(in progress, M4.)* Working now: `--terminal --host`, `--no-local`, `--worker --join`, join codes and
-encryption, `--approve-workers`, sending the scene to workers with a cache on each worker. **Not yet:** heartbeats
-(a silent worker is not noticed yet), `--stay`, controller `--resume` with workers, UPnP. The rest of this section
+encryption, `--approve-workers`, sending the scene to workers with a cache on each worker, heartbeats (a worker
+silent for 30 s is dropped and its work handed to others), recovery from failed devices and crashed or
+misbehaving workers. **Not yet:** `--stay`, controller `--resume` with workers, UPnP. The rest of this section
 describes the finished networking.
 
 **Hosting.** In the UI, LAN hosting starts with the app and the Dashboard shows the join code and the address to

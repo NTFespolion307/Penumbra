@@ -5,7 +5,8 @@
 //       --proc NAME DELAY_MS EXPECT KILL_AFTER_MS "exe|arg|arg..." [--proc ...]
 //
 // DELAY_MS: start this long after the first process, or "after:NAME" to start once process NAME has ended.
-// EXPECT: the exit code it must return, or "any".
+// EXPECT: the exit code it must return, "any", or "daemon" (a helper such as a proxy: stopped once every other
+// process has ended).
 // KILL_AFTER_MS: hard-kill it this long after it started (0 = never); a killed process passes when EXPECT is
 // "killed". Exit code 0 when every process ends as expected within the timeout, 1 otherwise.
 
@@ -244,6 +245,15 @@ int main(int argc, char** argv) {
       }
       allDone = allDone && p.done;
     }
+    // Helpers ("daemon") are stopped once everything else has ended.
+    bool othersDone = true;
+    for (const auto& p : procs) othersDone = othersDone && (p.expect == "daemon" || p.done);
+    if (othersDone && !allDone)
+      for (auto& p : procs)
+        if (p.expect == "daemon" && p.started && !p.done && !p.killed) {
+          hardKill(p);
+          p.killed = true;
+        }
     if (allDone) break;
     if (ms(now - t0) > timeout * 1000LL) {
       timedOut = true;
@@ -263,7 +273,7 @@ int main(int argc, char** argv) {
   bool ok = !timedOut;
   for (const auto& p : procs) {
     bool pass;
-    if (p.expect == "any") pass = true;
+    if (p.expect == "any" || p.expect == "daemon") pass = true;
     else if (p.expect == "killed") pass = p.killed;
     else pass = !p.killed && p.exit_code == std::atoi(p.expect.c_str());
     std::cout << (pass ? "  ok   " : "  FAIL ") << p.name << ": exit " << p.exit_code << (p.killed ? " (killed)" : "")

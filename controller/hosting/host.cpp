@@ -20,6 +20,7 @@ namespace {
 constexpr size_t kMaxFailures = 5;  // more than this many failed handshakes in a minute block the address
 constexpr auto kFailureWindow = std::chrono::minutes(1);
 constexpr auto kBlockTime = std::chrono::minutes(10);
+constexpr auto kPeerTimeout = std::chrono::seconds(30);  // docs/GUIDE.md: heartbeat 5 s, peer lost after 30 s
 }  // namespace
 
 struct Host::Peer {
@@ -36,6 +37,28 @@ Host::Host(const RenderSettings& settings, const std::string& code, WorkerEvents
   listener_ = std::make_unique<net::Listener>(io_, settings.bind, settings.port, net::deriveJoinKey(code),
                                               [this](std::shared_ptr<net::Connection> c) { onAccept(std::move(c)); });
   if (settings.approve_workers) approval_thread_ = std::thread([this] { approvalLoop(); });
+  watchdog_timer_ = std::make_unique<asio::steady_timer>(io_.context());
+  asio::post(io_.context(), [this] { watchdog(); });
+}
+
+void Host::watchdog() {
+  const auto now = Clock::now();
+  std::vector<std::shared_ptr<Peer>> silent;
+  {
+    std::lock_guard lock(mutex_);
+    if (stopped_) return;
+    for (const auto& p : peers_)
+      if (now - p->connection->lastReceived() > kPeerTimeout && p->connection->isOpen()) silent.push_back(p);
+  }
+  for (const auto& p : silent) {
+    spdlog::warn("{} sent nothing for 30 s (heartbeat lost); dropping it", p->worker ? p->worker->info().name
+                                                                                     : p->connection->peer());
+    p->connection->close("no heartbeat for 30 s");
+  }
+  watchdog_timer_->expires_after(std::chrono::seconds(1));
+  watchdog_timer_->async_wait([this](std::error_code ec) {
+    if (!ec) watchdog();
+  });
 }
 
 Host::~Host() { shutdown(std::chrono::milliseconds(0)); }
@@ -200,6 +223,7 @@ void Host::shutdown(std::chrono::milliseconds grace) {
   }
   approval_cv_.notify_all();
   if (listener_) listener_->stop();
+  asio::post(io_.context(), [this] { watchdog_timer_->cancel(); });
   const auto deadline = Clock::now() + grace;
   for (;;) {
     {

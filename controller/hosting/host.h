@@ -46,6 +46,7 @@ class Host {
   void reject(const std::shared_ptr<Peer>& peer, uint8_t reason, const std::string& text);
   bool blockedLocked(const std::string& address, std::chrono::steady_clock::time_point now);
   void approvalLoop();
+  void watchdog();  // every second on the network thread: drops peers silent for 30 s
 
   RenderSettings settings_;
   WorkerEvents& events_;
@@ -54,6 +55,7 @@ class Host {
   SceneUploader uploader_;
   net::IoThread io_;
   std::unique_ptr<net::Listener> listener_;
+  std::unique_ptr<asio::steady_timer> watchdog_timer_;
   std::mutex mutex_;
   std::vector<std::shared_ptr<Peer>> peers_;
   bool stopped_ = false;

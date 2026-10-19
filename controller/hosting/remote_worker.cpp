@@ -2,6 +2,7 @@
 
 #include <spdlog/spdlog.h>
 
+#include <chrono>
 #include <filesystem>
 #include <random>
 
@@ -104,6 +105,14 @@ void RemoteWorker::complete() {
 
 void RemoteWorker::disconnect(const std::string& reason) { connection_->close(reason); }
 
+void RemoteWorker::kick(const std::string& reason) {
+  spdlog::warn("kicking {}: {}", info_.name, reason);
+  wire::KickT m;
+  m.reason = reason;
+  connection_->send(m);
+  connection_->closeAfterSend(fmt::format("kicked: {}", reason));
+}
+
 TileResult RemoteWorker::decodeResult(const wire::TileResultT& m) const {
   TileResult r;
   r.item_id = m.item_id;
@@ -192,7 +201,17 @@ void RemoteWorker::onMessage(net::Message&& msg) {
         else spdlog::info("{}: {}", info_.name, m.text);
         break;
       }
-      case MsgType::Heartbeat: break;  // liveness is checked from M4 step 4
+      case MsgType::Heartbeat: {
+        // Echo at once: the worker measures the round trip, and the reply is the controller's heartbeat.
+        const auto m = net::decode<wire::HeartbeatT>(msg.payload);
+        wire::HeartbeatT reply;
+        reply.sent_us = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                                                  std::chrono::steady_clock::now().time_since_epoch())
+                                                  .count());
+        reply.echo_us = m.sent_us;
+        connection_->send(reply);
+        break;
+      }
       case MsgType::Bye: {
         const auto m = net::decode<wire::ByeT>(msg.payload);
         std::lock_guard lock(mutex_);

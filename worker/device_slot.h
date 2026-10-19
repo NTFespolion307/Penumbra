@@ -41,6 +41,8 @@ class DeviceSlot {
   void join();
 
   uint32_t id() const { return id_; }
+  // Items to keep in flight (2, or 3 on links with a long round trip); applies from the next request.
+  void setInFlight(int n) { in_flight_ = n; }
   // Time spent inside IBackend::render, for the busy % in Stats.
   double busySeconds() const { return busy_us_.load() * 1e-6; }
 
@@ -50,7 +52,7 @@ class DeviceSlot {
   uint32_t id_;
   IBackend& backend_;
   Callbacks cb_;
-  int in_flight_;
+  std::atomic<int> in_flight_;
   std::mutex mutex_;
   std::condition_variable cv_;
   std::deque<WorkItem> queue_;

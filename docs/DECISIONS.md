@@ -343,3 +343,19 @@ round-robin, and counts `--upload-limit` in bytes on the wire.
 **D-066 Test hook `PENUMBRA_TEST_EXIT_AFTER_CHUNKS=N`** (test-only, logged): a worker exits abruptly with code 137
 right after its N-th scene chunk, so the resumed-download test does not depend on timing; `penumbra-nettest`
 can start a process once another has ended (`after:NAME`).
+
+**D-067 More test fault modes.** `PENUMBRA_TEST_FAULTS` (D-047) gains `mode=exit` (the process exits with 137 after
+K items: a crashed worker holding leases), `mode=freeze` (the device hangs and a network worker stops sending
+anything, heartbeats included: a dead link) and `mode=corrupt` (a network worker damages tiles after computing
+their checksums). Every fault-table row is a network test that must end bit-identical to the solo render.
+
+**D-068 Heartbeats: the worker asks, the controller echoes.** The worker sends `Heartbeat` every 5 s and the
+controller answers at once, so the answer is both the controller's heartbeat and a round-trip measurement (the
+guide's "3 items in flight above 50 ms" uses it). Both sides drop a connection with nothing received for 30 s; the
+controller checks every second and requeues the dropped worker's leases. A worker with 3 rejected results is sent
+`Kick` and disconnected.
+
+**D-069 `penumbra-netem-proxy` instead of OS traffic shaping.** Linux `tc netem` needs root and is missing on
+Windows, so the bad-network test runs through a small TCP proxy in `tools/`: a fixed delay each way, a bandwidth
+cap per direction, and "loss" as a 200 ms stall of a block (and the blocks behind it), which is what a lost TCP
+segment costs; a proxy cannot drop segments inside a TCP stream.

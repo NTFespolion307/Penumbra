@@ -29,6 +29,7 @@ class RemoteWorker final : public WorkerLink {
   void ackTile(LeaseId lease, AckStatus status) override;
   void pause(bool paused) override;
   void complete() override;
+  void kick(const std::string& reason) override;
 
   bool connected() const { return connection_->isOpen(); }
   // Closes the connection; the worker is reported gone with `reason`.

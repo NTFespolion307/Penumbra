@@ -129,7 +129,8 @@ add_executable(penumbra-nettest net/nettest.cpp)
 function(pen_net_test name port workers scene args)
   add_test(NAME net.${name}
            COMMAND "${CMAKE_COMMAND}" -DPENUMBRA=$<TARGET_FILE:penumbra> -DDIFF=$<TARGET_FILE:penumbra-diff>
-                   -DNETTEST=$<TARGET_FILE:penumbra-nettest> -DWORKDIR=${CMAKE_CURRENT_BINARY_DIR} -DNAME=net_${name}
+                   -DNETTEST=$<TARGET_FILE:penumbra-nettest> -DNETEM=$<TARGET_FILE:penumbra-netem-proxy>
+                   -DWORKDIR=${CMAKE_CURRENT_BINARY_DIR} -DNAME=net_${name}
                    -DSCENE=${PEN_SCENES}/${scene} "-DARGS=${args}" -DMODE=network -DPORT=${port}
                    -DWORKERS=${workers} ${ARGN} -P "${PROJECT_SOURCE_DIR}/cmake/RenderCheck.cmake")
   set_tests_properties(net.${name} PROPERTIES LABELS "net;gate")
@@ -172,6 +173,37 @@ pen_net_test(download_resume 7509 2 bigtex.pen.json "--spp|16" "-DREF_ARGS=--dev
 pen_net_test(scene_rejected 7510 1 cornell.pen.json "--res|1080p|--scale|0.5|--spp|16" "-DREF_ARGS=--devices|cpu"
              "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|4" -DFULL_DISK_WORKER=1
              "-DEXPECT_LOG=full cannot take this scene: not enough disk")
+# M4 step 4, the fault table (docs/GUIDE.md "Fault tolerance"): whatever happens to worker 1, worker 2 finishes
+# and the image is the solo render, bit for bit. A device fails; the worker process crashes holding leases; a
+# device hangs while the worker heartbeats (lease reissued); the worker goes silent (dropped after 30 s without a
+# heartbeat); the worker sends corrupt tiles (rejected, kicked after 3); a worker joins mid-render; and a worker
+# behind 200 ms latency, 2% loss stalls and a 10 Mbit/s uplink (penumbra-netem-proxy).
+set(PEN_NET_12 "--res|1080p|--scale|0.5|--spp|96")  # 12 chunks of 8 samples
+pen_net_test(device_fail 7511 2 cornell.pen.json "${PEN_NET_12}" "-DREF_ARGS=--devices|cpu" "-DCONTROLLER_ARGS=--no-local"
+             "-DWORKER_ARGS=--threads|4" "-DFIRST_WORKER_ARGS=--devices|cpu,cpu"
+             "-DFIRST_WORKER_ENV=PENUMBRA_TEST_FAULTS=device=1,after=0,mode=throw"
+             "-DEXPECT_LOG=device 1 of worker 0 failed and is removed")
+pen_net_test(worker_crash 7512 2 cornell.pen.json "${PEN_NET_12}" "-DREF_ARGS=--devices|cpu"
+             "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|4" -DFIRST_WORKER_EXPECT=137
+             "-DFIRST_WORKER_ENV=PENUMBRA_TEST_FAULTS=device=0,after=1,mode=exit"
+             "-DEXPECT_LOG=worker 0 left .*; [1-9][0-9]* lease\(s\) requeued")
+pen_net_test(worker_hang 7513 2 cornell.pen.json "--res|1080p|--spp|256|--backend|null" "-DREF_ARGS=--devices|cpu"
+             "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--backend|null"
+             "-DFIRST_WORKER_ENV=PENUMBRA_TEST_FAULTS=device=0,after=2,mode=hang" "-DEXPECT_LOG=is late")
+pen_net_test(worker_silent 7514 2 cornell.pen.json "--res|1080p|--scale|0.5|--spp|256" "-DREF_ARGS=--devices|cpu"
+             "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|4" -DFIRST_WORKER_EXPECT=7
+             "-DFIRST_WORKER_ENV=PENUMBRA_TEST_FAULTS=device=0,after=1,mode=freeze" "-DEXPECT_LOG=heartbeat lost")
+pen_net_test(corrupt_tiles 7515 2 cornell.pen.json "${PEN_NET_12}" "-DREF_ARGS=--devices|cpu"
+             "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|4" -DFIRST_WORKER_EXPECT=6
+             "-DFIRST_WORKER_ENV=PENUMBRA_TEST_FAULTS=device=0,after=0,mode=corrupt" "-DEXPECT_LOG=kicking w1")
+pen_net_test(join_mid_render 7516 1 cornell.pen.json "--res|1080p|--scale|0.5|--spp|64" "-DREF_ARGS=--devices|cpu"
+             "-DCONTROLLER_ARGS=--threads|2" "-DWORKER_ARGS=--threads|4" -DWORKER_DELAY_MS=5000
+             "-DEXPECT_LOG=w1/0 [^\n]*: [1-9][0-9]* items")
+pen_net_test(bad_network 7517 1 cornell.pen.json "--res|1080p|--scale|0.5|--spp|32" "-DREF_ARGS=--devices|cpu"
+             "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|4"
+             "-DNETEM_ARGS=--delay-ms|100|--loss|0.02|--up-kbps|10000"
+             "-DEXPECT_WORKER_LOG=round trip to the controller [0-9]+ ms: 3 items in flight")
+set_tests_properties(net.worker_silent PROPERTIES LABELS "net;gate;slow")
 
 if(NOT EXISTS "${PROJECT_SOURCE_DIR}/tests/golden/cornell_256_4096spp.exr")
   message(STATUS "tests/golden/cornell_256_4096spp.exr not found: render.golden_cornell is disabled")
