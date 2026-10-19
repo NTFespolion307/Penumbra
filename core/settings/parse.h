@@ -37,6 +37,6 @@ PixelRect parseRect(std::string_view text);
 SampleRange parseSampleRange(std::string_view text);
 
 std::string formatDuration(uint64_t seconds);  // "2h30m", "10m", "45s"
-std::string formatBytes(uint64_t bytes);       // "20.0 GB" (binary units, shown as GB)
+std::string formatBytes(uint64_t bytes);       // "241.6 GB" (decimal units for display; parsing uses binary)
 
 }  // namespace pen

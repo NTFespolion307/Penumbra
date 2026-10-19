@@ -189,12 +189,13 @@ std::string formatDuration(uint64_t seconds) {
   return out;
 }
 
+// Decimal units, like the guide's tables and disk vendors (241.6 GB for the 160K film).
 std::string formatBytes(uint64_t bytes) {
   const double b = static_cast<double>(bytes);
-  if (bytes >= (1ull << 40)) return fmt::format("{:.1f} TB", b / (1ull << 40));
-  if (bytes >= (1ull << 30)) return fmt::format("{:.1f} GB", b / (1ull << 30));
-  if (bytes >= (1ull << 20)) return fmt::format("{:.1f} MB", b / (1ull << 20));
-  if (bytes >= (1ull << 10)) return fmt::format("{:.1f} KB", b / (1ull << 10));
+  if (b >= 1e12) return fmt::format("{:.1f} TB", b / 1e12);
+  if (b >= 1e9) return fmt::format("{:.1f} GB", b / 1e9);
+  if (b >= 1e6) return fmt::format("{:.1f} MB", b / 1e6);
+  if (b >= 1e3) return fmt::format("{:.1f} KB", b / 1e3);
   return fmt::format("{} B", bytes);
 }
 

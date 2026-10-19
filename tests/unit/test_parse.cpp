@@ -30,7 +30,8 @@ TEST_CASE("byte sizes", "[parse]") {
   CHECK_THROWS_AS(parseByteSize("G"), ValueError);
   CHECK_THROWS_AS(parseByteSize("5Q"), ValueError);
   CHECK_THROWS_AS(parseByteSize("5Gx"), ValueError);
-  CHECK(formatBytes(20ull << 30) == "20.0 GB");
+  CHECK(formatBytes(20ull << 30) == "21.5 GB");  // decimal units for display
+  CHECK(formatBytes(241597440256ull) == "241.6 GB");
 }
 
 TEST_CASE("numbers and bools", "[parse]") {

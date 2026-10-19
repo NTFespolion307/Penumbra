@@ -221,3 +221,10 @@ px per side). 32-bit TIFF is linear float like EXR; 8/16-bit formats are display
 
 **D-043 Large gate tests are opt-in.** `render.large_20k` (label `large`) renders 20K at 1 spp and checks one
 tile against a `--region` render; the build scripts run `ctest -LE large`, the gate runs `ctest -L large`.
+
+**D-044 M2 gate results (2026-10-19).** Windows (laptop, MSVC 19.51): 103/103 tests; 20K Cornell at 1 spp in 102 s
+(film in RAM, 1.23 GB float EXR), one tile identical to a `--region` render. Linux (WSL Ubuntu 22.04, GCC 12):
+104/104 incl. real SIGINT. Server (vast.ai, Ubuntu 24.04, Xeon E5-2696 v4, 88 threads): 104/104; 160K Cornell
+at 1 spp: film 241.6 GB on disk only, render 20.7 min (15.1 G samples, 12.2 M samples/s, 86 threads), EXR half
+ZIP 35.4 GB written in ~12 min, a 256x256 tile identical (relMSE 0) to a `--region` render; film and session
+removed on completion. Display sizes now use decimal GB like the guide (`formatBytes`).
