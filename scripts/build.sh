@@ -81,7 +81,7 @@ cmake --build --preset "$preset"
 
 if (( tests )); then
   step "Running tests"
-  ctest --preset "$preset"
+  ctest --preset "$preset" -LE large  # the 20K gate test runs with: ctest -L large
 fi
 
 exe="$root/build/$preset/bin/penumbra"

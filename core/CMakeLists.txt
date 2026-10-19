@@ -14,10 +14,12 @@ add_library(penumbra_core STATIC
   "${PEN_VERSION_CPP}"
   config/config.cpp
   film/film.cpp
+  film/session.cpp
   image/image.cpp
   image/image_io.cpp
   log/log.cpp
   output/output.cpp
+  output/writers.cpp
   render/camera.cpp
   render/lights.cpp
   render/surface.cpp
@@ -29,7 +31,10 @@ add_library(penumbra_core STATIC
   settings/parse.cpp
   settings/presets.cpp
   settings/schema.cpp
+  settings/serialize.cpp
   shading/bsdf.cpp
+  system/file.cpp
+  system/hash.cpp
   system/paths.cpp
   system/sysinfo.cpp)
 add_dependencies(penumbra_core penumbra_git_version)
@@ -37,7 +42,7 @@ target_include_directories(penumbra_core PUBLIC "${PROJECT_SOURCE_DIR}")
 target_include_directories(penumbra_core SYSTEM PRIVATE ${CGLTF_INCLUDE_DIRS} ${STB_INCLUDE_DIRS})
 target_link_libraries(penumbra_core
   PUBLIC fmt::fmt nlohmann_json::nlohmann_json spdlog::spdlog
-  PRIVATE tinyobjloader::tinyobjloader OpenEXR::OpenEXR PNG::PNG)
+  PRIVATE tinyobjloader::tinyobjloader OpenEXR::OpenEXR PNG::PNG JPEG::JPEG TIFF::TIFF WebP::webp BLAKE3::blake3)
 if(WIN32)
   target_link_libraries(penumbra_core PRIVATE shell32 ole32 advapi32)
 endif()

@@ -30,6 +30,8 @@ class DeviceSlot {
 
   void start();
   void addLease(const WorkItem& item);
+  // Drops queued items that have not started (cancel); the backend's own cancel stops the one in progress.
+  void clearQueue();
   // No more work will come: the thread exits once its queue is empty.
   void finish();
   void join();

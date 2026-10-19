@@ -51,6 +51,9 @@ class IBackend {
   virtual void prepare(const FrameSetup& frame) = 0;
   // Renders item.rect for samples [sample_begin, sample_end) into out (sized by the backend).
   virtual void render(const WorkItem& item, TileResult& out) = 0;
+  // Asks render() calls in progress (and later ones, until the next prepare()) to stop early and return a
+  // result marked cancelled. Thread-safe.
+  virtual void cancel() = 0;
 };
 
 }  // namespace pen

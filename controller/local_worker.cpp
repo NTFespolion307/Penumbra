@@ -58,7 +58,11 @@ void LocalWorker::sendLease(const Lease& lease) {
   if (lease.device < slots_.size()) slots_[lease.device]->addLease(lease.item);
 }
 
-void LocalWorker::cancel(std::span<const LeaseId>) {}  // M3: cancellation and requeue
+// M2: cancels everything (Ctrl+C, out of disk). Cancelling single leases arrives with requeue in M3.
+void LocalWorker::cancel(std::span<const LeaseId>) {
+  for (auto& s : slots_) s->clearQueue();
+  for (auto& d : devices_) d->cancel();
+}
 void LocalWorker::ackTile(LeaseId, AckStatus) {}       // in-process results need no acknowledgement
 void LocalWorker::pause(bool) {}                       // M2: pause on disk full
 

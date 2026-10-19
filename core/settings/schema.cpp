@@ -380,16 +380,20 @@ void finalizeSettings(RenderSettings& s) {
   }
 
   const uint32_t w = s.outputWidth(), h = s.outputHeight();
-  if (const uint32_t maxSide = formatMaxSide(f); maxSide != 0 && (w > maxSide || h > maxSide)) {
-    const std::string res = s.res.preset.empty() ? fmt::format("{}x{}", s.res.width, s.res.height) : s.res.preset;
-    fail(fmt::format("{} images are limited to {} px per side, but {} is {}x{}. Use EXR, PNG or TIFF, or a smaller "
-                     "--res or --scale.",
-                     formatLabel(f), maxSide, res, w, h));
-  }
-
   if (s.region && (s.region->x1 > w || s.region->y1 > h))
     fail(fmt::format("--region {},{},{},{} is outside the {}x{} image", s.region->x0, s.region->y0, s.region->x1,
                      s.region->y1, w, h));
+
+  // A --region render writes only the region, so the format limit applies to its size.
+  const uint32_t ow = s.region ? s.region->x1 - s.region->x0 : w, oh = s.region ? s.region->y1 - s.region->y0 : h;
+  if (const uint32_t maxSide = formatMaxSide(f); maxSide != 0 && (ow > maxSide || oh > maxSide)) {
+    const std::string what = s.region ? std::string("the region")
+                                      : (s.res.preset.empty() ? fmt::format("{}x{}", s.res.width, s.res.height)
+                                                              : s.res.preset);
+    fail(fmt::format("{} images are limited to {} px per side, but {} is {}x{}. Use EXR, PNG or TIFF, or a smaller "
+                     "--res or --scale.",
+                     formatLabel(f), maxSide, what, ow, oh));
+  }
 
   if (s.sample_range && s.spp != 0 && s.sample_range->last >= s.spp)
     fail(fmt::format("--sample-range {}-{} goes past --spp {} (the last sample is {})", s.sample_range->first,

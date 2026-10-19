@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <nlohmann/json.hpp>
 #include <optional>
 #include <span>
 #include <string>
@@ -25,7 +26,8 @@ struct Invocation {
   std::vector<std::filesystem::path> merge_inputs;
   std::filesystem::path merge_output;
 
-  RenderSettings settings;  // resolved and finalized; not resolved for info modes and merge
+  RenderSettings settings;  // resolved and finalized; not resolved for info modes
+  nlohmann::json cli_settings = nlohmann::json::object();  // settings given explicitly on the command line
   std::filesystem::path config_file;
   std::vector<std::string> warnings;  // to log once logging is up
 };

@@ -22,6 +22,11 @@ void DeviceSlot::addLease(const WorkItem& item) {
   cv_.notify_one();
 }
 
+void DeviceSlot::clearQueue() {
+  std::lock_guard lock(mutex_);
+  queue_.clear();
+}
+
 void DeviceSlot::finish() {
   {
     std::lock_guard lock(mutex_);
@@ -62,7 +67,7 @@ void DeviceSlot::run() {
       rendering_ = false;
       break;
     }
-    cb_.result(std::move(result));
+    if (!result.cancelled) cb_.result(std::move(result));  // cancelled results are incomplete: drop them
     lock.lock();
     rendering_ = false;
   }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <string_view>
 
 namespace pen::app {
@@ -25,5 +26,9 @@ void detachConsole();
 
 // Shows a message box on Windows; prints to stderr on Linux.
 void showMessage(std::string_view title, std::string_view text, bool isError);
+
+// Ctrl+C (and SIGTERM / console close) sets the returned flag so the render can checkpoint and exit with
+// code 5; a second Ctrl+C exits immediately.
+const std::atomic<bool>& installInterruptHandler();
 
 }  // namespace pen::app

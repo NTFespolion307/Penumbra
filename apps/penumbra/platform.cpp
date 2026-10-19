@@ -5,11 +5,34 @@
 
 #if defined(_WIN32)
 #include <windows.h>
+#else
+#include <csignal>
+#include <unistd.h>
 #endif
 
 namespace pen::app {
 
+namespace {
+std::atomic<bool> g_interrupted{false};
+constexpr int kInterruptedExit = 5;
+}  // namespace
+
 #if defined(_WIN32)
+
+namespace {
+BOOL WINAPI consoleHandler(DWORD type) {
+  if (type == CTRL_C_EVENT || type == CTRL_BREAK_EVENT || type == CTRL_CLOSE_EVENT) {
+    if (g_interrupted.exchange(true)) ExitProcess(kInterruptedExit);  // second Ctrl+C: leave now
+    return TRUE;
+  }
+  return FALSE;
+}
+}  // namespace
+
+const std::atomic<bool>& installInterruptHandler() {
+  SetConsoleCtrlHandler(consoleHandler, TRUE);
+  return g_interrupted;
+}
 
 namespace {
 std::wstring widen(std::string_view s) {
@@ -43,6 +66,21 @@ void showMessage(std::string_view title, std::string_view text, bool isError) {
 }
 
 #else
+
+namespace {
+void signalHandler(int) {
+  if (g_interrupted.exchange(true)) _exit(kInterruptedExit);  // second signal: leave now
+}
+}  // namespace
+
+const std::atomic<bool>& installInterruptHandler() {
+  struct sigaction sa {};
+  sa.sa_handler = signalHandler;
+  sigemptyset(&sa.sa_mask);
+  sigaction(SIGINT, &sa, nullptr);
+  sigaction(SIGTERM, &sa, nullptr);
+  return g_interrupted;
+}
 
 ConsoleSetup::ConsoleSetup() = default;
 ConsoleSetup::~ConsoleSetup() = default;

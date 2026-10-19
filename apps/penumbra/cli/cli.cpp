@@ -174,10 +174,35 @@ ParseResult parse(std::span<const std::string> args, const ParseOptions& options
   if (given("--code")) inv.code = value("--code");
   if (given("--resume")) inv.resume = pathFromUtf8(value("--resume"));
 
+  SettingsSources sources;
+  sources.load_user_config = options.load_user_config;
+  if (given("--config")) sources.config_file = pathFromUtf8(value("--config"));
+  for (const auto& [spec, opt] : settingOptions) {
+    if (!opt->count()) continue;
+    if (spec->kind == OptionKind::Flag) sources.cli[std::string(spec->key)] = true;
+    else sources.cli[std::string(spec->key)] = opt->as<std::string>();
+  }
+  const auto resolveInto = [&](Invocation& target) -> bool {
+    try {
+      ResolvedSettings resolved = resolveSettings(sources);
+      target.settings = std::move(resolved.settings);
+      target.config_file = std::move(resolved.config_file);
+      target.warnings = std::move(resolved.warnings);
+      target.cli_settings = sources.cli;
+      return true;
+    } catch (const SettingsError& e) {
+      fail(e.what(), e.exit_code);
+      return false;
+    }
+  };
+
   if (merge->parsed()) {
     inv.mode = Mode::Merge;
     for (const auto& f : mergeInputs) inv.merge_inputs.push_back(pathFromUtf8(f));
     inv.merge_output = pathFromUtf8(mergeOutput);
+    if (sceneGiven) return fail("merge takes films, not a scene");
+    sources.cli["output"] = mergeOutput;  // output options (exposure, format...) come from the root flags
+    if (!resolveInto(inv)) return result;
     result.invocation = std::move(inv);
     return result;
   }
@@ -210,23 +235,8 @@ ParseResult parse(std::span<const std::string> args, const ParseOptions& options
     else if (inv.terminal) inv.mode = Mode::Terminal;
   }
 
-  SettingsSources sources;
-  sources.load_user_config = options.load_user_config;
-  if (given("--config")) sources.config_file = pathFromUtf8(value("--config"));
-  for (const auto& [spec, opt] : settingOptions) {
-    if (!opt->count()) continue;
-    if (spec->kind == OptionKind::Flag) sources.cli[std::string(spec->key)] = true;
-    else sources.cli[std::string(spec->key)] = opt->as<std::string>();
-  }
-  try {
-    ResolvedSettings resolved = resolveSettings(sources);
-    inv.settings = std::move(resolved.settings);
-    inv.config_file = std::move(resolved.config_file);
-    inv.warnings = std::move(resolved.warnings);
-  } catch (const SettingsError& e) {
-    return fail(e.what(), e.exit_code);
-  }
-
+  if (inv.mode == Mode::Resume) sources.load_user_config = false;  // the session file holds the settings
+  if (!resolveInto(inv)) return result;
   result.invocation = std::move(inv);
   return result;
 }

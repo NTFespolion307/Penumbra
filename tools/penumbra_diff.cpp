@@ -3,6 +3,7 @@
 //   penumbra-diff a.exr b.exr [--max-relmse X]   relMSE, max absolute difference; fail above X
 //   penumbra-diff a.exr b.exr --exact            fail unless every float is bit-identical
 //   penumbra-diff a.exr --uniform V --tolerance T   fail unless every pixel is within T (relative) of V
+//   --crop x0,y0,x1,y1 compares only that rectangle of A (decoding only its rows: for gigapixel EXRs)
 //
 // Exit codes: 0 pass, 1 fail, 2 usage or read error. relMSE = mean over pixels and channels of
 // (a - b)^2 / (b^2 + 0.01).
@@ -11,6 +12,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <optional>
 #include <fmt/format.h>
 #include <string>
 #include <vector>
@@ -22,7 +24,8 @@ namespace {
 
 int usage() {
   std::fputs("usage: penumbra-diff A B [--max-relmse X | --exact]\n"
-             "       penumbra-diff A --uniform V [--tolerance T]\n",
+             "       penumbra-diff A --uniform V [--tolerance T]\n"
+             "       --crop x0,y0,x1,y1 reads only that rectangle of A\n",
              stderr);
   return 2;
 }
@@ -33,12 +36,18 @@ int main(int argc, char** argv) {
   std::vector<std::string> files;
   double maxRelMse = -1, uniform = -1, tolerance = 0.005;
   bool exact = false;
+  std::optional<pen::ImageCrop> crop;
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
     if (a == "--exact") exact = true;
     else if (a == "--max-relmse" && i + 1 < argc) maxRelMse = std::atof(argv[++i]);
     else if (a == "--uniform" && i + 1 < argc) uniform = std::atof(argv[++i]);
     else if (a == "--tolerance" && i + 1 < argc) tolerance = std::atof(argv[++i]);
+    else if (a == "--crop" && i + 1 < argc) {
+      pen::ImageCrop c;
+      if (std::sscanf(argv[++i], "%u,%u,%u,%u", &c.x0, &c.y0, &c.x1, &c.y1) != 4) return usage();
+      crop = c;
+    }
     else if (a.starts_with("--")) return usage();
     else files.push_back(a);
   }
@@ -46,7 +55,7 @@ int main(int argc, char** argv) {
   try {
     if (uniform >= 0) {
       if (files.size() != 1) return usage();
-      const pen::ImageRGB img = pen::loadImageRGB(pen::pathFromUtf8(files[0]));
+      const pen::ImageRGB img = pen::loadImageRGB(pen::pathFromUtf8(files[0]), crop);
       double worst = 0, sum = 0;
       uint32_t wx = 0, wy = 0, bad = 0;
       for (uint32_t y = 0; y < img.height; ++y) {
@@ -71,7 +80,7 @@ int main(int argc, char** argv) {
     }
 
     if (files.size() != 2) return usage();
-    const pen::ImageRGB a = pen::loadImageRGB(pen::pathFromUtf8(files[0]));
+    const pen::ImageRGB a = pen::loadImageRGB(pen::pathFromUtf8(files[0]), crop);
     const pen::ImageRGB b = pen::loadImageRGB(pen::pathFromUtf8(files[1]));
     if (a.width != b.width || a.height != b.height) {
       std::printf("size differs: %ux%u vs %ux%u\n", a.width, a.height, b.width, b.height);

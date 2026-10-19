@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   Builds Penumbra on Windows: checks prerequisites, configures, builds, runs the tests and a smoke test,
   and prints where the binary is.
@@ -104,7 +104,7 @@ try {
 
   if (-not $NoTests) {
     Step 'Running tests'
-    ctest --preset $preset; Run 'Tests'
+    ctest --preset $preset -LE large; Run 'Tests'  # the 20K gate test runs with: ctest -L large
   }
 
   $exe = Join-Path $root "build\$preset\bin\penumbra.exe"

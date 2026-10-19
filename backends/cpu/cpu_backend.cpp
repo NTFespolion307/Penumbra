@@ -129,7 +129,12 @@ class CpuBackend final : public IBackend {
     arena_->execute([&] { build(scene); });
   }
 
-  void prepare(const FrameSetup& frame) override { frame_ = frame; }
+  void prepare(const FrameSetup& frame) override {
+    frame_ = frame;
+    cancel_ = false;
+  }
+
+  void cancel() override { cancel_ = true; }
 
   void render(const WorkItem& item, TileResult& out) override {
     const auto start = std::chrono::steady_clock::now();
@@ -149,6 +154,7 @@ class CpuBackend final : public IBackend {
       tbb::parallel_for(tbb::blocked_range2d<uint32_t>(r.y0, r.y1, 4, r.x0, r.x1, 16), [&](const auto& range) {
         uint32_t localNans = 0;
         for (uint32_t y = range.rows().begin(); y < range.rows().end(); ++y) {
+          if (cancel_.load(std::memory_order_relaxed)) return;
           for (uint32_t x = range.cols().begin(); x < range.cols().end(); ++x) {
             Vec3f sum(0);
             for (uint32_t s = item.sample_begin; s < item.sample_end; ++s) {
@@ -171,6 +177,7 @@ class CpuBackend final : public IBackend {
       });
     });
     out.nan_count = nans.load();
+    out.cancelled = cancel_.load();
     out.render_seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
   }
 
@@ -228,6 +235,7 @@ class CpuBackend final : public IBackend {
   }
 
   uint32_t threads_ = 1;
+  std::atomic<bool> cancel_{false};
   std::unique_ptr<tbb::task_arena> arena_;
   RTCDevice device_ = nullptr;
   RTCScene top_ = nullptr;

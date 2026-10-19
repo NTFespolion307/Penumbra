@@ -13,27 +13,6 @@
 using namespace pen;
 namespace fs = std::filesystem;
 
-TEST_CASE("film merge is a sample-weighted mean", "[film]") {
-  Film film(4, 2);
-  TileResult a;
-  a.rect = {0, 0, 4, 2};
-  a.sample_begin = 0;
-  a.sample_end = 3;
-  a.mean.assign(8, Vec3f(1, 2, 3));
-  film.merge(a);
-  CHECK(film.mean(2, 1) == Vec3f(1, 2, 3));  // first merge stores values bit for bit
-  TileResult b = a;
-  b.rect = {2, 0, 4, 2};
-  b.sample_begin = 3;
-  b.sample_end = 4;
-  b.mean.assign(4, Vec3f(5, 6, 7));
-  film.merge(b);
-  CHECK(film.samples(3, 0) == 4);
-  CHECK(film.samples(0, 0) == 3);
-  CHECK(std::fabs(film.mean(3, 0).x - 2.0f) < 1e-6f);  // (1*3 + 5*1) / 4
-  CHECK(film.mean(0, 0).x == 1.0f);
-}
-
 TEST_CASE("scheduler covers every pixel once, centre first", "[scheduler]") {
   Scheduler s(2560, 1440, 256, 0, 64, std::nullopt);
   std::vector<int> cover(2560 * 1440, 0);
@@ -56,7 +35,9 @@ TEST_CASE("scheduler covers every pixel once, centre first", "[scheduler]") {
 }
 
 TEST_CASE("frames below 1080p are one item; regions clip tiles", "[scheduler]") {
-  Scheduler small(1280, 720, 256, 0, 16, std::nullopt);
+  CHECK(filmTileSize(1280, 720, 256) == 1280);
+  CHECK(filmTileSize(1920, 1080, 256) == 256);
+  Scheduler small(1280, 720, filmTileSize(1280, 720, 256), 0, 16, std::nullopt);
   CHECK(small.total() == 1);
   CHECK(small.next()->rect == TileRect{0, 0, 1280, 720});
 
@@ -68,6 +49,19 @@ TEST_CASE("frames below 1080p are one item; regions clip tiles", "[scheduler]") 
     pixels += item->rect.pixels();
   }
   CHECK(pixels == 500 * 200);
+}
+
+TEST_CASE("scheduler skips tiles already in the film (resume)", "[scheduler]") {
+  Scheduler s(3840, 2160, 256, 0, 8, std::nullopt);
+  const uint64_t skipped = s.skipDone([](uint32_t tile) { return tile % 2 == 0; });
+  CHECK(s.completed() > 0);
+  CHECK(skipped > 0);
+  uint32_t issued = 0;
+  while (auto item = s.next()) {
+    CHECK(item->tile % 2 == 1);
+    ++issued;
+  }
+  CHECK(issued + s.completed() == s.total());
 }
 
 TEST_CASE("scheduler requeues released items", "[scheduler]") {

@@ -8,6 +8,7 @@ add_executable(penumbra_unit_tests
   unit/test_bsdf.cpp
   unit/test_cli.cpp
   unit/test_config.cpp
+  unit/test_film.cpp
   unit/test_parse.cpp
   unit/test_presets.cpp
   unit/test_render_path.cpp
@@ -47,7 +48,11 @@ pen_smoke(pen_json 0 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/scene.pen.
 pen_smoke(exr_half 0 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/scene.pen.json|--res|64x36|--spp|1|-o|half.exr" "wrote")
 pen_smoke(exr_float 0 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/scene.pen.json|--res|64x36|--spp|1|--bit-depth|32|-o|float.exr" "wrote")
 pen_smoke(png_16bit 0 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/scene.pen.json|--res|64x36|--spp|1|--bit-depth|16|-o|deep.png" "wrote")
-pen_smoke(jpeg_not_yet 1 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/empty.gltf|-o|out.jpg" "built in milestone M2")
+pen_smoke(jpeg 0 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/scene.pen.json|--res|64x36|--spp|1|-o|out.jpg" "wrote")
+pen_smoke(tiff 0 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/scene.pen.json|--res|64x36|--spp|1|-o|out.tiff" "wrote")
+pen_smoke(webp 0 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/scene.pen.json|--res|64x36|--spp|1|-o|out.webp" "wrote")
+pen_smoke(resume_missing 1 "${PEN_SMOKE_COMMON}|--terminal|--resume|missing.session.json" "cannot open session")
+pen_smoke(merge_missing 1 "${PEN_SMOKE_COMMON}|merge|missing.penfilm|-o|m.exr" "cannot open")
 pen_smoke(gpu_backend_not_yet 3 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/empty.gltf|--backend|vulkan|-o|x.png" "M5")
 pen_smoke(unknown_camera 2 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/empty.gltf|--camera|Nope|-o|x.png" "not in the scene")
 
@@ -83,6 +88,22 @@ pen_render_test(golden_cornell reference cornell.pen.json "--res|256x256|--spp|2
 pen_render_test(spheres runs spheres.pen.json "--res|160x90|--spp|16")
 pen_render_test(ao runs spheres.pen.json "--res|160x90|--spp|4|--integrator|ao")
 pen_render_test(debug_normal runs spheres.pen.json "--res|160x90|--spp|1|--integrator|debug:normal")
+# M2: kill + --resume gives the same image bit for bit; merging region and sample-range halves reproduces the
+# single render; a --region render equals that crop of the full render; every preset renders.
+pen_render_test(resume resume cornell.pen.json "--res|1080p|--spp|16" -DKILL_AFTER=13)
+pen_render_test(merge_regions merge_regions cornell.pen.json "--res|1080p|--spp|4")
+pen_render_test(merge_samples merge_samples cornell.pen.json "--res|1080p|--spp|8")
+pen_render_test(region_crop region_crop cornell.pen.json "--res|1080p|--spp|4")
+pen_render_test(presets presets cornell.pen.json "--spp|1|--scale|0.01")
+set_tests_properties(render.resume PROPERTIES LABELS "render;gate;slow")
+if(UNIX)  # sends a real SIGINT with coreutils `timeout`
+  pen_render_test(interrupt interrupt cornell.pen.json "--res|1080p|--spp|16" -DKILL_AFTER=6)
+  set_tests_properties(render.interrupt PROPERTIES LABELS "render;gate;slow")
+endif()
+# The 20K gate (laptop, 1 spp, ~4 GB film): run with `ctest -L large`; the build scripts skip it.
+pen_render_test(large_20k large cornell.pen.json "--res|20k|--spp|1")
+set_tests_properties(render.large_20k PROPERTIES LABELS "large" TIMEOUT 3600)
+
 if(NOT EXISTS "${PROJECT_SOURCE_DIR}/tests/golden/cornell_256_4096spp.exr")
   message(STATUS "tests/golden/cornell_256_4096spp.exr not found: render.golden_cornell is disabled")
   set_tests_properties(render.golden_cornell PROPERTIES DISABLED TRUE)

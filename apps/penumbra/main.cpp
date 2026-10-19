@@ -39,19 +39,23 @@ int runUiPlaceholder(bool fromExplorer) {
 }
 
 int dispatch(const Invocation& inv, bool fromExplorer) {
+  pen::LocalRenderOptions render;
+  render.progress = pen::app::makeProgressPrinter(inv.settings.progress);
   switch (inv.mode) {
     case Mode::Ui: return runUiPlaceholder(fromExplorer);
     case Mode::Terminal:
       spdlog::info("render: {}", pen::cli::describe(inv.settings));
       if (inv.host) return notYet("Hosting workers (--host)", "M4");
-      return pen::runLocalRender(inv.settings, pen::app::makeProgressPrinter(inv.settings.progress));
+      render.interrupt = &pen::app::installInterruptHandler();
+      return pen::runLocalRender(inv.settings, render);
     case Mode::Worker:
       spdlog::info("worker for controller {}", inv.join);
       return notYet("Joining a render", "M4");
     case Mode::Resume:
-      spdlog::info("resume {}", pen::pathToUtf8(inv.resume));
-      return notYet("Resume", "M2");
-    case Mode::Merge: return notYet("Film merge", "M2");
+      if (!inv.terminal) spdlog::info("the UI is built in milestone M10; resuming in the terminal");
+      render.interrupt = &pen::app::installInterruptHandler();
+      return pen::resumeLocalRender(inv.resume, inv.cli_settings, render);
+    case Mode::Merge: return pen::mergeFilmsToImage(inv.merge_inputs, inv.settings);
     case Mode::Benchmark: return notYet("The benchmark", "M9");
     default: return pen::toInt(pen::ExitCode::BadArguments);
   }
