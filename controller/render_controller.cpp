@@ -29,7 +29,26 @@ RenderController::RenderController(const RenderSettings& settings, std::shared_p
       scheduler_(film.layout(), sampleBegin(settings), sampleEnd(settings), settings.region, order),
       sample_begin_(sampleBegin(settings)) {}
 
-void RenderController::addWorker(std::unique_ptr<WorkerLink> link) { workers_.push_back(std::move(link)); }
+WorkerId RenderController::addWorker(const std::function<std::unique_ptr<WorkerLink>(WorkerId)>& make) {
+  WorkerLink* link = nullptr;
+  WorkerId id = 0;
+  bool offer = false;
+  {
+    std::lock_guard lock(mutex_);
+    id = static_cast<WorkerId>(workers_.size());
+    workers_.push_back(make(id));
+    link = workers_.back().get();
+    offer = running_ && !finished_;
+  }
+  if (offer) link->offerScene(scene_, settings_);  // joined mid-render: gets the scene like everyone else
+  return id;
+}
+
+std::vector<WorkerLink*> RenderController::workerSnapshotLocked() const {
+  std::vector<WorkerLink*> v;
+  for (const auto& w : workers_) v.push_back(w.get());
+  return v;
+}
 
 uint32_t RenderController::restoreFromFilm() {
   std::lock_guard lock(mutex_);
@@ -40,8 +59,8 @@ uint32_t RenderController::restoreFromFilm() {
 // ---------------------------------------------------------------- worker events
 
 void RenderController::onReady(WorkerId worker, const std::vector<DeviceReady>& devices) {
-  const WorkerInfo info = workers_[worker]->info();
   std::lock_guard lock(mutex_);
+  const WorkerInfo info = workers_[worker]->info();
   for (const DeviceReady& d : devices) {
     const std::string name = d.device < info.devices.size() ? info.devices[d.device].name : "?";
     spdlog::info("{} device {} ({}, {}): ready in {:.2f}s, {}", info.name, d.device, name, toString(d.backend),
@@ -53,7 +72,8 @@ void RenderController::onReady(WorkerId worker, const std::vector<DeviceReady>& 
 
 void RenderController::onRequestWork(WorkerId worker, DeviceId device, int count) {
   std::lock_guard lock(mutex_);
-  if (finished_ || tallies_[{worker, device}].failed) return;
+  const DeviceTally& t = tallies_[{worker, device}];
+  if (finished_ || t.failed || t.left) return;
   wanted_[{worker, device}] = count;  // "I can take this many more", not cumulative
   serveLocked();
 }
@@ -191,26 +211,60 @@ void RenderController::onDeviceFailed(WorkerId worker, DeviceId device, const st
   wanted_.erase({worker, device});
   spdlog::error("device {} of worker {} failed and is removed: {}", device, worker, error);
   if (live_devices_ > 0) --live_devices_;
-  if (live_devices_ == 0) {
+  if (live_devices_ == 0 && hosting_) {
+    spdlog::warn("no devices left; waiting for a worker to join");
+  } else if (live_devices_ == 0) {
     failure_ = fmt::format("every device failed (last: {})", error);
     stopLocked();
   }
 }
 
+void RenderController::requeueWorkerLocked(WorkerId worker) {
+  for (auto it = leases_.begin(); it != leases_.end();) {
+    if (it->second.worker != worker) {
+      ++it;
+      continue;
+    }
+    if (!it->second.reissued) scheduler_.requeue(it->second.item);
+    ++reissued_;
+    it = leases_.erase(it);
+  }
+  for (auto it = wanted_.begin(); it != wanted_.end();) it = it->first.first == worker ? wanted_.erase(it) : std::next(it);
+}
+
 void RenderController::onGone(WorkerId worker, GoneReason reason, const std::string& detail) {
   std::lock_guard lock(mutex_);
-  if (reason == GoneReason::Failed) {
+  if (reason == GoneReason::Failed && !hosting_) {
     spdlog::error("worker {} failed: {}", worker, detail);
     failure_ = detail;
     stopLocked();
+    return;
   }
+  size_t outstanding = 0;
+  for (const auto& [id, info] : leases_) outstanding += info.worker == worker;
+  if (!finished_)
+    spdlog::info("worker {} left ({}); {} lease(s) requeued", worker, detail, outstanding);
+  requeueWorkerLocked(worker);
+  for (auto& [key, tally] : tallies_) {
+    if (key.first != worker || tally.failed || tally.left) continue;
+    tally.left = true;
+    if (live_devices_ > 0) --live_devices_;
+  }
+  if (live_devices_ == 0 && !finished_ && !hosting_) {
+    failure_ = fmt::format("every worker left (last: {})", detail);
+    stopLocked();
+    return;
+  }
+  if (live_devices_ == 0 && !finished_) spdlog::warn("no devices left; waiting for a worker to join");
+  serveLocked();
+  checkFinishedLocked();
 }
 
 // ---------------------------------------------------------------- run loop
 
 void RenderController::stopLocked() {
   scheduler_.stopNew();
-  for (auto& w : workers_) w->cancel({});
+  for (auto& w : workers_) w->cancel({});  // non-blocking for every link
   finished_ = true;
   cv_.notify_all();
 }
@@ -262,12 +316,15 @@ RenderProgress RenderController::progress() const {
 RenderOutcome RenderController::run(const RenderRunOptions& options) {
   start_ = Clock::now();
   RenderOutcome outcome;
+  std::vector<WorkerLink*> initial;
   {
     std::lock_guard lock(mutex_);
     if (scheduler_.done()) finished_ = true;  // resumed a film that was already complete
+    running_ = true;
+    initial = workerSnapshotLocked();
   }
   if (!finished_)
-    for (auto& w : workers_) w->offerScene(scene_, settings_);
+    for (WorkerLink* w : initial) w->offerScene(scene_, settings_);
 
   auto lastProgress = Clock::now();
   auto lastCheckpoint = lastProgress;
@@ -321,8 +378,13 @@ RenderOutcome RenderController::run(const RenderRunOptions& options) {
     }
   }
   // Wake devices that are still busy (a hung device waits for cancel), then let every worker finish.
-  for (auto& w : workers_) w->cancel({});
-  for (auto& w : workers_) w->complete();
+  std::vector<WorkerLink*> all;
+  {
+    std::lock_guard lock(mutex_);
+    all = workerSnapshotLocked();
+  }
+  for (WorkerLink* w : all) w->cancel({});
+  for (WorkerLink* w : all) w->complete();
 
   std::lock_guard lock(mutex_);
   if (!failure_.empty()) throw std::runtime_error(failure_);

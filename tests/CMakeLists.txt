@@ -9,13 +9,14 @@ add_executable(penumbra_unit_tests
   unit/test_cli.cpp
   unit/test_config.cpp
   unit/test_film.cpp
+  unit/test_net.cpp
   unit/test_parse.cpp
   unit/test_presets.cpp
   unit/test_render_path.cpp
   unit/test_sampling.cpp
   unit/test_scheduler.cpp
   unit/test_settings.cpp)
-target_link_libraries(penumbra_unit_tests PRIVATE penumbra_cli penumbra_controller Catch2::Catch2WithMain)
+target_link_libraries(penumbra_unit_tests PRIVATE penumbra_cli penumbra_controller penumbra_net Catch2::Catch2WithMain)
 target_compile_definitions(penumbra_unit_tests PRIVATE PEN_TEST_DATA_DIR="${PEN_TEST_DATA}")
 catch_discover_tests(penumbra_unit_tests PROPERTIES LABELS unit)
 
@@ -42,6 +43,10 @@ pen_smoke(webp_size_limit 1 "${PEN_SMOKE_COMMON}|--terminal|missing.glb|--res|20
 pen_smoke(missing_scene 2 "${PEN_SMOKE_COMMON}|--terminal|missing.glb" "scene file not found")
 pen_smoke(worker_needs_join 1 "${PEN_SMOKE_COMMON}|--worker|--code|K7QD-M2XR-9FHT-4WNB" "--join")
 pen_smoke(host_needs_terminal 1 "${PEN_SMOKE_COMMON}|--host" "--terminal")
+pen_smoke(no_local_needs_host 1 "${PEN_SMOKE_COMMON}|--terminal|missing.glb|--no-local" "needs --host")
+pen_smoke(worker_bad_address 1 "${PEN_SMOKE_COMMON}|--worker|--join|host:99999|--code|K7QD-M2XR-9FHT-4WNB" "port must be")
+pen_smoke(worker_nothing_listening 7 "${PEN_SMOKE_COMMON}|--worker|--join|127.0.0.1:1|--code|K7QD-M2XR-9FHT-4WNB"
+          "cannot connect")
 pen_smoke(empty_scene_renders 0 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/empty.gltf|--res|240p|--spp|1|-o|empty.png"
           "426x240.*no lights")
 pen_smoke(pen_json 0 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/scene.pen.json|--scale|0.05|--spp|1|-o|pen.png"
@@ -117,6 +122,28 @@ endif()
 # The 20K gate (laptop, 1 spp, ~4 GB film): run with `ctest -L large`; the build scripts skip it.
 pen_render_test(large_20k large cornell.pen.json "--res|20k|--spp|1")
 set_tests_properties(render.large_20k PROPERTIES LABELS "large" TIMEOUT 3600)
+
+# ---- Network tests (M4): a hosting controller and worker processes on loopback match the solo render ----
+add_executable(penumbra-nettest net/nettest.cpp)
+function(pen_net_test name port workers scene args)
+  add_test(NAME net.${name}
+           COMMAND "${CMAKE_COMMAND}" -DPENUMBRA=$<TARGET_FILE:penumbra> -DDIFF=$<TARGET_FILE:penumbra-diff>
+                   -DNETTEST=$<TARGET_FILE:penumbra-nettest> -DWORKDIR=${CMAKE_CURRENT_BINARY_DIR} -DNAME=net_${name}
+                   -DSCENE=${PEN_SCENES}/${scene} "-DARGS=${args}" -DMODE=network -DPORT=${port}
+                   -DWORKERS=${workers} ${ARGN} -P "${PROJECT_SOURCE_DIR}/cmake/RenderCheck.cmake")
+  set_tests_properties(net.${name} PROPERTIES LABELS "net;gate")
+endfunction()
+# Each test has its own port so ctest -j can run them side by side.
+pen_net_test(loopback 7501 3 cornell.pen.json "--res|1080p|--scale|0.5|--spp|32" "-DREF_ARGS=--devices|cpu"
+             "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|2")
+pen_net_test(loopback_local 7502 2 cornell.pen.json "--res|1080p|--scale|0.5|--spp|32" "-DREF_ARGS=--devices|cpu"
+             "-DCONTROLLER_ARGS=--threads|2" "-DWORKER_ARGS=--threads|2")
+# 3 workers with 4 null devices each, 4K in 135 tiles: many leases in flight, tiles arrive out of order. The
+# workers start together: the null backend finishes in seconds, and a worker that comes after the render has
+# ended finds no controller.
+pen_net_test(loopback_null 7503 3 cornell.pen.json "--res|4k|--spp|256|--backend|null" "-DREF_ARGS=--devices|cpu"
+             "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--backend|null|--devices|cpu,cpu,cpu,cpu"
+             -DWORKER_DELAY_MS=30)
 
 if(NOT EXISTS "${PROJECT_SOURCE_DIR}/tests/golden/cornell_256_4096spp.exr")
   message(STATUS "tests/golden/cornell_256_4096spp.exr not found: render.golden_cornell is disabled")

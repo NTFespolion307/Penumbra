@@ -1,5 +1,6 @@
 #include "worker/device_slot.h"
 
+#include <chrono>
 #include <exception>
 
 namespace pen {
@@ -58,8 +59,11 @@ void DeviceSlot::run() {
     lock.unlock();
     TileResult result;
     result.device = id_;
+    const auto start = std::chrono::steady_clock::now();
     try {
       backend_.render(item, result);
+      busy_us_ += static_cast<uint64_t>(
+          std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count());
     } catch (const std::exception& e) {
       lock.lock();
       std::vector<LeaseId> lost{item.lease};

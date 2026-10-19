@@ -235,8 +235,11 @@ ParseResult parse(std::span<const std::string> args, const ParseOptions& options
     else if (inv.terminal) inv.mode = Mode::Terminal;
   }
 
+  const char* noLocalAlone = "--no-local renders nothing on this machine, so it needs --host to let workers join";
+  if (inv.mode == Mode::Terminal && !inv.host && sources.cli.contains("no_local")) return fail(noLocalAlone);
   if (inv.mode == Mode::Resume) sources.load_user_config = false;  // the session file holds the settings
   if (!resolveInto(inv)) return result;
+  if (inv.mode == Mode::Terminal && inv.settings.no_local && !inv.host) return fail(noLocalAlone);
   result.invocation = std::move(inv);
   return result;
 }

@@ -12,7 +12,8 @@ combination of machines, GPUs and backends converges to the same image.
 > (Embree) with a path tracer (next-event estimation, MIS), the glTF PBR material with its common extensions and
 > HDRI lighting, at any size up to 160K, with checkpoints, `--resume` and `merge`, writing EXR, PNG, JPEG, TIFF
 > or WebP. Work is split into tile and sample chunks that any number of local devices share, with recovery from
-> failed or hung devices. Networking arrives in M4, GPU backends in M5/M6, the UI in M10. Features marked
+> failed or hung devices. Networking (M4) is being built: hosting and joining work, but connections are not
+> encrypted yet. GPU backends arrive in M5/M6, the UI in M10. Features marked
 > *(planned, Mx)* below are not built yet. The roadmap is in [`docs/GUIDE.md`](docs/GUIDE.md).
 
 <!-- A screenshot goes here once the UI exists (M10). -->
@@ -289,7 +290,10 @@ usual time is handed out again, and the first result wins.
 
 ## Rendering with several machines
 
-*(planned, M4: everything in this section describes the finished networking; it is not built yet.)*
+*(in progress, M4.)* Working now: `--terminal --host`, `--no-local` and `--worker --join` on one machine or a
+shared folder (workers read the scene files from the controller's paths). **Not yet:** encryption and join-code
+checks (until then, host only on a network you trust), sending the scene to workers, heartbeats, `--stay`, UPnP.
+The rest of this section describes the finished networking.
 
 **Hosting.** In the UI, LAN hosting starts with the app and the Dashboard shows the join code and the address to
 give workers; internet hosting is switched on in Settings. Headless, add `--host`:

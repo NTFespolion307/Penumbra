@@ -5,6 +5,7 @@
 #include <chrono>
 #include <fmt/format.h>
 
+#include "controller/hosting/host.h"
 #include "controller/local_worker.h"
 #include "core/exit_codes.h"
 #include "core/film/film.h"
@@ -142,14 +143,18 @@ void saveSession(Session& session, const std::filesystem::path& path, const Rend
 int renderAndFinish(const RenderSettings& s, std::shared_ptr<Scene> scene, Film& film, Session& session,
                     const std::filesystem::path& sessionPath, const LocalRenderOptions& options) {
   DeviceSelection devices;
-  try {
-    devices = createDevices(s, /*controllerHost=*/true);
-  } catch (const NoDeviceError& e) {
-    spdlog::error("{}", e.what());
-    return toInt(ExitCode::NoUsableDevice);
-  } catch (const BackendError& e) {
-    spdlog::error("{}", e.what());
-    return toInt(ExitCode::NoUsableDevice);
+  if (s.no_local) {
+    spdlog::info("--no-local: this machine coordinates only; workers do all the rendering");
+  } else {
+    try {
+      devices = createDevices(s, /*controllerHost=*/true);
+    } catch (const NoDeviceError& e) {
+      spdlog::error("{}", e.what());
+      return toInt(ExitCode::NoUsableDevice);
+    } catch (const BackendError& e) {
+      spdlog::error("{}", e.what());
+      return toInt(ExitCode::NoUsableDevice);
+    }
   }
   for (const auto& n : devices.notes) spdlog::info("{}", n);
   for (size_t i = 0; i < devices.devices.size(); ++i) {
@@ -161,13 +166,33 @@ int renderAndFinish(const RenderSettings& s, std::shared_ptr<Scene> scene, Film&
   const PassOrder order = film.inRam() ? PassOrder::BreadthFirst : PassOrder::DepthFirst;
   spdlog::info("pass order: {}", order == PassOrder::BreadthFirst ? "breadth-first (whole image, pass by pass)"
                                                                   : "depth-first (tile after tile)");
+  // The host is destroyed after the controller: remote worker links (owned by the controller) hold sockets of
+  // the host's network thread.
+  std::unique_ptr<Host> host;
   RenderController controller(s, scene, film, order);
   if (const uint32_t restored = controller.restoreFromFilm(); restored > 0) {
     const RenderProgress p = controller.progress();
     spdlog::info("resume: {} of {} tiles already have samples in the film ({:.1f}% of the samples)", restored,
                  p.items_total, p.samples_total ? 100.0 * double(p.samples_done) / double(p.samples_total) : 0.0);
   }
-  controller.addWorker(std::make_unique<LocalWorker>(controller.nextWorkerId(), controller, std::move(devices.devices)));
+  if (!devices.devices.empty())
+    controller.addWorker([&](WorkerId id) {
+      return std::make_unique<LocalWorker>(id, controller, std::move(devices.devices));
+    });
+
+  if (options.host) {
+    controller.setHosting(true);
+    try {
+      host = std::make_unique<Host>(s, controller, [&](const Host::MakeLink& make) { controller.addWorker(make); });
+    } catch (const std::exception& e) {
+      spdlog::error("{}", e.what());
+      return toInt(ExitCode::BadArguments);
+    }
+    spdlog::info("hosting on port {}{}; workers join with: penumbra --worker --join <this machine's address>:{} "
+                 "--code <code>",
+                 host->port(), s.bind.empty() ? " (all interfaces)" : fmt::format(" ({})", s.bind), host->port());
+    if (s.no_local) spdlog::info("waiting for workers to join");
+  }
 
   RenderRunOptions run;
   run.interrupt = options.interrupt;
@@ -178,8 +203,11 @@ int renderAndFinish(const RenderSettings& s, std::shared_ptr<Scene> scene, Film&
     outcome = controller.run(run);
   } catch (const std::exception& e) {
     spdlog::error("render failed: {}", e.what());
+    if (host) host->shutdown(std::chrono::seconds(0));
     return toInt(ExitCode::NoUsableDevice);
   }
+  // Workers got RenderComplete; give them a moment to say Bye before closing their connections.
+  if (host) host->shutdown(std::chrono::seconds(5));
 
   // Final checkpoint and session state.
   try {

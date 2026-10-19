@@ -13,11 +13,12 @@ namespace pen {
 struct LocalRenderOptions {
   std::function<void(const RenderProgress&)> progress;
   const std::atomic<bool>* interrupt = nullptr;  // Ctrl+C
+  bool host = false;  // --host: accept workers on --port while rendering (docs/GUIDE.md "Controller and workers")
 };
 
-// A headless controller render on this machine's devices (`--terminal`): load the scene, create the film
-// (RAM or disk) and session file, render through controller -> scheduler -> local worker -> film, checkpoint,
-// write the output. Returns the process exit code (0, or 1-5 per docs/GUIDE.md).
+// A headless controller render (`--terminal`, with `--host` also on workers that join): load the scene, create
+// the film (RAM or disk) and session file, render through controller -> scheduler -> local and remote workers
+// -> film, checkpoint, write the output. Returns the process exit code (0, or 1-5 per docs/GUIDE.md).
 int runLocalRender(const RenderSettings& settings, const LocalRenderOptions& options);
 
 // `--resume <session.json>`: continues an interrupted render. `cliOverrides` holds settings given on the

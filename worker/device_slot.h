@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
@@ -40,6 +41,8 @@ class DeviceSlot {
   void join();
 
   uint32_t id() const { return id_; }
+  // Time spent inside IBackend::render, for the busy % in Stats.
+  double busySeconds() const { return busy_us_.load() * 1e-6; }
 
  private:
   void run();
@@ -53,6 +56,7 @@ class DeviceSlot {
   std::deque<WorkItem> queue_;
   bool finished_ = false;
   bool rendering_ = false;
+  std::atomic<uint64_t> busy_us_{0};
   std::thread thread_;
 };
 

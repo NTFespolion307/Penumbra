@@ -1,0 +1,171 @@
+// Penumbra wire protocol, version 1 (docs/PROTOCOL.md). Every frame carries one of these tables as its
+// payload; the frame header's message type says which (net/protocol.h). Change a table: bump
+// kProtocolVersion (core/version.h) and update docs/PROTOCOL.md in the same commit.
+
+namespace pen.net.wire;
+
+// ---- handshake ----
+
+table DeviceDesc {
+  name:string;
+  backend:ubyte;          // BackendKind
+  threads:uint;
+  memory_bytes:ulong;
+  hardware_rt:bool;
+}
+
+table Hello {
+  protocol_version:ushort;
+  app_version:string;
+  git_hash:string;
+  worker_name:string;
+  os:string;
+  cpu:string;
+  logical_cores:uint;
+  ram_total:ulong;
+  cache_free:ulong;
+  devices:[DeviceDesc];
+}
+
+table Welcome {
+  session_id:ulong;
+  worker_id:uint;
+  controller_name:string;
+  heartbeat_ms:uint;
+}
+
+enum RejectReason : ubyte { VersionMismatch, NotApproved, SessionFull, SessionClosed, Kicked, BadMessage }
+
+table Reject {
+  reason:RejectReason;
+  text:string;
+}
+
+// ---- scene ----
+
+table SceneOffer {
+  render_id:ulong;
+  settings_json:string;   // full RenderSettings (core/settings/serialize.h)
+  settings_hash:ulong;    // pixelSettingsHash
+  scene_hash:ulong;       // sceneFingerprint
+  film_width:uint;
+  film_height:uint;
+}
+
+table DeviceReadyDesc {
+  device:uint;
+  backend:ubyte;          // BackendKind
+  memory_tier:uint;
+  build_seconds:double;
+  summary:string;
+}
+
+table WorkerReady {
+  render_id:ulong;
+  devices:[DeviceReadyDesc];
+  scene_rejected:bool;
+  reason:string;
+}
+
+// ---- work ----
+
+table RequestWork {
+  device:uint;
+  count:int;              // "I can take this many more" (a set, not an increment)
+}
+
+table Lease {
+  lease_id:ulong;
+  device:uint;
+  item_id:ulong;          // (tile << 32) | chunk
+  x0:uint; y0:uint; x1:uint; y1:uint;
+  sample_begin:uint;
+  sample_end:uint;
+  settings_hash:ulong;
+}
+
+enum TileEncoding : ubyte { Float32Shuffled, Float16Shuffled }
+
+table TileResult {
+  lease_id:ulong;
+  device:uint;
+  item_id:ulong;
+  x0:uint; y0:uint; x1:uint; y1:uint;
+  sample_begin:uint;
+  sample_end:uint;
+  encoding:TileEncoding;
+  pixels:[ubyte];         // zstd(byte planes of the RGB means), see net/tile_codec.h
+  nan_count:uint;
+  render_seconds:double;
+  checksum:ulong;         // BLAKE3-64 of the decoded RGB float32 values
+}
+
+enum AckStatus : ubyte { Accepted, Duplicate, Rejected }
+
+table TileAck {
+  lease_id:ulong;
+  status:AckStatus;
+  reason:string;
+}
+
+table Release {
+  leases:[ulong];
+}
+
+table DeviceFailed {
+  device:uint;
+  error:string;
+}
+
+table Cancel {
+  all:bool;
+  leases:[ulong];
+}
+
+table Pause {
+  paused:bool;            // true: stop requesting work; false: continue (the guide's Pause / Resume)
+}
+
+table RenderComplete {
+  render_id:ulong;
+}
+
+// ---- status ----
+
+table DeviceStats {
+  device:uint;
+  busy_percent:float;
+  vram_used:ulong;
+  vram_total:ulong;
+  temperature_c:float;    // < -273 when unknown
+  tiles_per_s:float;
+  samples_per_s:double;
+}
+
+table Stats {
+  cpu_percent:float;
+  ram_used:ulong;
+  ram_total:ulong;
+  upload_bound:bool;
+  devices:[DeviceStats];
+}
+
+table Heartbeat {
+  sent_us:ulong;          // sender's clock, echoed back in echo_us to measure the round trip
+  echo_us:ulong;
+}
+
+enum LogLevel : ubyte { Info, Warn, Error }
+
+table Log {
+  level:LogLevel;
+  text:string;
+}
+
+table Bye {
+  reason:string;
+}
+
+table Kick {
+  reason:string;
+}

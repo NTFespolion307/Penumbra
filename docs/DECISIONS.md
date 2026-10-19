@@ -268,3 +268,32 @@ keep every tile open. Penumbra refuses it with a clear message.
 Linux (WSL Ubuntu 22.04, GCC 12): 117/117 incl. real SIGINT. Gate: 1, 2 and 4 CPU slots (960x540, 32 spp, 4
 chunks) and 1, 4 and 8 null slots (1080p, 160 chunks) give bit-identical images; a device failing on its first
 item has its leases requeued and a hung device's lease is re-issued, both bit-identical to a single-slot render.
+
+## M4: Network controller and workers
+
+User approved the M4 plan on 2026-10-19. Machines: WSL is the LAN worker for now (the user's PCs are not near
+each other); the internet worker is the vast.ai server joining the laptop controller over Tailscale.
+
+**D-053 Tiles travel as float32, not float16.** The guide sends tile means as float16 when they fit. Rounding to
+float16 would make a tile from another host differ from a local one, breaking D-045 (any distribution gives the
+same bits). Tiles are sent as float32 split into 4 byte planes and compressed with zstd level 3 (lossless; the
+planes compress much better than raw floats). The protocol keeps a per-tile encoding field, so a float16 mode can
+be added in M9 if measured bandwidth needs it.
+
+**D-054 Network tests run processes with `penumbra-nettest`.** CMake cannot run several processes at once, so a
+small test program (`tests/net/nettest.cpp`) starts the controller and workers, can hard-kill one after a delay,
+collects each process's output, and checks every exit code. Each network test uses its own port (7501+) so
+`ctest -j` can run them side by side.
+
+**D-055 Worker device settings stay local.** A worker renders with the controller's settings except
+`--backend`, `--devices`, `--threads`, `--vram-limit`, `--ram-limit` and `--no-texture-downsize`, which come from
+the worker's own command line and config file. A worker that cannot connect because nothing listens yet keeps
+trying for 15 s (the controller may still be starting), then exits with code 7.
+
+**D-056 `DeviceFailed` message.** The guide's table has no message for "one of my devices failed". Version 1 adds
+`DeviceFailed` (device id, error) next to `Release`, so a remote device failure is logged and counted exactly like
+a local one.
+
+**D-057 M4 step 1 loads the scene from the controller's paths.** Until scene packages exist (step 3), a
+`SceneOffer` carries absolute paths and the worker loads the files from them, which works on one machine or a
+shared folder. Connections are not encrypted until step 2; the README says so.

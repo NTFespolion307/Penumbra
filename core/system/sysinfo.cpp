@@ -116,4 +116,29 @@ SystemInfo querySystem() {
   return info;
 }
 
+double CpuUsage::sample() {
+  uint64_t idle = 0, total = 0;
+#if defined(_WIN32)
+  FILETIME fi, fk, fu;
+  if (!GetSystemTimes(&fi, &fk, &fu)) return 0;
+  const auto u64 = [](const FILETIME& f) { return (uint64_t(f.dwHighDateTime) << 32) | f.dwLowDateTime; };
+  idle = u64(fi);
+  total = u64(fk) + u64(fu);  // kernel time includes idle time
+#else
+  std::ifstream in("/proc/stat");
+  std::string cpu;
+  uint64_t v[8] = {};
+  in >> cpu >> v[0] >> v[1] >> v[2] >> v[3] >> v[4] >> v[5] >> v[6] >> v[7];
+  if (cpu != "cpu") return 0;
+  idle = v[3] + v[4];
+  for (uint64_t x : v) total += x;
+#endif
+  const uint64_t dIdle = idle - idle_, dTotal = total - total_;
+  const bool first = total_ == 0;
+  idle_ = idle;
+  total_ = total;
+  if (first || dTotal == 0) return 0;
+  return 100.0 * double(dTotal - dIdle) / double(dTotal);
+}
+
 }  // namespace pen
