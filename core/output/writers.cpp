@@ -4,6 +4,7 @@
 #include <ImfFrameBuffer.h>
 #include <ImfHeader.h>
 #include <ImfStringAttribute.h>
+#include <ImfThreading.h>
 #include <ImfTiledOutputFile.h>
 #include <half.h>
 #include <jpeglib.h>
@@ -18,6 +19,7 @@
 #include <cstring>
 #include <fmt/format.h>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "core/system/paths.h"
@@ -55,6 +57,9 @@ class ExrWriter final : public ImageWriter {
     const Imf::PixelType type = half_ ? Imf::HALF : Imf::FLOAT;
     for (const char* c : {"R", "G", "B"}) header.channels().insert(c, Imf::Channel(type));
     for (const auto& [k, v] : md) header.insert("penumbra:" + k, Imf::StringAttribute(v));
+    // OpenEXR compresses on one thread unless told otherwise; gigapixel outputs need every core.
+    if (Imf::globalThreadCount() == 0)
+      Imf::setGlobalThreadCount(static_cast<int>(std::max(1u, std::thread::hardware_concurrency())));
     try {
       file_ = std::make_unique<Imf::TiledOutputFile>(pathToUtf8(path).c_str(), header);
     } catch (const std::exception& e) {
