@@ -8,10 +8,11 @@ the image. Any number of **workers**, each with one or more GPUs, join with the 
 code, render tiles and send them back. A render on one machine is the same thing with no workers, and every
 combination of machines, GPUs and backends converges to the same image.
 
-> **Status: milestone M1 (CPU reference renderer).** Penumbra renders glTF and OBJ scenes on the CPU (Embree)
-> with a path tracer (next-event estimation, MIS), the glTF PBR material with its common extensions, HDRI
-> lighting, and writes PNG or EXR. Gigapixel films and resume arrive in M2, networking in M4, GPU backends in
-> M5/M6, the UI in M10. Features marked *(planned, Mx)* below are not built yet. The roadmap is in
+> **Status: milestone M2 (tiled film and gigapixel output).** Penumbra renders glTF and OBJ scenes on the CPU
+> (Embree) with a path tracer (next-event estimation, MIS), the glTF PBR material with its common extensions and
+> HDRI lighting, at any size up to 160K, with checkpoints, `--resume` and `merge`, writing EXR, PNG, JPEG, TIFF
+> or WebP. Several local devices and work splitting arrive in M3, networking in M4, GPU backends in M5/M6, the
+> UI in M10. Features marked *(planned, Mx)* below are not built yet. The roadmap is in
 > [`docs/GUIDE.md`](docs/GUIDE.md).
 
 <!-- A screenshot goes here once the UI exists (M10). -->
@@ -221,7 +222,9 @@ cmake --preset linux-gcc-release -DPEN_ENABLE_CUDA=OFF -DPEN_ENABLE_UI=OFF
 | `penumbra --terminal scene.glb --res 720p --spp 16 -o preview.png` | Quick preview |
 | `penumbra --terminal scene.pen.json --res 4k --spp 1024 -o final.exr` | 4K final with settings from a `.pen.json` |
 | `penumbra --terminal scene.glb --integrator debug:normal -o normals.png` | Debug views: `ao`, `debug:normal`, `debug:albedo`, `debug:depth` |
-| `penumbra --terminal --resume final.session.json` | Continue an interrupted render *(planned, M2)* |
+| `penumbra --terminal --resume final.session.json` | Continue an interrupted render (only output, logging and device flags may change) |
+| `penumbra --terminal scene.glb --res 20k --region 0,0,10240,11520 -o left.exr` | Render part of the image; the `.penfilm` is kept for `merge` |
+| `penumbra merge left.penfilm right.penfilm -o full.exr` | Combine partial films (regions or `--sample-range` parts) into one image |
 | `penumbra --list-devices` | Lists the devices this machine can render with |
 | `penumbra --diagnose` | Prints OS, CPU, RAM, devices, folders and free disk. **Paste this into bug reports.** |
 | `penumbra --version` | Prints version, git hash and protocol version |
@@ -237,9 +240,26 @@ the same keys as the CLI reference (for example `{"tonemap": "filmic", "worker_n
 
 The join code is never read from or written to the config file.
 
-**Output today (M1):** PNG (8/16-bit, sRGB curve with clipping until AgX/Filmic/ACES arrive in M11) and EXR
-(linear, half or float). JPEG, TIFF and WebP arrive with the streamed writers in M2. On the controller machine
-the CPU leaves 2 threads free unless you pass `--threads`.
+**Output.** EXR (linear, half or float, tiled), PNG (8/16-bit), JPEG, TIFF (8/16-bit display, 32-bit linear
+float; BigTIFF above 4 GB) and WebP. Until AgX/Filmic/ACES arrive in M11, display formats use the sRGB curve
+with clipping. Images are written in bands of 256 rows, so even a 160K output never sits in memory whole. With
+`--region` the output file contains only that region. On the controller machine the CPU leaves 2 threads free
+unless you pass `--threads`.
+
+**Film, checkpoints and resume.** Every render keeps its film in `<output name>.penfilm` next to the output (or
+in `--film-dir`), plus `<output name>.session.json`. Both are written at every checkpoint (`--checkpoint`,
+default 10 minutes) and deleted when the render completes; `--region` and `--sample-range` renders keep their
+film for `merge`.
+
+- **Ctrl+C:** stops within seconds, writes a checkpoint and the image so far (unrendered tiles are black), and
+  exits with code 5. Press Ctrl+C twice to quit immediately.
+- **Crash or power loss:** at most the tiles since the last checkpoint are rendered again.
+- **Resume:** `penumbra --terminal --resume <output name>.session.json`. It refuses when the scene files or the
+  settings that change pixels differ, or when Penumbra was rebuilt from another commit in between, so tiles
+  from different builds never mix.
+
+Before rendering, Penumbra checks that the film and output fit on disk and exits with code 4 if not; if the disk
+fills up during the render, it checkpoints and exits with code 4 too.
 
 **Test scenes and image comparison.** The build also makes two tools next to `penumbra`:
 
@@ -416,7 +436,9 @@ All presets are 16:9 with even sizes. Any other size works as `--res WxH` (16 to
 | `160k` | 163840 × 92160 | 15,099 | 241.6 GB | Disk |
 
 **Controller disk:** the film lives only on the controller, next to the output unless you pass `--film-dir`.
-Before a render starts Penumbra checks there is room for the film and the output *(planned, M2)*.
+It always has a copy on disk (the checkpoint); "RAM" in the table means it is also kept in memory for speed,
+which happens up to `40k` when the film fits in half of the RAM budget (`--ram-limit`, default 75% of RAM).
+Before a render starts Penumbra checks there is room for the film and the output.
 
 ### Backends *(planned, M1/M5/M6/M13)*
 
@@ -504,7 +526,8 @@ Start with `penumbra --diagnose` and include its output in any bug report.
 | Worker rejected *(M4)* | `version_mismatch`: update and rebuild both machines ([Updating](#updating)). Wrong code: copy it again from the controller; codes are case-insensitive and dashes are optional. |
 | Worker can't connect *(M4)* | Check the address, that the controller is hosting, the firewall rule for TCP 7420, port forwarding or UPnP for internet workers, or use a VPN behind carrier-grade NAT. |
 | Host shows "upload-bound" *(M4)* | The worker renders faster than its uplink can send tiles; it pauses itself and catches up. Nothing to fix unless it persists. |
-| Out of disk *(M2)* | The film needs space on the controller (table above). Use `--film-dir` on a bigger drive or host from a machine with more disk. The render pauses with a checkpoint and resumes with `--resume`. |
+| Out of disk (exit code 4) | The film needs space on the controller (table above). Use `--film-dir` on a bigger drive or host from a machine with more disk. A render that runs out of space mid-way checkpoints first; free space, then continue with `--resume`. |
+| `--resume` refuses: "rendered by Penumbra ... (git ...)" | The film was started by another build. Check out that commit and rebuild to finish it, or start the render again. |
 
 ## Updating
 

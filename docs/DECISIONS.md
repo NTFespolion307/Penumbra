@@ -187,3 +187,37 @@ triplet is needed; Penumbra's own code still gets GCC 12 as the guide requires.
 the vcpkg bundled in Visual Studio (before `build.ps1` restored `VCPKG_ROOT`), so its libraries never landed in
 `C:\dev\vcpkg`'s cache and the Windows fresh clone rebuilt everything. CMakeLists.txt now refuses to configure
 when the cached vcpkg root differs from the toolchain's, telling the user to delete the folder or use `-Clean`.
+
+## M2: Tiled film and gigapixel output
+
+User approved the M2 plan on 2026-10-16 and kept the milestone order M2 -> M3 -> M4.
+
+**D-037 One film format for every size.** Every render has a `.penfilm` (header, tile index, tile blocks of
+float32 RGB mean + uint32 count) that doubles as the checkpoint. Films up to 40k that fit in half the RAM budget
+are also mirrored in RAM (the guide's "RAM" rows); larger ones live only on disk. Tiles are appended copy-on-
+write, so the index saved at the last checkpoint always points at intact data; reopening for resume truncates
+anything appended after it. Each block carries a BLAKE3-64 checksum checked on read. Film and session are
+deleted when a render completes, kept otherwise (and always for `--region` / `--sample-range`, for `merge`).
+
+**D-038 Film tile = work item tile.** `filmTileSize` is the whole frame below 1080p (one item, as in M1) and
+`--tile-size` above, and the scheduler uses the same grid, so resume can skip finished tiles by index.
+
+**D-039 Resume is strict.** It refuses when Penumbra's git hash differs from the one that started the film, when
+the scene fingerprint (BLAKE3 of scene file, .pen.json and HDRI; M4 replaces it with the package hash) changed,
+or when a pixel-affecting setting is given on the command line. Output, logging, device and thread settings may
+change. Settings are stored in the session as the same JSON values the CLI accepts (`settingsToJson`).
+
+**D-040 `--region` writes only the region**, so a region render is a cheap check of one area of a gigapixel
+image (and format size limits apply to the region size). Its film still uses full-image coordinates for merge.
+
+**D-041 Ctrl+C cancels tiles in progress.** The backend stops at the next row and the partial tile is dropped
+(never merged), so Ctrl+C takes seconds even with big tiles; the film is checkpointed, the image so far is
+written, exit code 5. A second Ctrl+C exits at once. Linux is tested with a real SIGINT; on Windows the same
+controller path runs once the console handler sets the flag.
+
+**D-042 Output writers stream 256-row bands.** EXR is tiled 256x256 (ZIP), TIFF uses deflate strips and
+BigTIFF above 4 GB, JPEG is quality 95, WebP is lossy quality 95 and is encoded whole (it is capped at 16,383
+px per side). 32-bit TIFF is linear float like EXR; 8/16-bit formats are display-encoded.
+
+**D-043 Large gate tests are opt-in.** `render.large_20k` (label `large`) renders 20K at 1 spp and checks one
+tile against a `--region` render; the build scripts run `ctest -LE large`, the gate runs `ctest -L large`.

@@ -138,7 +138,7 @@ ParseResult parse(std::span<const std::string> args, const ParseOptions& options
 
   std::vector<std::string> mergeInputs;
   std::string mergeOutput;
-  CLI::App* merge = app.add_subcommand("merge", "Combine partial films (.penfilm) into one output image (from M2)");
+  CLI::App* merge = app.add_subcommand("merge", "Combine partial films (.penfilm) into one output image");
   merge->add_option("films", mergeInputs, "Partial films to combine")->required();
   merge->add_option("-o,--output", mergeOutput, "Output image")->required();
 
