@@ -339,6 +339,13 @@ without enough disk or RAM for the scene says so in the controller's log and the
   skip). If UPnP is off on the router, forward TCP 7420 to the controller by hand, then join with your public IP.
 - **Carrier-grade NAT** (no public IPv4, common on mobile and some fibre ISPs): port forwarding cannot work. Put
   the controller and workers on a VPN such as Tailscale or WireGuard and join with the controller's VPN address.
+  With Tailscale: install it on every machine (tailscale.com/download), sign in with the same account, then join
+  with the controller's Tailscale address (the controller lists it as a VPN address when it starts hosting, or run
+  `tailscale ip -4` on it). Nothing needs to be forwarded on any router.
+
+When hosting starts, the controller prints every address workers can use (LAN, VPN, public) with the full
+`--join` command, and the result of UPnP: forwarded (with the public address), no UPnP router, or carrier-grade NAT
+(use a VPN). Add `--no-upnp` to never touch the router.
 
 **Firewall.**
 
@@ -554,9 +561,13 @@ Start with `penumbra --diagnose` and include its output in any bug report.
 | Linux: "CMake 3.26 or newer is required" | Install the official CMake as in [Prerequisites](#prerequisites); check `which cmake` points to `/opt/cmake/bin/cmake`. |
 | No Vulkan ray tracing *(M5)* | Update the GPU driver; `penumbra --diagnose` shows whether each GPU reports ray-tracing support. GPUs without it use CUDA (NVIDIA) or are skipped. |
 | CUDA not found *(M6)* | Install CUDA 12.8+ and rebuild; without it Penumbra still builds with Vulkan and CPU. |
-| Worker rejected *(M4)* | `version_mismatch`: update and rebuild both machines ([Updating](#updating)). Wrong code: copy it again from the controller; codes are case-insensitive and dashes are optional. |
-| Worker can't connect *(M4)* | Check the address, that the controller is hosting, the firewall rule for TCP 7420, port forwarding or UPnP for internet workers, or use a VPN behind carrier-grade NAT. |
-| Host shows "upload-bound" *(M4)* | The worker renders faster than its uplink can send tiles; it pauses itself and catches up. Nothing to fix unless it persists. |
+| Worker: "could not join: the controller did not accept the join code" (exit code 6) | The code differs from the one the controller printed; copy it again (case and dashes do not matter). After more than 5 wrong codes in a minute the controller ignores that address for 10 minutes: wait, or restart the controller. |
+| Worker: "the controller rejected this worker: ... runs Penumbra ... (git ...)" (exit code 6) | The two machines run different builds. Run `git pull` and rebuild on both ([Updating](#updating)); the git hashes must match. |
+| Worker: "cannot connect to ...: connection refused" or timed out (exit code 7) | Check, in order: the controller is running with `--host` and printed "hosting on port 7420"; the address is one the controller listed; the firewall allows TCP 7420 on the controller (Windows: allow Penumbra when asked, or `New-NetFirewallRule -DisplayName Penumbra -Direction Inbound -Protocol TCP -LocalPort 7420 -Action Allow` in an admin PowerShell; Linux: `sudo ufw allow 7420/tcp`); for internet workers, the router forwards TCP 7420 (the controller logs whether UPnP did it) or both machines are on the same VPN. |
+| Controller log: "UPnP: the router's internet address ... is not public" | Carrier-grade NAT or a second router: port forwarding cannot work. Use a VPN such as Tailscale on both machines and join with the controller's VPN address. |
+| Controller log: "&lt;worker&gt; cannot take this scene: not enough disk / RAM" | That worker has no room for the scene; the render goes on without it. Free space or use `--cache-dir` on a bigger drive on the worker. |
+| Host shows "upload-bound" | The worker renders faster than its uplink can send tiles; it stops asking for work until they are sent. Nothing to fix unless it persists. |
+| Controller log: "&lt;worker&gt; sent nothing for 30 s (heartbeat lost)" | The connection to that worker died (network, sleep, crash). Its work goes to others; with `--stay` it reconnects on its own. |
 | Out of disk (exit code 4) | The film needs space on the controller (table above). Use `--film-dir` on a bigger drive or host from a machine with more disk. A render that runs out of space mid-way checkpoints first; free space, then continue with `--resume`. |
 | `--resume` refuses: "rendered by Penumbra ... (git ...)" | The film was started by another build. Check out that commit and rebuild to finish it, or start the render again. |
 

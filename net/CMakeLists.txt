@@ -23,13 +23,13 @@ add_custom_command(
   VERBATIM)
 add_custom_target(penumbra_schema DEPENDS "${PEN_SCHEMA_OUT}/penumbra_generated.h")
 
-add_library(penumbra_net STATIC connection.cpp frame.cpp join_code.cpp tile_codec.cpp tls.cpp)
+add_library(penumbra_net STATIC connection.cpp frame.cpp interfaces.cpp join_code.cpp tile_codec.cpp tls.cpp)
 add_dependencies(penumbra_net penumbra_schema)
 target_include_directories(penumbra_net PUBLIC "${PEN_SCHEMA_OUT}")
 target_compile_definitions(penumbra_net PUBLIC ASIO_STANDALONE ASIO_NO_DEPRECATED)
 if(WIN32)
   target_compile_definitions(penumbra_net PUBLIC _WIN32_WINNT=0x0A00)  # Windows 10
-  target_link_libraries(penumbra_net PUBLIC ws2_32 mswsock)
+  target_link_libraries(penumbra_net PUBLIC ws2_32 mswsock iphlpapi)
 endif()
 target_link_libraries(penumbra_net
   PUBLIC penumbra_core asio::asio flatbuffers::flatbuffers

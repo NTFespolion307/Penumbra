@@ -215,7 +215,8 @@ elseif(MODE STREQUAL "network")
   endif()
   file(REMOVE "${WORKDIR}/${NAME}.log")
   set(code K7QD-M2XR-9FHT-4WNB)
-  string(REPLACE ";" "|" ctl "${PENUMBRA};${common};-o;${NAME}_net.exr;--host;--port;${PORT};--code;${code}")
+  # --no-upnp: tests never ask the router of the machine they run on to forward ports.
+  string(REPLACE ";" "|" ctl "${PENUMBRA};${common};-o;${NAME}_net.exr;--host;--port;${PORT};--code;${code};--no-upnp")
   if(DEFINED CONTROLLER_KILL_MS)
     # Killed without warning (power loss), then resumed from its session file: same port and code.
     set(procs --proc "${NAME}_ctl" 0 killed ${CONTROLLER_KILL_MS} "${ctl}|${CONTROLLER_ARGS}")

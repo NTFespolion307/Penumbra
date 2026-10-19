@@ -373,3 +373,11 @@ test-only delay (it only affects the test-only null backend) makes each item tak
 the whole render. First result on the laptop: 64 workers joined, 8,640 items in 39 s, bit-identical.
 `penumbra-nettest` reads its process list from a file (`--procs`) because 64 command lines exceed the Windows
 command-line limit.
+
+**D-072 UPnP and the address list.** A headless `--host` controller asks the router (miniupnpc, 2 s discovery on a
+background thread) to forward its port, unless `--no-upnp` or it listens on loopback only; the mapping has no
+expiry and is removed when the render ends. Every outcome is logged: forwarded (with the public address for
+`--join`), no UPnP router, refused, or a router whose own internet address is private or in 100.64.0.0/10
+(carrier-grade NAT or a second router: use a VPN). On start the controller also lists its LAN and VPN addresses
+(Tailscale 100.64.0.0/10 and fd7a:115c:a1e0::/48, WireGuard/Tailscale adapters) with the full join command.
+Network tests pass `--no-upnp`. Checked on the laptop: the home router forwarded and later removed TCP 7420.

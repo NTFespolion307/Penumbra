@@ -6,6 +6,7 @@
 #include <fmt/format.h>
 
 #include "controller/hosting/host.h"
+#include "controller/hosting/upnp.h"
 #include "controller/local_worker.h"
 #include "core/exit_codes.h"
 #include "core/film/film.h"
@@ -23,6 +24,7 @@
 #include "core/system/paths.h"
 #include "core/system/sysinfo.h"
 #include "core/version.h"
+#include "net/interfaces.h"
 #include "net/join_code.h"
 #include "worker/device_manager.h"
 
@@ -190,6 +192,7 @@ int renderAndFinish(const RenderSettings& s, std::shared_ptr<Scene> scene, std::
   // The host is destroyed after the controller: remote worker links (owned by the controller) hold sockets of
   // the host's network thread.
   std::unique_ptr<Host> host;
+  std::unique_ptr<UpnpMapping> upnp;  // removed when the render ends
   RenderController controller(s, scene, pkg, film, order);
   if (const uint32_t restored = controller.restoreFromFilm(); restored > 0) {
     const RenderProgress p = controller.progress();
@@ -240,6 +243,14 @@ int renderAndFinish(const RenderSettings& s, std::shared_ptr<Scene> scene, std::
                  host->port(), s.bind.empty() ? " (all interfaces)" : fmt::format(" ({})", s.bind), host->port(),
                  net::formatJoinCode(code));
     if (s.approve_workers) spdlog::info("--approve-workers: each new worker waits for your answer here");
+    // Where workers can reach this machine (docs/GUIDE.md "Addresses, NAT and firewall").
+    for (const net::HostAddress& a : net::listHostAddresses())
+      spdlog::info("  {} address {} ({}): penumbra --worker --join {}:{} --code {}", net::toString(a.kind), a.address,
+                   a.interface, a.address.find(':') != std::string::npos ? "[" + a.address + "]" : a.address,
+                   host->port(), net::formatJoinCode(code));
+    if (s.no_upnp) spdlog::info("--no-upnp: not asking the router to forward TCP {}", host->port());
+    else if (s.bind.rfind("127.", 0) == 0 || s.bind == "::1") spdlog::info("listening on loopback only: no UPnP");
+    else upnp = std::make_unique<UpnpMapping>(host->port());
     if (s.no_local) spdlog::info("waiting for workers to join");
   }
 
