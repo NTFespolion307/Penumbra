@@ -381,3 +381,28 @@ expiry and is removed when the render ends. Every outcome is logged: forwarded (
 (carrier-grade NAT or a second router: use a VPN). On start the controller also lists its LAN and VPN addresses
 (Tailscale 100.64.0.0/10 and fd7a:115c:a1e0::/48, WireGuard/Tailscale adapters) with the full join command.
 Network tests pass `--no-upnp`. Checked on the laptop: the home router forwarded and later removed TCP 7420.
+
+**D-073 Bit-identical per platform build; across Windows and Linux within 1e-10.** Cross-OS runs on the laptop
+(Windows controller with two WSL Ubuntu workers, and a WSL controller with two Windows workers, same git commit,
+spheres scene at 720p / 64 spp) match the controller's solo render to relMSE 9.3e-11 (max abs diff 1.5e-3 on HDR
+values up to ~300), with about 3% of float values differing in the last bits. MSVC and GCC builds use different
+system math libraries (sin, cos, pow, exp) and build Embree with different compilers, so a tile rendered on Linux
+is not bit-identical to the same tile rendered on Windows. That is far inside the guide's tolerance for any
+distribution of work (relMSE < 1e-6) and invisible. D-045 still holds among hosts of one OS (any number of
+devices, workers, failures, resume). Making Windows and Linux bit-identical would need Penumbra's own math
+functions everywhere; not worth it, since GPU backends (M5/M6) differ by up to 1e-3 anyway. Two sources, measured: the
+renderer calls the math library (sampling warps, HDRI directions, glossy lobes), so even the Cornell box differs
+(Windows vs Linux solo: relMSE 6e-16); and `penumbra-scenegen` writes slightly different `spheres.gltf` files on
+each OS (sphere vertices use sin/cos), while `cornell.gltf` and `sky.hdr` are identical. The network path itself
+is exact: a Windows controller merging a Linux worker's Cornell tiles gives the Linux solo render bit for bit.
+
+**D-074 Internet worker over Tailscale in a container without a TUN device.** The vast.ai container has no
+`/dev/net/tun`, so `tailscaled` runs with `--tun=userspace-networking --outbound-http-proxy-listen=localhost:1055`,
+and `socat TCP-LISTEN:7420,fork,bind=127.0.0.1 PROXY:127.0.0.1:<laptop tailscale ip>:7420,proxyport=1055` lets the
+worker join `127.0.0.1:7420`; the bytes cross the internet inside Tailscale. Penumbra needs no proxy support.
+Results (2026-10-19, laptop controller on Windows, server Ubuntu 24.04 with 80 cores): the server joined from its
+Tailscale address, downloaded the package, rendered spheres at 1080p / 128 spp (68 items) in 22 s, and the image
+equals the server's own solo render of the cached package files bit for bit. Mixed render: laptop CPU + WSL worker
+over the LAN + server over the internet, Cornell 1080p / 256 spp: 8 + 12 + 108 items, relMSE 8.5e-11 against the
+Windows solo render (Linux tiles, D-073). UPnP on the home router forwarded and removed TCP 7420; an internet join
+through the public address was not tested (the user chose the VPN path).
