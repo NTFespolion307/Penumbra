@@ -12,12 +12,14 @@
 #include "core/film/session.h"
 #include "core/output/output.h"
 #include "core/output/writers.h"
+#include "core/package/package.h"
 #include "core/render/camera.h"
 #include "core/scene/scene_loader.h"
 #include "core/settings/parse.h"
 #include "core/settings/schema.h"
 #include "core/settings/serialize.h"
 #include "core/system/file.h"
+#include "core/system/hash.h"
 #include "core/system/paths.h"
 #include "core/system/sysinfo.h"
 #include "core/version.h"
@@ -37,6 +39,23 @@ int validate(const RenderSettings& s) {
   }
   if (s.denoise != Denoiser::None) spdlog::warn("--denoise {} is built in milestone M11; not applied", toString(s.denoise));
   if (!s.aov.empty()) spdlog::warn("--aov is built in milestone M11; no extra passes are written");
+  return -1;
+}
+
+// Packaging is the validation step of every render (docs/GUIDE.md "Package format"): every file the scene needs
+// is found and hashed before anything renders; workers download exactly these files.
+int buildPackageChecked(const RenderSettings& s, std::shared_ptr<const ScenePackage>& pkg) {
+  try {
+    const auto t0 = std::chrono::steady_clock::now();
+    auto p = std::make_shared<ScenePackage>(buildPackage(s));
+    spdlog::info("scene package {}: {} files, {}, {} chunks; built in {:.2f}s", toHex(p->hash()), p->files.size(),
+                 formatBytes(p->total_bytes), p->chunkCount(),
+                 std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
+    pkg = std::move(p);
+  } catch (const SceneError& e) {
+    spdlog::error("{}", e.what());
+    return toInt(ExitCode::SceneLoadError);
+  }
   return -1;
 }
 
@@ -141,8 +160,9 @@ void saveSession(Session& session, const std::filesystem::path& path, const Rend
   }
 }
 
-int renderAndFinish(const RenderSettings& s, std::shared_ptr<Scene> scene, Film& film, Session& session,
-                    const std::filesystem::path& sessionPath, const LocalRenderOptions& options) {
+int renderAndFinish(const RenderSettings& s, std::shared_ptr<Scene> scene, std::shared_ptr<const ScenePackage> pkg,
+                    Film& film, Session& session, const std::filesystem::path& sessionPath,
+                    const LocalRenderOptions& options) {
   DeviceSelection devices;
   if (s.no_local) {
     spdlog::info("--no-local: this machine coordinates only; workers do all the rendering");
@@ -170,7 +190,7 @@ int renderAndFinish(const RenderSettings& s, std::shared_ptr<Scene> scene, Film&
   // The host is destroyed after the controller: remote worker links (owned by the controller) hold sockets of
   // the host's network thread.
   std::unique_ptr<Host> host;
-  RenderController controller(s, scene, film, order);
+  RenderController controller(s, scene, pkg, film, order);
   if (const uint32_t restored = controller.restoreFromFilm(); restored > 0) {
     const RenderProgress p = controller.progress();
     spdlog::info("resume: {} of {} tiles already have samples in the film ({:.1f}% of the samples)", restored,
@@ -304,6 +324,8 @@ int renderAndFinish(const RenderSettings& s, std::shared_ptr<Scene> scene, Film&
 
 int runLocalRender(const RenderSettings& s, const LocalRenderOptions& options) {
   if (const int rc = validate(s); rc >= 0) return rc;
+  std::shared_ptr<const ScenePackage> pkg;
+  if (const int rc = buildPackageChecked(s, pkg); rc >= 0) return rc;
   std::shared_ptr<Scene> scene;
   if (const int rc = loadSceneChecked(s, scene); rc >= 0) return rc;
 
@@ -350,7 +372,7 @@ int runLocalRender(const RenderSettings& s, const LocalRenderOptions& options) {
     return toInt(ExitCode::BadArguments);
   }
   spdlog::info("film {}, session {}", pathToUtf8(filmPath), pathToUtf8(sessionPath));
-  return renderAndFinish(s, scene, *film, session, sessionPath, options);
+  return renderAndFinish(s, scene, pkg, *film, session, sessionPath, options);
 }
 
 int resumeLocalRender(const std::filesystem::path& sessionFile, const nlohmann::json& cliOverrides,
@@ -396,6 +418,8 @@ int resumeLocalRender(const std::filesystem::path& sessionFile, const nlohmann::
     return toInt(ExitCode::SceneLoadError);
   }
   if (const int rc = validate(s); rc >= 0) return rc;
+  std::shared_ptr<const ScenePackage> pkg;
+  if (const int rc = buildPackageChecked(s, pkg); rc >= 0) return rc;
   std::shared_ptr<Scene> scene;
   if (const int rc = loadSceneChecked(s, scene); rc >= 0) return rc;
 
@@ -417,7 +441,7 @@ int resumeLocalRender(const std::filesystem::path& sessionFile, const nlohmann::
   const uint64_t onDisk = std::filesystem::file_size(session.film);
   const uint64_t remaining = Film::fileBytes(layout) > onDisk ? Film::fileBytes(layout) - onDisk : 0;
   if (const int rc = checkDisk(s, session.film, remaining); rc >= 0) return rc;
-  return renderAndFinish(s, scene, *film, session, sessionFile, options);
+  return renderAndFinish(s, scene, pkg, *film, session, sessionFile, options);
 }
 
 int mergeFilmsToImage(const std::vector<std::filesystem::path>& paths, const RenderSettings& s) {

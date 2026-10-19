@@ -12,8 +12,9 @@ combination of machines, GPUs and backends converges to the same image.
 > (Embree) with a path tracer (next-event estimation, MIS), the glTF PBR material with its common extensions and
 > HDRI lighting, at any size up to 160K, with checkpoints, `--resume` and `merge`, writing EXR, PNG, JPEG, TIFF
 > or WebP. Work is split into tile and sample chunks that any number of local devices share, with recovery from
-> failed or hung devices. Networking (M4) is being built: hosting and joining work, encrypted with the join code;
-> sending the scene to workers comes next. GPU backends arrive in M5/M6, the UI in M10. Features marked
+> failed or hung devices. Networking (M4) is being built: hosting, joining (encrypted with the join code) and
+> sending the scene to workers work; heartbeats and `--stay` come next. GPU backends arrive in M5/M6, the UI in
+> M10. Features marked
 > *(planned, Mx)* below are not built yet. The roadmap is in [`docs/GUIDE.md`](docs/GUIDE.md).
 
 <!-- A screenshot goes here once the UI exists (M10). -->
@@ -291,9 +292,9 @@ usual time is handed out again, and the first result wins.
 ## Rendering with several machines
 
 *(in progress, M4.)* Working now: `--terminal --host`, `--no-local`, `--worker --join`, join codes and
-encryption, `--approve-workers`. Workers still read the scene files from the controller's paths, so for now they
-must run on the same machine or see the same shared folder. **Not yet:** sending the scene to workers, heartbeats,
-`--stay`, UPnP. The rest of this section describes the finished networking.
+encryption, `--approve-workers`, sending the scene to workers with a cache on each worker. **Not yet:** heartbeats
+(a silent worker is not noticed yet), `--stay`, controller `--resume` with workers, UPnP. The rest of this section
+describes the finished networking.
 
 **Hosting.** In the UI, LAN hosting starts with the app and the Dashboard shows the join code and the address to
 give workers; internet hosting is switched on in Settings. Headless, add `--host`:
@@ -318,6 +319,14 @@ penumbra --worker --join 192.168.1.20 --code K7QD-M2XR-9FHT-4WNB
 Set the code in the `PENUMBRA_CODE` environment variable instead of `--code` to keep it out of shell history.
 Add `--stay` on always-on machines: the worker then waits for the next render and reconnects on its own if the
 controller restarts. In the UI, use **Join a render**.
+
+**The scene.** Workers need nothing but Penumbra: when a render starts, the controller packages every file the
+scene reads (the `.glb`/`.gltf` and its buffers and textures, OBJ materials and textures, the HDRI) and each worker
+downloads the package once. Workers keep packages in their scene cache (`%LOCALAPPDATA%\Penumbra\cache\scenes` on
+Windows, `~/.cache/penumbra/scenes` on Linux, or `--cache-dir`, up to `--cache-size`, default 20G), so rendering the
+same scene again, with any settings, downloads nothing. An interrupted download resumes where it stopped. A worker
+without enough disk or RAM for the scene says so in the controller's log and the render continues without it.
+`--upload-limit 10M` on the controller caps how fast scenes are sent (bytes per second, all workers together).
 
 **LAN vs internet.** Workers connect *to* the controller, so only the controller needs a reachable port, TCP 7420
 (change it with `--port`).

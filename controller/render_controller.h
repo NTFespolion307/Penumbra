@@ -58,7 +58,8 @@ struct RenderRunOptions {
 // time, requeues the leases of failed devices, and checkpoints the film every --checkpoint.
 class RenderController final : public WorkerEvents {
  public:
-  RenderController(const RenderSettings& settings, std::shared_ptr<const Scene> scene, Film& film, PassOrder order);
+  RenderController(const RenderSettings& settings, std::shared_ptr<const Scene> scene,
+                   std::shared_ptr<const ScenePackage> package, Film& film, PassOrder order);
 
   // `make` creates the link for the new worker id, with this controller as its WorkerEvents. Thread-safe and
   // allowed while the render runs: a worker added then is offered the scene at once (joining mid-render).
@@ -103,7 +104,7 @@ class RenderController final : public WorkerEvents {
   double medianItemSecondsLocked() const;
 
   RenderSettings settings_;
-  std::shared_ptr<const Scene> scene_;
+  RenderOffer offer_;
   Film& film_;
   Scheduler scheduler_;
   uint32_t sample_begin_ = 0;

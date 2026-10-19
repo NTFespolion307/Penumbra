@@ -23,6 +23,8 @@ enum class MsgType : uint16_t {
   Welcome = 2,
   Reject = 3,
   SceneOffer = 10,
+  SceneHave = 11,
+  SceneChunk = 12,
   WorkerReady = 13,
   RequestWork = 20,
   Lease = 21,
@@ -46,7 +48,8 @@ std::string_view toString(MsgType t);
 template <class T> struct MsgTypeOf;
 #define PEN_MSG(T) \
   template <> struct MsgTypeOf<wire::T> { static constexpr MsgType value = MsgType::T; };
-PEN_MSG(Hello) PEN_MSG(Welcome) PEN_MSG(Reject) PEN_MSG(SceneOffer) PEN_MSG(WorkerReady) PEN_MSG(RequestWork)
+PEN_MSG(Hello) PEN_MSG(Welcome) PEN_MSG(Reject) PEN_MSG(SceneOffer) PEN_MSG(SceneHave) PEN_MSG(SceneChunk)
+PEN_MSG(WorkerReady) PEN_MSG(RequestWork)
 PEN_MSG(Lease) PEN_MSG(TileResult) PEN_MSG(TileAck) PEN_MSG(Release) PEN_MSG(DeviceFailed) PEN_MSG(Cancel)
 PEN_MSG(Pause) PEN_MSG(RenderComplete) PEN_MSG(Stats) PEN_MSG(Heartbeat) PEN_MSG(Log) PEN_MSG(Bye) PEN_MSG(Kick)
 #undef PEN_MSG

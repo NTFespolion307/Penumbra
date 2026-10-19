@@ -18,4 +18,8 @@ std::vector<Vec3f> decodeTilePixels(std::span<const uint8_t> data, uint64_t pixe
 // BLAKE3-64 of the float32 RGB values as stored in memory (little-endian on every supported host).
 uint64_t tileChecksum(std::span<const Vec3f> mean);
 
+// zstd level 3 (scene chunks). decompress() throws ProtocolError unless the result is exactly `size` bytes.
+std::vector<uint8_t> compress(std::span<const uint8_t> data);
+std::vector<uint8_t> decompress(std::span<const uint8_t> data, size_t size);
+
 }  // namespace pen::net

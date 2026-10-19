@@ -17,10 +17,10 @@ WorkerInfo LocalWorker::info() const {
   return w;
 }
 
-void LocalWorker::offerScene(std::shared_ptr<const Scene> scene, const RenderSettings& settings) {
-  scene_ = std::move(scene);
+void LocalWorker::offerScene(const RenderOffer& offer) {
+  scene_ = offer.scene;
   std::vector<DeviceReady> ready;
-  for (const PreparedDevice& p : prepareDevices(*scene_, settings, devices_))
+  for (const PreparedDevice& p : prepareDevices(*scene_, offer.settings, devices_))
     ready.push_back({p.device, p.backend, p.memory_tier, p.build_seconds, p.summary});
   events_.onReady(id_, ready);
 

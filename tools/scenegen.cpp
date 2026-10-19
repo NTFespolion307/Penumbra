@@ -4,6 +4,8 @@
 //   furnace_diffuse.gltf  white Lambert sphere in a uniform white environment         -> furnace_diffuse.pen.json
 //   furnace_glass.gltf    smooth glass sphere in a uniform white environment          -> furnace_glass.pen.json
 //   spheres.gltf + sky.hdr glass, gold, clear-coated and sheen spheres on a procedural HDRI -> spheres.pen.json
+//   bigtex.gltf + bigtex.bin + textures/noise.png   a quad with a 12 MB noise texture, external buffer and a
+//                         texture in a subfolder: scene package transfer tests -> bigtex.pen.json
 // The output is deterministic, so tests can regenerate it at build time.
 
 #include <cmath>
@@ -42,6 +44,7 @@ std::string base64(const std::vector<uint8_t>& data) {
 
 struct MeshData {
   std::vector<Vec3f> positions, normals;
+  std::vector<float> uvs;  // optional TEXCOORD_0, 2 floats per vertex
   std::vector<uint32_t> indices;
 };
 
@@ -62,6 +65,9 @@ class GltfWriter {
     const int nrm = accessor(d.normals.data(), d.normals.size() * 12, d.normals.size(), 5126, "VEC3", 34962, nullptr);
     const int idx = accessor(d.indices.data(), d.indices.size() * 4, d.indices.size(), 5125, "SCALAR", 34963, nullptr);
     json prim = {{"attributes", {{"POSITION", pos}, {"NORMAL", nrm}}}, {"indices", idx}, {"material", material}};
+    if (!d.uvs.empty())
+      prim["attributes"]["TEXCOORD_0"] =
+          accessor(d.uvs.data(), d.uvs.size() * 4, d.uvs.size() / 2, 5126, "VEC2", 34962, nullptr);
     return push("meshes", {{"name", name}, {"primitives", json::array({prim})}});
   }
 
@@ -78,9 +84,21 @@ class GltfWriter {
     used.push_back(e);
   }
 
-  void write(const fs::path& path) {
-    doc_["buffers"] = json::array(
-        {{{"byteLength", bin_.size()}, {"uri", "data:application/octet-stream;base64," + base64(bin_)}}});
+  int texture(const std::string& uri) {
+    const int image = push("images", {{"uri", uri}});
+    return push("textures", {{"source", image}});
+  }
+
+  // Embedded buffer (default), or an external .bin next to the .gltf.
+  void write(const fs::path& path, const std::string& binName = "") {
+    if (binName.empty()) {
+      doc_["buffers"] = json::array(
+          {{{"byteLength", bin_.size()}, {"uri", "data:application/octet-stream;base64," + base64(bin_)}}});
+    } else {
+      doc_["buffers"] = json::array({{{"byteLength", bin_.size()}, {"uri", binName}}});
+      std::ofstream(path.parent_path() / binName, std::ios::binary)
+          .write(reinterpret_cast<const char*>(bin_.data()), static_cast<std::streamsize>(bin_.size()));
+    }
     std::ofstream(path, std::ios::binary) << doc_.dump(1) << "\n";
   }
 
@@ -294,6 +312,35 @@ void spheres(const fs::path& dir) {
                                         {"render", {{"res", "720p"}}}});
 }
 
+// A lit quad whose base colour is a 2048x2048 noise PNG (about 12 MB, barely compressible): big enough for the
+// scene transfer to take several 4 MB chunks.
+void bigtex(const fs::path& dir) {
+  constexpr int N = 2048;
+  std::vector<uint8_t> px(size_t(N) * N * 3);
+  uint32_t state = 12345;
+  for (auto& v : px) {
+    state = state * 1664525u + 1013904223u;
+    v = static_cast<uint8_t>(state >> 24);
+  }
+  fs::create_directories(dir / "textures");
+  stbi_write_png((dir / "textures" / "noise.png").string().c_str(), N, N, 3, px.data(), N * 3);
+
+  GltfWriter w;
+  const int tex = w.texture("textures/noise.png");
+  const int mat = w.material({{"name", "noise"},
+                              {"pbrMetallicRoughness",
+                               {{"baseColorTexture", {{"index", tex}}}, {"metallicFactor", 0.0}, {"roughnessFactor", 0.7}}}});
+  MeshData quad;
+  addQuad(quad, {-1, -1, 0}, {1, -1, 0}, {1, 1, 0}, {-1, 1, 0}, {0, 0, 5}, 1);
+  quad.uvs = {0, 1, 1, 1, 1, 0, 0, 0};
+  w.node({{"name", "quad"}, {"mesh", w.mesh("quad", quad, mat)}});
+  const int cam = w.camera({{"type", "perspective"}, {"perspective", {{"yfov", 0.8}, {"znear", 0.01}}}});
+  w.node({{"name", "Camera"}, {"camera", cam}, {"translation", {0, 0, 3.0}}});
+  w.write(dir / "bigtex.gltf", "bigtex.bin");
+  writeJson(dir / "bigtex.pen.json",
+            {{"scene", "bigtex.gltf"}, {"environment", {{"color", {1.0, 1.0, 1.0}}}}, {"render", {{"res", "240p"}}}});
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -311,6 +358,7 @@ int main(int argc, char** argv) {
                {"extensions", {{"KHR_materials_transmission", {{"transmissionFactor", 1.0}}}, {"KHR_materials_ior", {{"ior", 1.5}}}}}},
               {{"res", "64x64"}, {"max_bounces", 128}, {"no_rr", true}});
   spheres(dir);
+  bigtex(dir);
   std::printf("wrote test scenes to %s\n", dir.string().c_str());
   return 0;
 }

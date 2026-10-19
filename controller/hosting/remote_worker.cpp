@@ -6,6 +6,7 @@
 #include <random>
 
 #include "core/film/session.h"
+#include "core/settings/parse.h"
 #include "core/settings/serialize.h"
 #include "net/tile_codec.h"
 
@@ -13,9 +14,9 @@ namespace pen {
 
 namespace wire = net::wire;
 
-RemoteWorker::RemoteWorker(WorkerId id, WorkerEvents& events, std::shared_ptr<net::Connection> connection,
-                           wire::HelloT hello, uint64_t sessionId)
-    : id_(id), events_(events), connection_(std::move(connection)), hello_(std::move(hello)) {
+RemoteWorker::RemoteWorker(WorkerId id, WorkerEvents& events, SceneUploader& uploader,
+                           std::shared_ptr<net::Connection> connection, wire::HelloT hello, uint64_t sessionId)
+    : id_(id), events_(events), uploader_(uploader), connection_(std::move(connection)), hello_(std::move(hello)) {
   info_.name = hello_.worker_name;
   info_.local = false;
   for (const auto& d : hello_.devices) {
@@ -37,28 +38,25 @@ RemoteWorker::RemoteWorker(WorkerId id, WorkerEvents& events, std::shared_ptr<ne
 
 RemoteWorker::~RemoteWorker() = default;
 
-void RemoteWorker::offerScene(std::shared_ptr<const Scene>, const RenderSettings& settings) {
-  // M4 step 1: the worker loads the scene from the same paths (loopback and shared folders only). The
-  // hashed scene package (.penpkg) replaces this in step 3.
-  RenderSettings offered = settings;
-  std::error_code ec;
-  offered.scene = std::filesystem::absolute(settings.scene, ec);
-  if (!settings.scene_description.empty())
-    offered.scene_description = std::filesystem::absolute(settings.scene_description, ec);
-  if (!settings.environment.hdri.empty())
-    offered.environment.hdri = std::filesystem::absolute(settings.environment.hdri, ec);
-
+void RemoteWorker::offerScene(const RenderOffer& offer) {
+  // The settings travel as the controller has them; the worker points the scene paths into its cached copy of
+  // the package (ScenePackage::relocate).
+  const RenderSettings& settings = offer.settings;
   wire::SceneOfferT m;
   m.render_id = std::random_device{}() | (uint64_t(std::random_device{}()) << 32);
-  m.settings_json = settingsToJson(offered).dump();
+  m.settings_json = settingsToJson(settings).dump();
   m.settings_hash = pixelSettingsHash(settings);
   m.scene_hash = sceneFingerprint(settings);
   m.film_width = settings.outputWidth();
   m.film_height = settings.outputHeight();
+  m.manifest = offer.package->manifest();
+  m.package_hash = offer.package->hash();
   {
     std::lock_guard lock(mutex_);
     render_id_ = m.render_id;
     settings_hash_ = m.settings_hash;
+    package_ = offer.package;
+    package_hash_ = m.package_hash;
   }
   connection_->send(m);
 }
@@ -131,6 +129,23 @@ void RemoteWorker::onMessage(net::Message&& msg) {
   using net::MsgType;
   try {
     switch (msg.type) {
+      case MsgType::SceneHave: {
+        const auto m = net::decode<wire::SceneHaveT>(msg.payload);
+        if (m.render_id != render_id_) return;
+        if (m.status == wire::SceneStatus::Cached) {
+          spdlog::info("{} has the scene in its cache", info_.name);
+        } else if (m.status == wire::SceneStatus::Rejected) {
+          spdlog::warn("{} cannot take this scene: {}; the render continues without it", info_.name, m.reason);
+        } else if (m.first_missing < package_->chunkCount()) {
+          const uint64_t left = package_->total_bytes - uint64_t(m.first_missing) * ScenePackage::kChunkBytes;
+          spdlog::info("sending the scene to {}: {}{}", info_.name, formatBytes(left),
+                       m.first_missing ? fmt::format(" (resuming at chunk {} of {})", m.first_missing,
+                                                     package_->chunkCount())
+                                       : std::string());
+          uploader_.start(connection_, package_, package_hash_, m.first_missing, info_.name);
+        }
+        break;
+      }
       case MsgType::WorkerReady: {
         const auto m = net::decode<wire::WorkerReadyT>(msg.payload);
         if (m.render_id != render_id_) return;  // for an earlier render

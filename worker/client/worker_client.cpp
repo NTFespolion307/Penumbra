@@ -27,6 +27,7 @@
 #include "worker/device_manager.h"
 #include "worker/device_prep.h"
 #include "worker/device_slot.h"
+#include "worker/scene_cache.h"
 
 namespace pen {
 
@@ -58,7 +59,10 @@ void keepLocalDeviceSettings(RenderSettings& remote, const RenderSettings& local
 
 class Worker {
  public:
-  explicit Worker(const WorkerOptions& o) : opt_(o), local_(o.settings) {}
+  explicit Worker(const WorkerOptions& o)
+      : opt_(o),
+        local_(o.settings),
+        cache_(o.settings.cache_dir.empty() ? paths::sceneCacheDir() : o.settings.cache_dir, o.settings.cache_size) {}
   ~Worker() {
     stopSlots(true);
     io_.stop();  // no network callbacks after this
@@ -84,6 +88,9 @@ class Worker {
   // Returns an exit code when the worker should stop, -1 to continue.
   int handle(net::Message& msg);
   void onSceneOffer(const wire::SceneOfferT& m);
+  void onSceneChunk(const wire::SceneChunkT& m);
+  void finishDownload();
+  void prepare(const std::filesystem::path& folder);
   void onLease(const wire::LeaseT& m);
   void rejectScene(uint64_t renderId, const std::string& reason);
   void startSlots();
@@ -107,8 +114,13 @@ class Worker {
   // The current render.
   uint64_t render_id_ = 0;
   uint64_t settings_hash_ = 0;
-  RenderSettings render_;
+  RenderSettings render_;  // as the controller sent them (controller paths)
   std::shared_ptr<Scene> scene_;
+  SceneCache cache_;
+  std::shared_ptr<const ScenePackage> package_;
+  uint64_t package_hash_ = 0;
+  Clock::time_point download_started_;
+  double next_progress_ = 0.25;
   std::vector<std::unique_ptr<DeviceSlot>> slots_;
 
   // Shared with the slot threads.
@@ -294,6 +306,7 @@ int Worker::handle(net::Message& msg) {
         return toInt(ExitCode::RejectedByController);
       }
       case MsgType::SceneOffer: onSceneOffer(net::decode<wire::SceneOfferT>(msg.payload)); break;
+      case MsgType::SceneChunk: onSceneChunk(net::decode<wire::SceneChunkT>(msg.payload)); break;
       case MsgType::Lease: onLease(net::decode<wire::LeaseT>(msg.payload)); break;
       case MsgType::Cancel: {
         net::decode<wire::CancelT>(msg.payload);  // validates; the controller only cancels everything so far
@@ -381,6 +394,7 @@ void Worker::rejectScene(uint64_t renderId, const std::string& reason) {
 void Worker::onSceneOffer(const wire::SceneOfferT& m) {
   stopSlots(true);
   scene_.reset();
+  package_.reset();
   render_id_ = m.render_id;
   RenderSettings s;
   try {
@@ -390,11 +404,99 @@ void Worker::onSceneOffer(const wire::SceneOfferT& m) {
   }
   if (pixelSettingsHash(s) != m.settings_hash)
     return rejectScene(m.render_id, "the render settings changed in transfer (settings hash mismatch)");
-  keepLocalDeviceSettings(s, local_);
+  ScenePackage pkg;
+  try {
+    pkg = ScenePackage::fromManifest(m.manifest);
+  } catch (const SceneError& e) {
+    return rejectScene(m.render_id, e.what());
+  }
+  if (pkg.hash() != m.package_hash) return rejectScene(m.render_id, "the scene manifest changed in transfer");
   render_ = s;
   settings_hash_ = m.settings_hash;
-  spdlog::info("render offered: {}x{}, {} spp, scene {}", m.film_width, m.film_height, s.spp, pathToUtf8(s.scene));
+  package_hash_ = m.package_hash;
+  spdlog::info("render offered: {}x{}, {} spp; scene {} ({} files, {})", m.film_width, m.film_height, s.spp,
+               pkg.entry, pkg.files.size(), formatBytes(pkg.total_bytes));
 
+  wire::SceneHaveT have;
+  have.render_id = m.render_id;
+  if (auto folder = cache_.find(pkg, m.package_hash)) {
+    spdlog::info("the scene is in the cache: {}", pathToUtf8(*folder));
+    have.status = wire::SceneStatus::Cached;
+    conn_->send(have);
+    package_ = std::make_shared<ScenePackage>(std::move(pkg));
+    return prepare(*folder);
+  }
+  if (auto why = cache_.cannotHold(pkg)) {
+    spdlog::error("cannot take this render: {}", *why);
+    have.status = wire::SceneStatus::Rejected;
+    have.reason = *why;
+    conn_->send(have);
+    return;
+  }
+  uint32_t first = 0;
+  try {
+    first = cache_.beginDownload(pkg, m.package_hash);
+  } catch (const FileError& e) {
+    have.status = wire::SceneStatus::Rejected;
+    have.reason = fmt::format("cannot write to the scene cache: {}", e.what());
+    spdlog::error("cannot take this render: {}", have.reason);
+    conn_->send(have);
+    return;
+  }
+  package_ = std::make_shared<ScenePackage>(std::move(pkg));
+  download_started_ = Clock::now();
+  next_progress_ = 0.25;
+  if (first == package_->chunkCount()) {  // everything was already downloaded before an interruption
+    have.status = wire::SceneStatus::Cached;
+    conn_->send(have);
+    return finishDownload();
+  }
+  if (first > 0)
+    spdlog::info("downloading the scene: resuming at chunk {} of {}", first, package_->chunkCount());
+  else
+    spdlog::info("downloading the scene: {} in {} chunks", formatBytes(package_->total_bytes), package_->chunkCount());
+  have.status = wire::SceneStatus::Need;
+  have.first_missing = first;
+  conn_->send(have);
+}
+
+void Worker::onSceneChunk(const wire::SceneChunkT& m) {
+  if (!package_ || m.package_hash != package_hash_ || cache_.downloadComplete()) return;  // for an older offer
+  try {
+    const std::vector<uint8_t> raw = net::decompress(m.data, m.raw_size);
+    cache_.addChunk(m.index, raw);
+  } catch (const std::exception& e) {
+    return rejectScene(render_id_, fmt::format("the scene download failed: {}", e.what()));
+  }
+  // Test-only (D-066): crash right after this many chunks, to test resumed downloads without timing races.
+  if (const char* n = std::getenv("PENUMBRA_TEST_EXIT_AFTER_CHUNKS"); n && m.index + 1 == std::strtoul(n, nullptr, 10)) {
+    spdlog::warn("TEST HOOK ACTIVE (PENUMBRA_TEST_EXIT_AFTER_CHUNKS): exiting abruptly after chunk {}", m.index);
+    spdlog::default_logger()->flush();
+    std::_Exit(137);
+  }
+  const double done = double(m.index + 1) / package_->chunkCount();
+  if (done >= next_progress_ && !cache_.downloadComplete()) {
+    spdlog::info("downloading the scene: {:.0f}%", done * 100);
+    while (next_progress_ <= done) next_progress_ += 0.25;
+  }
+  if (cache_.downloadComplete()) finishDownload();
+}
+
+void Worker::finishDownload() {
+  std::filesystem::path folder;
+  try {
+    folder = cache_.finishDownload();
+  } catch (const std::exception& e) {
+    return rejectScene(render_id_, fmt::format("the scene download failed: {}", e.what()));
+  }
+  spdlog::info("scene downloaded in {:.1f}s and verified", std::chrono::duration<double>(Clock::now() - download_started_).count());
+  prepare(folder);
+}
+
+// Loads the scene from its cached package and builds every device (docs/GUIDE.md "Ready before work").
+void Worker::prepare(const std::filesystem::path& folder) {
+  RenderSettings s = package_->relocate(render_, folder);
+  keepLocalDeviceSettings(s, local_);
   try {
     const auto t0 = Clock::now();
     std::vector<std::string> warnings;
@@ -402,11 +504,11 @@ void Worker::onSceneOffer(const wire::SceneOfferT& m) {
     for (const auto& w : warnings) spdlog::warn("scene: {}", w);
     spdlog::info("scene loaded in {:.2f}s", std::chrono::duration<double>(Clock::now() - t0).count());
   } catch (const SceneError& e) {
-    return rejectScene(m.render_id, e.what());
+    return rejectScene(render_id_, e.what());
   }
 
   wire::WorkerReadyT ready;
-  ready.render_id = m.render_id;
+  ready.render_id = render_id_;
   try {
     for (const PreparedDevice& p : prepareDevices(*scene_, s, devices_)) {
       spdlog::info("device {} ready in {:.2f}s: {}", p.device, p.build_seconds, p.summary);
@@ -419,7 +521,7 @@ void Worker::onSceneOffer(const wire::SceneOfferT& m) {
       ready.devices.push_back(std::move(d));
     }
   } catch (const std::exception& e) {
-    return rejectScene(m.render_id, e.what());
+    return rejectScene(render_id_, e.what());
   }
   conn_->send(ready);
   startSlots();

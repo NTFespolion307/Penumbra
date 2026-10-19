@@ -51,6 +51,7 @@ class Host {
   WorkerEvents& events_;
   JoinFn on_join_;
   uint64_t session_id_ = 0;
+  SceneUploader uploader_;
   net::IoThread io_;
   std::unique_ptr<net::Listener> listener_;
   std::mutex mutex_;

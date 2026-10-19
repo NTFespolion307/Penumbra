@@ -1,6 +1,6 @@
 # Penumbra wire protocol
 
-Protocol version **1** (`kProtocolVersion` in `core/version.h`). The schema is `net/schema/penumbra.fbs`; this
+Protocol version **2** (`kProtocolVersion` in `core/version.h`). Version 2 added scene packages (`SceneHave`, `SceneChunk`, package fields in `SceneOffer`). The schema is `net/schema/penumbra.fbs`; this
 file explains it and must change in the same commit as the schema. Any change to a message bumps the protocol
 version.
 
@@ -41,7 +41,9 @@ magic "PNBR" (4 bytes) | protocol version u16 | message type u16 | flags u16 | p
 | `Hello` | 1 | W → C | Protocol + app version, git hash, worker name, OS, CPU, cores, RAM, free cache disk, devices (name, backend, threads, memory, RT support). First message on a connection. |
 | `Welcome` | 2 | C → W | Session id, worker id, controller name, heartbeat interval (ms). |
 | `Reject` | 3 | C → W | Reason (`VersionMismatch`, `NotApproved`, `SessionFull`, `SessionClosed`, `Kicked`, `BadMessage`) and text; the controller then closes. With `--approve-workers` the controller asks its user before `Welcome`; no answer means `NotApproved`. |
-| `SceneOffer` | 10 | C → W | Render id, full `RenderSettings` as JSON, pixel settings hash, scene hash, film size. Step 1: the worker loads the scene from the paths in the settings (loopback and shared folders only); scene packages replace this in step 3. |
+| `SceneOffer` | 10 | C → W | Render id, full `RenderSettings` as JSON (paths as on the controller), pixel settings hash, scene hash, film size, package hash and manifest (below). |
+| `SceneHave` | 11 | W → C | Render id and `Cached`, `Need` with the first missing chunk index (a resumed download), or `Rejected` with a reason (not enough disk or RAM, bigger than the cache). |
+| `SceneChunk` | 12 | C → W | Package hash, chunk index, uncompressed size, zstd-compressed bytes. Bulk: sent in order from the first missing chunk. |
 | `WorkerReady` | 13 | W → C | Render id; per device: backend, memory tier, build time, summary. Or `scene_rejected` with a reason. A worker gets no lease before this. |
 | `RequestWork` | 20 | W → C | Device id and how many more items it can take. A request replaces the device's previous one (D-049). |
 | `Lease` | 21 | C → W | Lease id, device id, item id (`tile << 32 \| chunk`), tile rectangle, sample range, settings hash. |
@@ -58,6 +60,25 @@ magic "PNBR" (4 bytes) | protocol version u16 | message type u16 | flags u16 | p
 | `Bye` | 50 | both | Polite disconnect with a reason; the sender then closes its side. |
 | `Kick` | 51 | C → W | Forced disconnect with a reason (worker exits with code 6). |
 
+## Scene packages
+
+The controller packages the scene before every render (also solo renders, where it is the check that every
+file exists). The **manifest** (`core/package/package.h`) is JSON: format version, Penumbra version, the scene
+file and HDRI as package-relative paths, and every file the scene reads (glTF buffers and images, OBJ material
+libraries and `map_Kd` textures, the HDRI) with its size and BLAKE3-64 hash, relative to the deepest folder that
+holds them all. The package is those files laid end to end, cut into 4 MB chunks; the manifest lists each
+chunk's hash. The **package hash** is the BLAKE3-64 of the manifest. Render settings are not in the manifest,
+so the same scene files are one package whatever the settings.
+
+The worker answers a `SceneOffer` with `SceneHave`. If its cache holds the package, `Cached`. If not, it checks
+the cache size limit, free disk (twice the package) and RAM, and answers `Rejected` with the reason or `Need`
+with the first chunk it does not have yet. The controller then sends `SceneChunk`s in order: never more than 2
+chunks queued per connection, several workers round-robin, all of them together under `--upload-limit` (bytes
+on the wire per second). The worker checks each chunk against the manifest, writes it to
+`<cache>/<hash>.partial`, and after the last one unpacks the files, checks every file hash, and moves them to
+`<cache>/<hash>/`. A worker that loses the connection keeps the verified chunks and resumes there next time.
+Manifest paths with `..`, drive letters or absolute paths are refused.
+
 ## Tile encoding
 
 `TileEncoding.Float32Shuffled` (DECISIONS D-053): the tile's RGB means as float32, rearranged into 4 byte planes
@@ -71,7 +92,8 @@ rectangle, sample range, pixel count) is answered with `Rejected`, and its item 
 ```
 W+C: TLS 1.3 handshake (join-code key)
 W: Hello                      C: Welcome
-C: SceneOffer                 W: (loads scene, builds BVH per device) WorkerReady
+C: SceneOffer                 W: SceneHave(cached | need k | rejected)
+C: SceneChunk k, k+1, ...     W: (unpacks, loads scene, builds BVH per device) WorkerReady
 W: RequestWork(dev 0, 2)      C: Lease, Lease
 W: TileResult                 C: TileAck(accepted)        ... repeated
 W: Stats every 2 s

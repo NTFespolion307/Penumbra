@@ -10,6 +10,7 @@ add_executable(penumbra_unit_tests
   unit/test_config.cpp
   unit/test_film.cpp
   unit/test_net.cpp
+  unit/test_package.cpp
   unit/test_parse.cpp
   unit/test_presets.cpp
   unit/test_render_path.cpp
@@ -158,6 +159,19 @@ pen_net_test(ip_block 7506 1 cornell.pen.json "--res|1080p|--scale|0.5|--spp|128
 pen_net_test(approve_no 7507 1 cornell.pen.json "--res|1080p|--scale|0.5|--spp|16" "-DREF_ARGS=--devices|cpu"
              "-DCONTROLLER_ARGS=--approve-workers|--threads|4" "-DWORKER_ARGS=--threads|2" -DWORKER_EXPECT=6
              "-DEXPECT_LOG=did not approve")
+# M4 step 3: workers download the scene package and keep it. A second render finds it in the cache; a worker
+# killed mid-download resumes where it stopped (upload capped so the transfer takes a few seconds); a worker
+# without room for the scene says so and the render goes on without it. The crashing worker exits after 2 of the
+# 4 chunks; the upload limit keeps the uploader's pacing code under test.
+pen_net_test(scene_cache 7508 1 cornell.pen.json "--res|1080p|--scale|0.25|--spp|16" "-DREF_ARGS=--devices|cpu"
+             "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|4" -DRUNS=2
+             "-DEXPECT_LOG=has the scene in its cache")
+pen_net_test(download_resume 7509 2 bigtex.pen.json "--spp|16" "-DREF_ARGS=--devices|cpu"
+             "-DCONTROLLER_ARGS=--no-local|--upload-limit|8M" "-DWORKER_ARGS=--threads|4" -DSHARED_CACHE=1
+             -DCRASH_FIRST_AFTER_CHUNKS=2 "-DEXPECT_LOG=resuming at chunk 2 of 4")
+pen_net_test(scene_rejected 7510 1 cornell.pen.json "--res|1080p|--scale|0.5|--spp|16" "-DREF_ARGS=--devices|cpu"
+             "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|4" -DFULL_DISK_WORKER=1
+             "-DEXPECT_LOG=full cannot take this scene: not enough disk")
 
 if(NOT EXISTS "${PROJECT_SOURCE_DIR}/tests/golden/cornell_256_4096spp.exr")
   message(STATUS "tests/golden/cornell_256_4096spp.exr not found: render.golden_cornell is disabled")

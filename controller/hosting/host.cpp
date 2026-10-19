@@ -30,7 +30,7 @@ struct Host::Peer {
 };
 
 Host::Host(const RenderSettings& settings, const std::string& code, WorkerEvents& events, JoinFn onJoin)
-    : settings_(settings), events_(events), on_join_(std::move(onJoin)) {
+    : settings_(settings), events_(events), on_join_(std::move(onJoin)), uploader_(settings.upload_limit) {
   std::random_device rd;
   session_id_ = (uint64_t(rd()) << 32) | rd();
   listener_ = std::make_unique<net::Listener>(io_, settings.bind, settings.port, net::deriveJoinKey(code),
@@ -159,7 +159,8 @@ void Host::join(const std::shared_ptr<Peer>& peer) {
                peer->connection->peer(), hello.os, hello.logical_cores, hello.ram_total / 1e9,
                devices.empty() ? "none" : devices);
   on_join_([&](WorkerId id) -> std::unique_ptr<WorkerLink> {
-    auto link = std::make_unique<RemoteWorker>(id, events_, peer->connection, std::move(peer->hello), session_id_);
+    auto link = std::make_unique<RemoteWorker>(id, events_, uploader_, peer->connection, std::move(peer->hello),
+                                               session_id_);
     peer->worker = link.get();  // before the scene is offered, so the worker's answer finds its link
     return link;
   });
@@ -220,6 +221,7 @@ void Host::shutdown(std::chrono::milliseconds grace) {
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
+  uploader_.stop();
   io_.stop();
   // A pending terminal question blocks in getline; it is detached rather than joined (the process is ending).
   if (approval_thread_.joinable()) approval_thread_.detach();

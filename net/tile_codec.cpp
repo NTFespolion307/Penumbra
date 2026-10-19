@@ -42,6 +42,22 @@ std::vector<Vec3f> decodeTilePixels(std::span<const uint8_t> data, uint64_t pixe
   return mean;
 }
 
+std::vector<uint8_t> compress(std::span<const uint8_t> data) {
+  std::vector<uint8_t> out(ZSTD_compressBound(data.size()));
+  const size_t size = ZSTD_compress(out.data(), out.size(), data.data(), data.size(), kZstdLevel);
+  if (ZSTD_isError(size)) throw ProtocolError(fmt::format("zstd: {}", ZSTD_getErrorName(size)));
+  out.resize(size);
+  return out;
+}
+
+std::vector<uint8_t> decompress(std::span<const uint8_t> data, size_t size) {
+  if (ZSTD_getFrameContentSize(data.data(), data.size()) != size) throw ProtocolError("compressed data has the wrong size");
+  std::vector<uint8_t> out(size);
+  const size_t n = ZSTD_decompress(out.data(), out.size(), data.data(), data.size());
+  if (ZSTD_isError(n) || n != size) throw ProtocolError("compressed data does not decompress");
+  return out;
+}
+
 uint64_t tileChecksum(std::span<const Vec3f> mean) {
   return hash64(std::span(reinterpret_cast<const uint8_t*>(mean.data()), mean.size() * sizeof(Vec3f)));
 }

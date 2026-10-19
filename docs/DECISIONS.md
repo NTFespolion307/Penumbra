@@ -316,3 +316,30 @@ dialog from M10.
 
 **D-061 Test hook `PENUMBRA_TEST_GIT_HASH`** (test-only like D-047, logged as a warning): a worker claims that git
 hash in its Hello, so the version-mismatch rejection is tested without building a second binary.
+
+**D-062 Scene packages leave the settings out.** The guide puts `RenderSettings` in the package manifest, which
+would make every change of spp or resolution a new package and a new download. The manifest describes only the
+files (paths relative to the deepest folder holding them all, sizes, file hashes, 4 MB chunk hashes), and the
+settings travel in each `SceneOffer`. The worker points the scene and HDRI paths into its cached copy. The package
+is not written to disk on the controller: chunks are read from the original files when sent. Files on different
+Windows drives cannot be packaged (Penumbra says so); glTF files keep their relative URIs, so no rewriting is
+needed.
+
+**D-063 Scene file discovery is explicit.** `collectSceneFiles` lists what the loaders read: the scene file, glTF
+buffers and images (external URIs), OBJ `mtllib` files and their `map_Kd` textures (the only map the OBJ loader
+uses), and the HDRI. Packaging runs for every render, so a missing file fails before rendering, with its name.
+
+**D-064 Scene cache and admission.** Cache folder per package hash, a `<hash>.partial` file for downloads in
+progress (verified chunks are kept, so a download resumes at the first missing chunk), least recently used
+packages evicted above `--cache-size`. A worker refuses a scene bigger than its cache, needing more than its free
+disk (twice the package: download plus unpacked copy), or more than its available RAM, and answers
+`SceneHave Rejected` with the reason; the render continues without it. Test hook `PENUMBRA_TEST_FREE_DISK`
+(test-only, logged) fakes the free disk space.
+
+**D-065 Protocol version 2** adds `SceneHave`, `SceneChunk` and the package fields of `SceneOffer`. The uploader
+keeps at most 2 chunks queued per connection (so acks and leases stay prompt), serves several workers
+round-robin, and counts `--upload-limit` in bytes on the wire.
+
+**D-066 Test hook `PENUMBRA_TEST_EXIT_AFTER_CHUNKS=N`** (test-only, logged): a worker exits abruptly with code 137
+right after its N-th scene chunk, so the resumed-download test does not depend on timing; `penumbra-nettest`
+can start a process once another has ended (`after:NAME`).

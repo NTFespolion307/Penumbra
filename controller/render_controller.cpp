@@ -21,10 +21,10 @@ constexpr double kMinLateSeconds = 2.0;  // never call a lease late before this
 constexpr size_t kDurationWindow = 256;
 }  // namespace
 
-RenderController::RenderController(const RenderSettings& settings, std::shared_ptr<const Scene> scene, Film& film,
-                                   PassOrder order)
+RenderController::RenderController(const RenderSettings& settings, std::shared_ptr<const Scene> scene,
+                                   std::shared_ptr<const ScenePackage> package, Film& film, PassOrder order)
     : settings_(settings),
-      scene_(std::move(scene)),
+      offer_{std::move(scene), std::move(package), settings},
       film_(film),
       scheduler_(film.layout(), sampleBegin(settings), sampleEnd(settings), settings.region, order),
       sample_begin_(sampleBegin(settings)) {}
@@ -40,7 +40,7 @@ WorkerId RenderController::addWorker(const std::function<std::unique_ptr<WorkerL
     link = workers_.back().get();
     offer = running_ && !finished_;
   }
-  if (offer) link->offerScene(scene_, settings_);  // joined mid-render: gets the scene like everyone else
+  if (offer) link->offerScene(offer_);  // joined mid-render: gets the scene like everyone else
   return id;
 }
 
@@ -324,7 +324,7 @@ RenderOutcome RenderController::run(const RenderRunOptions& options) {
     initial = workerSnapshotLocked();
   }
   if (!finished_)
-    for (WorkerLink* w : initial) w->offerScene(scene_, settings_);
+    for (WorkerLink* w : initial) w->offerScene(offer_);
 
   auto lastProgress = Clock::now();
   auto lastCheckpoint = lastProgress;

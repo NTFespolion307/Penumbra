@@ -14,6 +14,8 @@ std::string_view toString(MsgType t) {
     case MsgType::Welcome: return "Welcome";
     case MsgType::Reject: return "Reject";
     case MsgType::SceneOffer: return "SceneOffer";
+    case MsgType::SceneHave: return "SceneHave";
+    case MsgType::SceneChunk: return "SceneChunk";
     case MsgType::WorkerReady: return "WorkerReady";
     case MsgType::RequestWork: return "RequestWork";
     case MsgType::Lease: return "Lease";

@@ -4,6 +4,7 @@
 #include <mutex>
 #include <string>
 
+#include "controller/hosting/scene_uploader.h"
 #include "controller/worker_link.h"
 #include "net/connection.h"
 
@@ -13,8 +14,8 @@ namespace pen {
 // "Controller and workers"). Messages from the worker arrive on the network thread through onMessage().
 class RemoteWorker final : public WorkerLink {
  public:
-  RemoteWorker(WorkerId id, WorkerEvents& events, std::shared_ptr<net::Connection> connection,
-               net::wire::HelloT hello, uint64_t sessionId);
+  RemoteWorker(WorkerId id, WorkerEvents& events, SceneUploader& uploader,
+               std::shared_ptr<net::Connection> connection, net::wire::HelloT hello, uint64_t sessionId);
   ~RemoteWorker() override;
 
   // Network thread: one message from this worker, or the connection closing.
@@ -22,7 +23,7 @@ class RemoteWorker final : public WorkerLink {
   void onClosed(const std::string& reason);
 
   WorkerInfo info() const override { return info_; }
-  void offerScene(std::shared_ptr<const Scene> scene, const RenderSettings& settings) override;
+  void offerScene(const RenderOffer& offer) override;
   void sendLease(const Lease& lease) override;
   void cancel(std::span<const LeaseId> leases) override;
   void ackTile(LeaseId lease, AckStatus status) override;
@@ -38,7 +39,10 @@ class RemoteWorker final : public WorkerLink {
 
   WorkerId id_;
   WorkerEvents& events_;
+  SceneUploader& uploader_;
   std::shared_ptr<net::Connection> connection_;
+  std::shared_ptr<const ScenePackage> package_;
+  uint64_t package_hash_ = 0;
   WorkerInfo info_;
   net::wire::HelloT hello_;
   uint64_t render_id_ = 0;

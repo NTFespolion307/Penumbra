@@ -1,4 +1,4 @@
-// Penumbra wire protocol, version 1 (docs/PROTOCOL.md). Every frame carries one of these tables as its
+// Penumbra wire protocol, version 2 (docs/PROTOCOL.md). Every frame carries one of these tables as its
 // payload; the frame header's message type says which (net/protocol.h). Change a table: bump
 // kProtocolVersion (core/version.h) and update docs/PROTOCOL.md in the same commit.
 
@@ -45,11 +45,29 @@ table Reject {
 
 table SceneOffer {
   render_id:ulong;
-  settings_json:string;   // full RenderSettings (core/settings/serialize.h)
+  settings_json:string;   // full RenderSettings (core/settings/serialize.h), paths as on the controller
   settings_hash:ulong;    // pixelSettingsHash
   scene_hash:ulong;       // sceneFingerprint
   film_width:uint;
   film_height:uint;
+  package_hash:ulong;     // BLAKE3-64 of manifest
+  manifest:string;        // core/package/package.h: files, sizes, file and chunk hashes
+}
+
+enum SceneStatus : ubyte { Cached, Need, Rejected }
+
+table SceneHave {
+  render_id:ulong;
+  status:SceneStatus;
+  first_missing:uint;     // Need: send chunks from this index on
+  reason:string;          // Rejected: why (disk, RAM, cache size)
+}
+
+table SceneChunk {
+  package_hash:ulong;
+  index:uint;
+  raw_size:uint;
+  data:[ubyte];           // zstd level 3 of the chunk's bytes
 }
 
 table DeviceReadyDesc {

@@ -4,7 +4,8 @@
 //   penumbra-nettest --workdir DIR [--timeout SECONDS]
 //       --proc NAME DELAY_MS EXPECT KILL_AFTER_MS "exe|arg|arg..." [--proc ...]
 //
-// DELAY_MS: start this long after the first process. EXPECT: the exit code it must return, or "any".
+// DELAY_MS: start this long after the first process, or "after:NAME" to start once process NAME has ended.
+// EXPECT: the exit code it must return, or "any".
 // KILL_AFTER_MS: hard-kill it this long after it started (0 = never); a killed process passes when EXPECT is
 // "killed". Exit code 0 when every process ends as expected within the timeout, 1 otherwise.
 
@@ -36,6 +37,7 @@ namespace {
 struct Proc {
   std::string name;
   int delay_ms = 0;
+  std::string after;  // start once this process has ended
   std::string expect;
   int kill_after_ms = 0;
   std::vector<std::string> argv;
@@ -187,7 +189,9 @@ int main(int argc, char** argv) {
     } else if (a == "--proc" && i + 5 < argc) {
       Proc p;
       p.name = argv[++i];
-      p.delay_ms = std::atoi(argv[++i]);
+      const std::string d = argv[++i];
+      if (d.rfind("after:", 0) == 0) p.after = d.substr(6);
+      else p.delay_ms = std::atoi(d.c_str());
       p.expect = argv[++i];
       p.kill_after_ms = std::atoi(argv[++i]);
       p.argv = split(argv[++i], '|');
@@ -209,7 +213,13 @@ int main(int argc, char** argv) {
     const auto now = Clock::now();
     bool allDone = true;
     for (auto& p : procs) {
-      if (!p.started && ms(now - t0) >= p.delay_ms) {
+      bool ready = ms(now - t0) >= p.delay_ms;
+      if (!p.after.empty()) {
+        ready = false;
+        for (const auto& q : procs)
+          if (q.name == p.after) ready = q.done;
+      }
+      if (!p.started && ready) {
         if (!startProc(p, workdir / (p.name + ".out"))) {
           std::cerr << "cannot start " << p.name << " (" << p.argv[0] << ")\n";
           p.done = true;

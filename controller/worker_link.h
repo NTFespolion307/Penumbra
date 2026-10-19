@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "backends/backend.h"
+#include "core/package/package.h"
 #include "core/render/work.h"
 #include "core/scene/scene.h"
 #include "core/settings/render_settings.h"
@@ -40,6 +41,14 @@ struct DeviceReady {
   std::string summary;
 };
 
+// What every worker gets when a render starts: the loaded scene (in-process workers use it directly) and its
+// package (network workers download it, or find it in their cache), plus the render settings.
+struct RenderOffer {
+  std::shared_ptr<const Scene> scene;
+  std::shared_ptr<const ScenePackage> package;
+  RenderSettings settings;
+};
+
 enum class AckStatus { Accepted, Duplicate, Rejected };
 enum class GoneReason { Completed, Failed, Lost, Kicked };
 
@@ -60,8 +69,7 @@ class WorkerLink {
  public:
   virtual ~WorkerLink() = default;
   virtual WorkerInfo info() const = 0;
-  // M1: the in-memory scene; M4 replaces this with the hashed scene package.
-  virtual void offerScene(std::shared_ptr<const Scene> scene, const RenderSettings& settings) = 0;
+  virtual void offerScene(const RenderOffer& offer) = 0;
   virtual void sendLease(const Lease& lease) = 0;
   virtual void cancel(std::span<const LeaseId> leases) = 0;
   virtual void ackTile(LeaseId lease, AckStatus status) = 0;
