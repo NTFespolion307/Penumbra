@@ -263,3 +263,8 @@ keep every tile open. Penumbra refuses it with a clear message.
 **D-051 The golden image test still passes after chunking.** The Cornell golden test renders 256 spp as four
 64-sample chunks merged in order instead of one item, which changes the last bits but stays within its relMSE
 1e-3 threshold (no new golden image needed).
+
+**D-052 M3 gate results (2026-10-19).** Windows (laptop, MSVC 19.51): 116/116 tests, 20K large test passes (87 s).
+Linux (WSL Ubuntu 22.04, GCC 12): 117/117 incl. real SIGINT. Gate: 1, 2 and 4 CPU slots (960x540, 32 spp, 4
+chunks) and 1, 4 and 8 null slots (1080p, 160 chunks) give bit-identical images; a device failing on its first
+item has its leases requeued and a hung device's lease is re-issued, both bit-identical to a single-slot render.
