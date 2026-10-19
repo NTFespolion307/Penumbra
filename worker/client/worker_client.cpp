@@ -44,6 +44,8 @@ constexpr auto kStatsPeriod = std::chrono::seconds(2);
 constexpr auto kHeartbeatPeriod = std::chrono::seconds(5);
 constexpr auto kPeerTimeout = std::chrono::seconds(30);
 constexpr double kLongRoundTripMs = 50;  // above this, 3 items in flight per device instead of 2
+constexpr int kReconnect = -3;           // session(): the link dropped; a --stay worker connects again
+constexpr auto kMaxBackoff = std::chrono::seconds(30);
 
 uint64_t nowMicros() {
   return static_cast<uint64_t>(
@@ -88,7 +90,10 @@ class Worker {
     uint64_t last_tiles = 0, last_samples = 0;
   };
 
+  // Connects and says Hello; -1 when connected, else an exit code. With --stay it keeps trying.
   int connect();
+  // One connection: handles messages until it ends. Returns an exit code, or kReconnect (--stay).
+  int session();
   // Returns an exit code when the worker should stop, -1 to continue.
   int handle(net::Message& msg);
   void onSceneOffer(const wire::SceneOfferT& m);
@@ -159,11 +164,24 @@ int Worker::connect() {
   const net::JoinKey key = net::deriveJoinKey(*code);
   spdlog::info("connecting to {}:{}", addr.host, addr.port);
   const auto deadline = Clock::now() + kConnectRetry;
+  auto backoff = std::chrono::seconds(1);
+  bool told = false;
   for (;;) {
     try {
       conn_ = net::connectTo(io_, addr.host, addr.port, key);
       break;
     } catch (const net::ConnectError& e) {
+      if (opt_.interrupt && opt_.interrupt->load()) return toInt(ExitCode::Interrupted);
+      if (local_.stay) {
+        // Always-on worker: wait for the controller, however long it takes (docs/GUIDE.md "--stay").
+        if (!told) spdlog::warn("{}; trying again (--stay)", e.what());
+        told = true;
+        const auto until = Clock::now() + backoff;
+        while (Clock::now() < until && !(opt_.interrupt && opt_.interrupt->load()))
+          std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        backoff = std::min<std::chrono::seconds>(backoff * 2, kMaxBackoff);
+        continue;
+      }
       // The controller may still be starting: keep trying for a while when nothing listens yet.
       if (!e.refused || Clock::now() >= deadline) {
         spdlog::error("{}. Check the address, that the controller is hosting (--host), and the firewall "
@@ -171,10 +189,18 @@ int Worker::connect() {
                       e.what(), addr.port);
         return toInt(ExitCode::ConnectionLost);
       }
-      if (opt_.interrupt && opt_.interrupt->load()) return toInt(ExitCode::Interrupted);
       std::this_thread::sleep_for(std::chrono::milliseconds(250));
     }
   }
+  {
+    std::lock_guard lock(inbox_.mutex);  // a fresh connection: nothing from the previous one is left
+    inbox_.messages.clear();
+    inbox_.closed = false;
+    inbox_.reason.clear();
+  }
+  welcomed_ = false;
+  completed_ = false;
+  last_heartbeat_ = Clock::now();
   conn_->start({
       [this](net::Message&& msg, uint16_t version) {
         if (version != kProtocolVersion && msg.type != MsgType::Reject) {
@@ -239,8 +265,15 @@ int Worker::run() {
     const DeviceInfo d = devices_[i]->info();
     spdlog::info("device {}: {} (backend {}, {} threads)", i, d.name, toString(d.backend), d.threads);
   }
-  if (const int rc = connect(); rc >= 0) return rc;
+  for (;;) {
+    if (const int rc = connect(); rc >= 0) return rc;
+    const int rc = session();
+    if (rc != kReconnect) return rc;
+    spdlog::info("reconnecting to the controller (--stay)");
+  }
+}
 
+int Worker::session() {
   for (;;) {
     std::deque<net::Message> batch;
     bool closed = false;
@@ -265,6 +298,10 @@ int Worker::run() {
                       "prints it when it starts hosting); after more than 5 wrong codes in a minute the controller "
                       "ignores this address for 10 minutes.");
         return toInt(ExitCode::RejectedByController);
+      }
+      if (local_.stay) {
+        spdlog::warn("lost the connection to the controller: {}", reason);
+        return kReconnect;
       }
       spdlog::error("lost the connection to the controller: {}", reason);
       return toInt(ExitCode::ConnectionLost);
@@ -353,6 +390,10 @@ int Worker::handle(net::Message& msg) {
       case MsgType::RenderComplete: {
         stopSlots(true);
         scene_.reset();
+        if (local_.stay) {
+          spdlog::info("render complete; waiting for the next render (--stay)");
+          break;
+        }
         spdlog::info("render complete");
         return leave("render complete", -2);
       }

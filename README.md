@@ -13,8 +13,8 @@ combination of machines, GPUs and backends converges to the same image.
 > HDRI lighting, at any size up to 160K, with checkpoints, `--resume` and `merge`, writing EXR, PNG, JPEG, TIFF
 > or WebP. Work is split into tile and sample chunks that any number of local devices share, with recovery from
 > failed or hung devices. Networking (M4) is being built: hosting, joining (encrypted with the join code),
-> sending the scene to workers and recovery from failed, crashed, silent or misbehaving workers work; `--stay`
-> and controller `--resume` with workers come next. GPU backends arrive in M5/M6, the UI in M10. Features marked
+> sending the scene to workers, recovery from failed, crashed, silent or misbehaving workers, `--stay` workers
+> and resuming a hosted render work; UPnP comes next. GPU backends arrive in M5/M6, the UI in M10. Features marked
 > *(planned, Mx)* below are not built yet. The roadmap is in [`docs/GUIDE.md`](docs/GUIDE.md).
 
 <!-- A screenshot goes here once the UI exists (M10). -->
@@ -294,8 +294,8 @@ usual time is handed out again, and the first result wins.
 *(in progress, M4.)* Working now: `--terminal --host`, `--no-local`, `--worker --join`, join codes and
 encryption, `--approve-workers`, sending the scene to workers with a cache on each worker, heartbeats (a worker
 silent for 30 s is dropped and its work handed to others), recovery from failed devices and crashed or
-misbehaving workers. **Not yet:** `--stay`, controller `--resume` with workers, UPnP. The rest of this section
-describes the finished networking.
+misbehaving workers, `--stay`, resuming a hosted render. **Not yet:** UPnP. The rest of this section describes
+the finished networking.
 
 **Hosting.** In the UI, LAN hosting starts with the app and the Dashboard shows the join code and the address to
 give workers; internet hosting is switched on in Settings. Headless, add `--host`:
@@ -318,8 +318,10 @@ penumbra --worker --join 192.168.1.20 --code K7QD-M2XR-9FHT-4WNB
 ```
 
 Set the code in the `PENUMBRA_CODE` environment variable instead of `--code` to keep it out of shell history.
-Add `--stay` on always-on machines: the worker then waits for the next render and reconnects on its own if the
-controller restarts. In the UI, use **Join a render**.
+Add `--stay` on always-on machines: the worker then waits for the next render and reconnects on its own whenever
+the controller goes away (it retries after 1, 2, 4... up to 30 seconds, forever; Ctrl+C stops it). In the UI, use
+**Join a render**. Without `--stay`, a worker exits when the render ends (exit code 0) or the connection drops
+(exit code 7).
 
 **The scene.** Workers need nothing but Penumbra: when a render starts, the controller packages every file the
 scene reads (the `.glb`/`.gltf` and its buffers and textures, OBJ materials and textures, the HDRI) and each worker

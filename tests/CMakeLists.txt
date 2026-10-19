@@ -205,6 +205,23 @@ pen_net_test(bad_network 7517 1 cornell.pen.json "--res|1080p|--scale|0.5|--spp|
              "-DEXPECT_WORKER_LOG=round trip to the controller [0-9]+ ms: 3 items in flight")
 set_tests_properties(net.worker_silent PROPERTIES LABELS "net;gate;slow")
 
+# M4 step 5: the controller is killed mid-render (power loss) and resumed from its session file; its --stay
+# workers reconnect on their own and finish the image. A --stay worker waits after a render and serves the next
+# controller (scene from its cache). Scale: 64 workers with 8 null devices each (512 slots, each item takes
+# 300 ms) on one machine.
+pen_net_test(stay_resume 7518 2 cornell.pen.json "--res|1080p|--scale|0.5|--spp|256|--checkpoint|10s"
+             "-DREF_ARGS=--devices|cpu" "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|4|--stay"
+             -DWORKER_EXPECT=daemon -DCONTROLLER_KILL_MS=16000
+             "-DEXPECT_LOG=this render was hosting workers.*w1/0 [^\n]*: [1-9][0-9]* items")
+pen_net_test(stay_next_render 7519 1 cornell.pen.json "--res|1080p|--scale|0.25|--spp|16" "-DREF_ARGS=--devices|cpu"
+             "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|4|--stay" -DWORKER_EXPECT=daemon -DSECOND_RENDER=1
+             "-DEXPECT_LOG=has the scene in its cache" "-DEXPECT_WORKER_LOG=waiting for the next render")
+pen_net_test(scale_64 7520 64 cornell.pen.json "--res|4k|--spp|4096|--backend|null" "-DREF_ARGS=--devices|cpu"
+             "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--backend|null|--devices|cpu,cpu,cpu,cpu,cpu,cpu,cpu,cpu"
+             "-DWORKER_ENV=PENUMBRA_TEST_NULL_DELAY_MS=300" -DWORKER_DELAY_MS=40
+             "-DEXPECT_LOG=w64/7 [^\n]*: [1-9][0-9]* items")
+set_tests_properties(net.stay_resume net.scale_64 PROPERTIES LABELS "net;gate;slow")
+
 if(NOT EXISTS "${PROJECT_SOURCE_DIR}/tests/golden/cornell_256_4096spp.exr")
   message(STATUS "tests/golden/cornell_256_4096spp.exr not found: render.golden_cornell is disabled")
   set_tests_properties(render.golden_cornell PROPERTIES DISABLED TRUE)

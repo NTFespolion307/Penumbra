@@ -3,6 +3,8 @@
 //
 //   penumbra-nettest --workdir DIR [--timeout SECONDS]
 //       --proc NAME DELAY_MS EXPECT KILL_AFTER_MS "exe|arg|arg..." [--proc ...]
+//       or --procs FILE: one process per line, the same five fields separated by tabs (for many processes:
+//       Windows limits a command line to 32767 characters)
 //
 // DELAY_MS: start this long after the first process, or "after:NAME" to start once process NAME has ended.
 // EXPECT: the exit code it must return, "any", or "daemon" (a helper such as a proxy: stopped once every other
@@ -187,6 +189,29 @@ int main(int argc, char** argv) {
       workdir = argv[++i];
     } else if (a == "--timeout" && i + 1 < argc) {
       timeout = std::atoi(argv[++i]);
+    } else if (a == "--procs" && i + 1 < argc) {
+      std::ifstream in(argv[++i]);
+      if (!in) {
+        std::cerr << "penumbra-nettest: cannot read " << argv[i] << "\n";
+        return 2;
+      }
+      for (std::string line; std::getline(in, line);) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.empty()) continue;
+        const auto f = split(line, '\t');
+        if (f.size() != 5) {
+          std::cerr << "penumbra-nettest: expected 5 tab-separated fields: " << line << "\n";
+          return 2;
+        }
+        Proc p;
+        p.name = f[0];
+        if (f[1].rfind("after:", 0) == 0) p.after = f[1].substr(6);
+        else p.delay_ms = std::atoi(f[1].c_str());
+        p.expect = f[2];
+        p.kill_after_ms = std::atoi(f[3].c_str());
+        p.argv = split(f[4], '|');
+        procs.push_back(std::move(p));
+      }
     } else if (a == "--proc" && i + 5 < argc) {
       Proc p;
       p.name = argv[++i];

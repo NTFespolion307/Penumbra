@@ -57,6 +57,7 @@ void Session::save(const std::filesystem::path& path) const {
   j["progress"] = {{"tiles_done", tiles_done}, {"tiles_total", tiles_total}, {"samples_done", samples_done},
                    {"samples_total", samples_total}};
   j["settings"] = settingsToJson(settings);
+  if (hosting) j["hosting"] = {{"join_code", join_code}};
   writeFileAtomically(path, j.dump(2) + "\n");
 }
 
@@ -81,6 +82,10 @@ Session Session::load(const std::filesystem::path& path) {
     s.samples_done = p.at("samples_done").get<uint64_t>();
     s.samples_total = p.at("samples_total").get<uint64_t>();
     s.settings = settingsFromJson(j.at("settings"));
+    if (j.contains("hosting")) {
+      s.hosting = true;
+      s.join_code = j.at("hosting").value("join_code", std::string());
+    }
     return s;
   } catch (const json::exception& e) {
     throw SettingsError(1, fmt::format("session file '{}' is damaged: {}", pathToUtf8(path), e.what()));

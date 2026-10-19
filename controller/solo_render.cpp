@@ -225,6 +225,9 @@ int renderAndFinish(const RenderSettings& s, std::shared_ptr<Scene> scene, std::
       }
     }
     controller.setHosting(true);
+    session.hosting = true;  // --resume hosts again with this code (docs/GUIDE.md "Controller crash")
+    session.join_code = code;
+    saveSession(session, sessionPath, controller.progress(), film);
     try {
       host = std::make_unique<Host>(s, code, controller,
                                     [&](const Host::MakeLink& make) { controller.addWorker(make); });
@@ -391,6 +394,14 @@ int resumeLocalRender(const std::filesystem::path& sessionFile, const nlohmann::
     return toInt(ExitCode::BadArguments);
   }
 
+  LocalRenderOptions opts = options;
+  if (session.hosting) {
+    // The render was hosting: host again with the same code, so --stay workers find it (docs/GUIDE.md).
+    opts.host = true;
+    if (opts.code.empty()) opts.code = session.join_code;
+    spdlog::info("this render was hosting workers: hosting again on the same port and code; workers started with "
+                 "--stay reconnect on their own");
+  }
   RenderSettings s = session.settings;
   try {
     for (const auto& [key, value] : cliOverrides.items()) {
@@ -441,7 +452,7 @@ int resumeLocalRender(const std::filesystem::path& sessionFile, const nlohmann::
   const uint64_t onDisk = std::filesystem::file_size(session.film);
   const uint64_t remaining = Film::fileBytes(layout) > onDisk ? Film::fileBytes(layout) - onDisk : 0;
   if (const int rc = checkDisk(s, session.film, remaining); rc >= 0) return rc;
-  return renderAndFinish(s, scene, pkg, *film, session, sessionFile, options);
+  return renderAndFinish(s, scene, pkg, *film, session, sessionFile, opts);
 }
 
 int mergeFilmsToImage(const std::vector<std::filesystem::path>& paths, const RenderSettings& s) {

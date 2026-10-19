@@ -19,6 +19,9 @@ struct Session {
   uint32_t tiles_done = 0, tiles_total = 0;
   uint64_t samples_done = 0, samples_total = 0;
   std::string created, updated;  // local time, ISO 8601
+  // The render accepted workers: --resume hosts again with the same code, so --stay workers reconnect.
+  bool hosting = false;
+  std::string join_code;
 
   void save(const std::filesystem::path& path) const;
   static Session load(const std::filesystem::path& path);  // throws SettingsError(1) on a bad file

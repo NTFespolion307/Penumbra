@@ -359,3 +359,17 @@ controller checks every second and requeues the dropped worker's leases. A worke
 Windows, so the bad-network test runs through a small TCP proxy in `tools/`: a fixed delay each way, a bandwidth
 cap per direction, and "loss" as a 200 ms stall of a block (and the blocks behind it), which is what a lost TCP
 segment costs; a proxy cannot drop segments inside a TCP stream.
+
+**D-070 `--stay` and resuming a hosted render.** A `--stay` worker keeps its connection after `RenderComplete` and
+waits for the next `SceneOffer`; when the connection drops (or the controller is not up yet) it reconnects after 1,
+2, 4 ... 30 s, forever. A wrong code, another version or a kick still end it (exit code 6): retrying cannot fix
+those. A hosted render records `hosting` and its join code in the session file, so `penumbra --terminal --resume
+<session.json>` hosts again on the same port with the same code; the workers rejoin and download nothing (scene
+cache).
+
+**D-071 Scale test and `PENUMBRA_TEST_NULL_DELAY_MS`.** The guide's scale test (64 workers x 8 devices) runs as a
+normal network test: 64 worker processes with 8 null devices each on loopback. The null backend is instant, so a
+test-only delay (it only affects the test-only null backend) makes each item take 300 ms and keeps all 512 slots busy for
+the whole render. First result on the laptop: 64 workers joined, 8,640 items in 39 s, bit-identical.
+`penumbra-nettest` reads its process list from a file (`--procs`) because 64 command lines exceed the Windows
+command-line limit.
