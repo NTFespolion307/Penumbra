@@ -8,13 +8,13 @@ the image. Any number of **workers**, each with one or more GPUs, join with the 
 code, render tiles and send them back. A render on one machine is the same thing with no workers, and every
 combination of machines, GPUs and backends converges to the same image.
 
-> **Status: milestone M3 (scheduler and local worker).** Penumbra renders glTF and OBJ scenes on the CPU
+> **Status: milestone M4 (network controller and workers).** Penumbra renders glTF and OBJ scenes on the CPU
 > (Embree) with a path tracer (next-event estimation, MIS), the glTF PBR material with its common extensions and
 > HDRI lighting, at any size up to 160K, with checkpoints, `--resume` and `merge`, writing EXR, PNG, JPEG, TIFF
 > or WebP. Work is split into tile and sample chunks that any number of local devices share, with recovery from
-> failed or hung devices. Networking (M4) is being built: hosting, joining (encrypted with the join code),
-> sending the scene to workers, recovery from failed, crashed, silent or misbehaving workers, `--stay` workers
-> and resuming a hosted render work; UPnP comes next. GPU backends arrive in M5/M6, the UI in M10. Features marked
+> failed or hung devices. Several machines render together: a controller hosts, workers on the LAN or the
+> internet join with a code (encrypted), download the scene once, and any failure of a worker, its devices or the
+> network is recovered without changing the image. GPU backends arrive in M5/M6, the UI in M10. Features marked
 > *(planned, Mx)* below are not built yet. The roadmap is in [`docs/GUIDE.md`](docs/GUIDE.md).
 
 <!-- A screenshot goes here once the UI exists (M10). -->
@@ -291,11 +291,9 @@ usual time is handed out again, and the first result wins.
 
 ## Rendering with several machines
 
-*(in progress, M4.)* Working now: `--terminal --host`, `--no-local`, `--worker --join`, join codes and
-encryption, `--approve-workers`, sending the scene to workers with a cache on each worker, heartbeats (a worker
-silent for 30 s is dropped and its work handed to others), recovery from failed devices and crashed or
-misbehaving workers, `--stay`, resuming a hosted render. **Not yet:** UPnP. The rest of this section describes
-the finished networking.
+Headless hosting and joining work as described here (M4); the UI's Dashboard, Hosts pages and **Join a render**
+arrive in M10. Workers on another OS than the controller give the same image within relMSE 1e-10 (different math
+libraries), workers on the same OS bit for bit.
 
 **Hosting.** In the UI, LAN hosting starts with the app and the Dashboard shows the join code and the address to
 give workers; internet hosting is switched on in Settings. Headless, add `--host`:

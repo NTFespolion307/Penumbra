@@ -406,3 +406,12 @@ equals the server's own solo render of the cached package files bit for bit. Mix
 over the LAN + server over the internet, Cornell 1080p / 256 spp: 8 + 12 + 108 items, relMSE 8.5e-11 against the
 Windows solo render (Linux tiles, D-073). UPnP on the home router forwarded and removed TCP 7420; an internet join
 through the public address was not tested (the user chose the VPN path).
+
+**D-075 M4 gate results (2026-10-19).** Windows (laptop, MSVC 19.51): 154/154 tests, also from a fresh clone of
+`m4` built with `scripts\build.ps1` per the README. Linux: 155/155 in WSL Ubuntu 22.04 (GCC 12.3) and 155/155 on the
+vast.ai server (Ubuntu 24.04, GCC 12.4) after following the README's Linux steps on a fresh machine. Loopback: a
+controller and 3 worker processes give the solo render bit for bit, also with failed devices, crashed, hung,
+silent and corrupt workers, a worker joining late, a 200 ms / 2% loss / 10 Mbit/s link, a killed and resumed
+controller with --stay workers, and 64 workers x 8 devices. LAN: Windows controller with WSL workers and the
+reverse (D-073). Internet: the server over Tailscale, bit-identical to its own render of the package (D-074).
+Not covered: an internet join through a forwarded public port (UPnP mapping itself checked), the UI (M10).
