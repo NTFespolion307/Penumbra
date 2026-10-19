@@ -11,6 +11,7 @@
 #include "apps/penumbra/platform.h"
 #include "apps/penumbra/progress.h"
 #include "controller/solo_render.h"
+#include "worker/client/worker_client.h"
 #include "core/exit_codes.h"
 #include "core/log/log.h"
 #include "core/system/paths.h"
@@ -45,12 +46,18 @@ int dispatch(const Invocation& inv, bool fromExplorer) {
     case Mode::Ui: return runUiPlaceholder(fromExplorer);
     case Mode::Terminal:
       spdlog::info("render: {}", pen::cli::describe(inv.settings));
-      if (inv.host) return notYet("Hosting workers (--host)", "M4");
       render.interrupt = &pen::app::installInterruptHandler();
+      render.host = inv.host;
+      render.code = inv.code;
       return pen::runLocalRender(inv.settings, render);
-    case Mode::Worker:
-      spdlog::info("worker for controller {}", inv.join);
-      return notYet("Joining a render", "M4");
+    case Mode::Worker: {
+      pen::WorkerOptions worker;
+      worker.settings = inv.settings;
+      worker.join = inv.join;
+      worker.code = inv.code;
+      worker.interrupt = &pen::app::installInterruptHandler();
+      return pen::runWorker(worker);
+    }
     case Mode::Resume:
       if (!inv.terminal) spdlog::info("the UI is built in milestone M10; resuming in the terminal");
       render.interrupt = &pen::app::installInterruptHandler();

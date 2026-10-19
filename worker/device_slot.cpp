@@ -1,5 +1,6 @@
 #include "worker/device_slot.h"
 
+#include <chrono>
 #include <exception>
 
 namespace pen {
@@ -44,9 +45,10 @@ void DeviceSlot::run() {
   for (;;) {
     // Keep `in_flight_` items: the one rendering plus queued ones (docs/GUIDE.md "Leases": 2 per slot).
     const int have = static_cast<int>(queue_.size()) + (rendering_ ? 1 : 0);
-    if (!finished_ && have < in_flight_) {
+    const int want = in_flight_.load();
+    if (!finished_ && have < want) {
       lock.unlock();
-      cb_.request_work(id_, in_flight_ - have);
+      cb_.request_work(id_, want - have);
       lock.lock();
     }
     cv_.wait(lock, [&] { return !queue_.empty() || finished_; });
@@ -58,8 +60,11 @@ void DeviceSlot::run() {
     lock.unlock();
     TileResult result;
     result.device = id_;
+    const auto start = std::chrono::steady_clock::now();
     try {
       backend_.render(item, result);
+      busy_us_ += static_cast<uint64_t>(
+          std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count());
     } catch (const std::exception& e) {
       lock.lock();
       std::vector<LeaseId> lost{item.lease};

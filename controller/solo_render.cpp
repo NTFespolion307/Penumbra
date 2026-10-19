@@ -5,21 +5,27 @@
 #include <chrono>
 #include <fmt/format.h>
 
+#include "controller/hosting/host.h"
+#include "controller/hosting/upnp.h"
 #include "controller/local_worker.h"
 #include "core/exit_codes.h"
 #include "core/film/film.h"
 #include "core/film/session.h"
 #include "core/output/output.h"
 #include "core/output/writers.h"
+#include "core/package/package.h"
 #include "core/render/camera.h"
 #include "core/scene/scene_loader.h"
 #include "core/settings/parse.h"
 #include "core/settings/schema.h"
 #include "core/settings/serialize.h"
 #include "core/system/file.h"
+#include "core/system/hash.h"
 #include "core/system/paths.h"
 #include "core/system/sysinfo.h"
 #include "core/version.h"
+#include "net/interfaces.h"
+#include "net/join_code.h"
 #include "worker/device_manager.h"
 
 namespace pen {
@@ -35,6 +41,23 @@ int validate(const RenderSettings& s) {
   }
   if (s.denoise != Denoiser::None) spdlog::warn("--denoise {} is built in milestone M11; not applied", toString(s.denoise));
   if (!s.aov.empty()) spdlog::warn("--aov is built in milestone M11; no extra passes are written");
+  return -1;
+}
+
+// Packaging is the validation step of every render (docs/GUIDE.md "Package format"): every file the scene needs
+// is found and hashed before anything renders; workers download exactly these files.
+int buildPackageChecked(const RenderSettings& s, std::shared_ptr<const ScenePackage>& pkg) {
+  try {
+    const auto t0 = std::chrono::steady_clock::now();
+    auto p = std::make_shared<ScenePackage>(buildPackage(s));
+    spdlog::info("scene package {}: {} files, {}, {} chunks; built in {:.2f}s", toHex(p->hash()), p->files.size(),
+                 formatBytes(p->total_bytes), p->chunkCount(),
+                 std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
+    pkg = std::move(p);
+  } catch (const SceneError& e) {
+    spdlog::error("{}", e.what());
+    return toInt(ExitCode::SceneLoadError);
+  }
   return -1;
 }
 
@@ -139,17 +162,22 @@ void saveSession(Session& session, const std::filesystem::path& path, const Rend
   }
 }
 
-int renderAndFinish(const RenderSettings& s, std::shared_ptr<Scene> scene, Film& film, Session& session,
-                    const std::filesystem::path& sessionPath, const LocalRenderOptions& options) {
+int renderAndFinish(const RenderSettings& s, std::shared_ptr<Scene> scene, std::shared_ptr<const ScenePackage> pkg,
+                    Film& film, Session& session, const std::filesystem::path& sessionPath,
+                    const LocalRenderOptions& options) {
   DeviceSelection devices;
-  try {
-    devices = createDevices(s, /*controllerHost=*/true);
-  } catch (const NoDeviceError& e) {
-    spdlog::error("{}", e.what());
-    return toInt(ExitCode::NoUsableDevice);
-  } catch (const BackendError& e) {
-    spdlog::error("{}", e.what());
-    return toInt(ExitCode::NoUsableDevice);
+  if (s.no_local) {
+    spdlog::info("--no-local: this machine coordinates only; workers do all the rendering");
+  } else {
+    try {
+      devices = createDevices(s, /*controllerHost=*/true);
+    } catch (const NoDeviceError& e) {
+      spdlog::error("{}", e.what());
+      return toInt(ExitCode::NoUsableDevice);
+    } catch (const BackendError& e) {
+      spdlog::error("{}", e.what());
+      return toInt(ExitCode::NoUsableDevice);
+    }
   }
   for (const auto& n : devices.notes) spdlog::info("{}", n);
   for (size_t i = 0; i < devices.devices.size(); ++i) {
@@ -161,13 +189,70 @@ int renderAndFinish(const RenderSettings& s, std::shared_ptr<Scene> scene, Film&
   const PassOrder order = film.inRam() ? PassOrder::BreadthFirst : PassOrder::DepthFirst;
   spdlog::info("pass order: {}", order == PassOrder::BreadthFirst ? "breadth-first (whole image, pass by pass)"
                                                                   : "depth-first (tile after tile)");
-  RenderController controller(s, scene, film, order);
+  // The host is destroyed after the controller: remote worker links (owned by the controller) hold sockets of
+  // the host's network thread.
+  std::unique_ptr<Host> host;
+  std::unique_ptr<UpnpMapping> upnp;  // removed when the render ends
+  RenderController controller(s, scene, pkg, film, order);
   if (const uint32_t restored = controller.restoreFromFilm(); restored > 0) {
     const RenderProgress p = controller.progress();
     spdlog::info("resume: {} of {} tiles already have samples in the film ({:.1f}% of the samples)", restored,
                  p.items_total, p.samples_total ? 100.0 * double(p.samples_done) / double(p.samples_total) : 0.0);
   }
-  controller.addWorker(std::make_unique<LocalWorker>(controller.nextWorkerId(), controller, std::move(devices.devices)));
+  if (!devices.devices.empty())
+    controller.addWorker([&](WorkerId id) {
+      return std::make_unique<LocalWorker>(id, controller, std::move(devices.devices));
+    });
+
+  if (options.host) {
+    // The join code: --code / PENUMBRA_CODE, else the one saved in the user data folder (docs/GUIDE.md "Join code").
+    std::string code;
+    if (!options.code.empty()) {
+      const auto c = net::normalizeJoinCode(options.code);
+      if (!c) {
+        spdlog::error("--code '{}' is not a join code (16 characters like K7QD-M2XR-9FHT-4WNB)", options.code);
+        return toInt(ExitCode::BadArguments);
+      }
+      code = *c;
+      spdlog::info("join code {} (from --code)", net::formatJoinCode(code));
+    } else {
+      const std::filesystem::path file = paths::userDataDir() / "join_code.txt";
+      try {
+        bool created = false;
+        code = net::loadOrCreateJoinCode(file, created);
+        spdlog::info("join code {} ({} {})", net::formatJoinCode(code), created ? "new, saved in" : "saved in",
+                     pathToUtf8(file));
+      } catch (const std::exception& e) {
+        spdlog::error("cannot create the join code in '{}': {}", pathToUtf8(file), e.what());
+        return toInt(ExitCode::BadArguments);
+      }
+    }
+    controller.setHosting(true);
+    session.hosting = true;  // --resume hosts again with this code (docs/GUIDE.md "Controller crash")
+    session.join_code = code;
+    saveSession(session, sessionPath, controller.progress(), film);
+    try {
+      host = std::make_unique<Host>(s, code, controller,
+                                    [&](const Host::MakeLink& make) { controller.addWorker(make); });
+    } catch (const std::exception& e) {
+      spdlog::error("{}", e.what());
+      return toInt(ExitCode::BadArguments);
+    }
+    spdlog::info("hosting on port {}{}; workers join with: penumbra --worker --join <this machine's address>:{} "
+                 "--code {}",
+                 host->port(), s.bind.empty() ? " (all interfaces)" : fmt::format(" ({})", s.bind), host->port(),
+                 net::formatJoinCode(code));
+    if (s.approve_workers) spdlog::info("--approve-workers: each new worker waits for your answer here");
+    // Where workers can reach this machine (docs/GUIDE.md "Addresses, NAT and firewall").
+    for (const net::HostAddress& a : net::listHostAddresses())
+      spdlog::info("  {} address {} ({}): penumbra --worker --join {}:{} --code {}", net::toString(a.kind), a.address,
+                   a.interface, a.address.find(':') != std::string::npos ? "[" + a.address + "]" : a.address,
+                   host->port(), net::formatJoinCode(code));
+    if (s.no_upnp) spdlog::info("--no-upnp: not asking the router to forward TCP {}", host->port());
+    else if (s.bind.rfind("127.", 0) == 0 || s.bind == "::1") spdlog::info("listening on loopback only: no UPnP");
+    else upnp = std::make_unique<UpnpMapping>(host->port());
+    if (s.no_local) spdlog::info("waiting for workers to join");
+  }
 
   RenderRunOptions run;
   run.interrupt = options.interrupt;
@@ -178,8 +263,11 @@ int renderAndFinish(const RenderSettings& s, std::shared_ptr<Scene> scene, Film&
     outcome = controller.run(run);
   } catch (const std::exception& e) {
     spdlog::error("render failed: {}", e.what());
+    if (host) host->shutdown(std::chrono::seconds(0));
     return toInt(ExitCode::NoUsableDevice);
   }
+  // Workers got RenderComplete; give them a moment to say Bye before closing their connections.
+  if (host) host->shutdown(std::chrono::seconds(5));
 
   // Final checkpoint and session state.
   try {
@@ -250,6 +338,8 @@ int renderAndFinish(const RenderSettings& s, std::shared_ptr<Scene> scene, Film&
 
 int runLocalRender(const RenderSettings& s, const LocalRenderOptions& options) {
   if (const int rc = validate(s); rc >= 0) return rc;
+  std::shared_ptr<const ScenePackage> pkg;
+  if (const int rc = buildPackageChecked(s, pkg); rc >= 0) return rc;
   std::shared_ptr<Scene> scene;
   if (const int rc = loadSceneChecked(s, scene); rc >= 0) return rc;
 
@@ -296,7 +386,7 @@ int runLocalRender(const RenderSettings& s, const LocalRenderOptions& options) {
     return toInt(ExitCode::BadArguments);
   }
   spdlog::info("film {}, session {}", pathToUtf8(filmPath), pathToUtf8(sessionPath));
-  return renderAndFinish(s, scene, *film, session, sessionPath, options);
+  return renderAndFinish(s, scene, pkg, *film, session, sessionPath, options);
 }
 
 int resumeLocalRender(const std::filesystem::path& sessionFile, const nlohmann::json& cliOverrides,
@@ -315,6 +405,14 @@ int resumeLocalRender(const std::filesystem::path& sessionFile, const nlohmann::
     return toInt(ExitCode::BadArguments);
   }
 
+  LocalRenderOptions opts = options;
+  if (session.hosting) {
+    // The render was hosting: host again with the same code, so --stay workers find it (docs/GUIDE.md).
+    opts.host = true;
+    if (opts.code.empty()) opts.code = session.join_code;
+    spdlog::info("this render was hosting workers: hosting again on the same port and code; workers started with "
+                 "--stay reconnect on their own");
+  }
   RenderSettings s = session.settings;
   try {
     for (const auto& [key, value] : cliOverrides.items()) {
@@ -342,6 +440,8 @@ int resumeLocalRender(const std::filesystem::path& sessionFile, const nlohmann::
     return toInt(ExitCode::SceneLoadError);
   }
   if (const int rc = validate(s); rc >= 0) return rc;
+  std::shared_ptr<const ScenePackage> pkg;
+  if (const int rc = buildPackageChecked(s, pkg); rc >= 0) return rc;
   std::shared_ptr<Scene> scene;
   if (const int rc = loadSceneChecked(s, scene); rc >= 0) return rc;
 
@@ -363,7 +463,7 @@ int resumeLocalRender(const std::filesystem::path& sessionFile, const nlohmann::
   const uint64_t onDisk = std::filesystem::file_size(session.film);
   const uint64_t remaining = Film::fileBytes(layout) > onDisk ? Film::fileBytes(layout) - onDisk : 0;
   if (const int rc = checkDisk(s, session.film, remaining); rc >= 0) return rc;
-  return renderAndFinish(s, scene, *film, session, sessionFile, options);
+  return renderAndFinish(s, scene, pkg, *film, session, sessionFile, opts);
 }
 
 int mergeFilmsToImage(const std::vector<std::filesystem::path>& paths, const RenderSettings& s) {

@@ -6,6 +6,7 @@
   "license": "MIT",
   "builtin-baseline": "3cd21e48a75f67acfef289da52893ce79144aaa1",
   "dependencies": [
+    "asio",
     "blake3",
     "cgltf",
     "cli11",
@@ -15,8 +16,11 @@
       "features": [ "filter-function", "geometry-instance", "geometry-triangle", "tasking-tbb" ]
     },
     "fmt",
+    "flatbuffers",
     "libjpeg-turbo",
     "libpng",
+    "mbedtls",
+    "miniupnpc",
     {
       "name": "libwebp",
       "default-features": false,
@@ -35,7 +39,8 @@
       "default-features": false,
       "features": [ "zip" ]
     },
-    "tinyobjloader"
+    "tinyobjloader",
+    "zstd"
   ],
   "features": {
     "tests": {

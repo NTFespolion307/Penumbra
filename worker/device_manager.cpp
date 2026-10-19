@@ -73,7 +73,7 @@ DeviceSelection createDevices(const RenderSettings& s, bool controllerHost) {
       throw NoDeviceError(fmt::format("PENUMBRA_TEST_FAULTS: there is no device {}", fault->device));
     sel.notes.push_back(fmt::format("TEST FAULT INJECTION ACTIVE (PENUMBRA_TEST_FAULTS): device {} will {} after {} "
                                     "item(s)",
-                                    fault->device, fault->hang ? "hang" : "fail", fault->after));
+                                    fault->device, toString(fault->mode), fault->after));
     sel.devices[fault->device] = wrapWithFault(std::move(sel.devices[fault->device]), *fault);
   }
   return sel;

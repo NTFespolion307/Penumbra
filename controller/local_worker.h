@@ -16,7 +16,7 @@ class LocalWorker final : public WorkerLink {
   ~LocalWorker() override;
 
   WorkerInfo info() const override;
-  void offerScene(std::shared_ptr<const Scene> scene, const RenderSettings& settings) override;
+  void offerScene(const RenderOffer& offer) override;
   void sendLease(const Lease& lease) override;
   void cancel(std::span<const LeaseId> leases) override;
   void ackTile(LeaseId lease, AckStatus status) override;

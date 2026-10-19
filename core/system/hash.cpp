@@ -43,6 +43,19 @@ uint64_t hashFile(const std::filesystem::path& path) {
   return finish(h);
 }
 
+static_assert(sizeof(blake3_hasher) <= 1920, "Hasher::state_ is too small for blake3_hasher");
+
+Hasher::Hasher() { blake3_hasher_init(reinterpret_cast<blake3_hasher*>(state_)); }
+
+void Hasher::update(std::span<const uint8_t> data) {
+  blake3_hasher_update(reinterpret_cast<blake3_hasher*>(state_), data.data(), data.size());
+}
+
+uint64_t Hasher::finish() const {
+  blake3_hasher copy = *reinterpret_cast<const blake3_hasher*>(state_);
+  return pen::finish(copy);
+}
+
 std::string toHex(uint64_t v) { return fmt::format("{:016x}", v); }
 
 uint64_t fromHex(std::string_view text) {

@@ -31,6 +31,7 @@ struct DeviceTally {
   uint64_t samples = 0;
   double seconds = 0;
   bool failed = false;
+  bool left = false;  // its worker disconnected
 };
 
 struct RenderOutcome {
@@ -57,11 +58,16 @@ struct RenderRunOptions {
 // time, requeues the leases of failed devices, and checkpoints the film every --checkpoint.
 class RenderController final : public WorkerEvents {
  public:
-  RenderController(const RenderSettings& settings, std::shared_ptr<const Scene> scene, Film& film, PassOrder order);
+  RenderController(const RenderSettings& settings, std::shared_ptr<const Scene> scene,
+                   std::shared_ptr<const ScenePackage> package, Film& film, PassOrder order);
 
-  // The link must be created with this controller as its WorkerEvents.
-  void addWorker(std::unique_ptr<WorkerLink> link);
-  WorkerId nextWorkerId() const { return static_cast<WorkerId>(workers_.size()); }
+  // `make` creates the link for the new worker id, with this controller as its WorkerEvents. Thread-safe and
+  // allowed while the render runs: a worker added then is offered the scene at once (joining mid-render).
+  WorkerId addWorker(const std::function<std::unique_ptr<WorkerLink>(WorkerId)>& make);
+
+  // Hosting: workers may come and go, so a render with no devices left waits for the next worker instead of
+  // failing.
+  void setHosting(bool hosting) { hosting_ = hosting; }
 
   // Resume: continue every tile from the samples already in the film. Returns tiles with data.
   uint32_t restoreFromFilm();
@@ -93,10 +99,12 @@ class RenderController final : public WorkerEvents {
   bool mergeLocked(const TileResult& r);
   void checkFinishedLocked();
   void reissueLateLocked();
+  void requeueWorkerLocked(WorkerId worker);
+  std::vector<WorkerLink*> workerSnapshotLocked() const;
   double medianItemSecondsLocked() const;
 
   RenderSettings settings_;
-  std::shared_ptr<const Scene> scene_;
+  RenderOffer offer_;
   Film& film_;
   Scheduler scheduler_;
   uint32_t sample_begin_ = 0;
@@ -109,8 +117,11 @@ class RenderController final : public WorkerEvents {
   LeaseId next_lease_ = 1;
   std::map<DeviceKey, int> wanted_;                   // devices waiting for this many more items
   std::map<uint64_t, TileResult> early_;              // results waiting for an earlier chunk of their tile
+  std::map<WorkerId, uint32_t> rejects_;              // invalid results per worker
   std::deque<double> item_seconds_;                   // recent item durations, for hang detection
   uint32_t live_devices_ = 0;
+  bool hosting_ = false;
+  bool running_ = false;  // run() has offered the scene; later workers get it from addWorker
   uint32_t reissued_ = 0;
   bool finished_ = false;
   bool out_of_disk_ = false;

@@ -1,6 +1,6 @@
 #include "controller/local_worker.h"
 
-#include <chrono>
+#include "worker/device_prep.h"
 
 namespace pen {
 
@@ -17,29 +17,11 @@ WorkerInfo LocalWorker::info() const {
   return w;
 }
 
-void LocalWorker::offerScene(std::shared_ptr<const Scene> scene, const RenderSettings& settings) {
-  scene_ = std::move(scene);
-  std::vector<std::string> notes;  // the controller logs camera notes itself
-  FrameSetup frame;
-  frame.camera = RenderCamera(*scene_, settings, settings.outputWidth(), settings.outputHeight(), notes);
-  frame.params = IntegratorParams::from(settings, *scene_);
-  frame.seed = settings.seed;
-
+void LocalWorker::offerScene(const RenderOffer& offer) {
+  scene_ = offer.scene;
   std::vector<DeviceReady> ready;
-  const SceneStats stats = scene_->stats();
-  for (DeviceId d = 0; d < devices_.size(); ++d) {
-    const auto start = std::chrono::steady_clock::now();
-    const MemoryPlan plan = devices_[d]->plan(stats);
-    devices_[d]->upload(*scene_, plan);
-    devices_[d]->prepare(frame);
-    DeviceReady r;
-    r.device = d;
-    r.backend = devices_[d]->info().backend;
-    r.memory_tier = plan.tier;
-    r.summary = plan.summary;
-    r.build_seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
-    ready.push_back(r);
-  }
+  for (const PreparedDevice& p : prepareDevices(*scene_, offer.settings, devices_))
+    ready.push_back({p.device, p.backend, p.memory_tier, p.build_seconds, p.summary});
   events_.onReady(id_, ready);
 
   for (DeviceId d = 0; d < devices_.size(); ++d) {
@@ -64,13 +46,13 @@ void LocalWorker::sendLease(const Lease& lease) {
   }
 }
 
-// M2: cancels everything (Ctrl+C, out of disk). Cancelling single leases arrives with requeue in M3.
+// Cancels everything (Ctrl+C, out of disk, end of render); single leases are never cancelled yet.
 void LocalWorker::cancel(std::span<const LeaseId>) {
   for (auto& s : slots_) s->clearQueue();
   for (auto& d : devices_) d->cancel();
 }
-void LocalWorker::ackTile(LeaseId, AckStatus) {}       // in-process results need no acknowledgement
-void LocalWorker::pause(bool) {}                       // M2: pause on disk full
+void LocalWorker::ackTile(LeaseId, AckStatus) {}  // in-process results need no acknowledgement
+void LocalWorker::pause(bool) {}                  // disk-full pause arrives with the UI (M10)
 
 void LocalWorker::complete() {
   for (auto& s : slots_) s->finish();

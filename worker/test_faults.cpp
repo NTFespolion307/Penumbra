@@ -12,6 +12,9 @@ namespace pen {
 
 namespace {
 
+std::atomic<bool> g_frozen{false};
+std::atomic<uint32_t> g_corrupt_tiles{0};
+
 class FaultyBackend final : public IBackend {
  public:
   FaultyBackend(std::unique_ptr<IBackend> inner, const FaultSpec& spec) : inner_(std::move(inner)), spec_(spec) {}
@@ -28,11 +31,20 @@ class FaultyBackend final : public IBackend {
   }
   void render(const WorkItem& item, TileResult& out) override {
     if (rendered_++ >= spec_.after) {
-      if (!spec_.hang) throw BackendError("injected test fault (PENUMBRA_TEST_FAULTS)");
-      while (!cancel_.load()) std::this_thread::sleep_for(std::chrono::milliseconds(10));
-      out.item_id = item.id;
-      out.cancelled = true;
-      return;
+      switch (spec_.mode) {
+        case FaultMode::Throw: throw BackendError("injected test fault (PENUMBRA_TEST_FAULTS)");
+        case FaultMode::Exit: std::_Exit(137);
+        case FaultMode::Corrupt:
+          inner_->render(item, out);
+          ++g_corrupt_tiles;
+          return;
+        case FaultMode::Freeze: g_frozen = true; [[fallthrough]];
+        case FaultMode::Hang:
+          while (!cancel_.load()) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+          out.item_id = item.id;
+          out.cancelled = true;
+          return;
+      }
     }
     inner_->render(item, out);
   }
@@ -59,12 +71,36 @@ std::optional<FaultSpec> faultSpecFromEnvironment() {
     const std::string_view key = item.substr(0, eq), value = item.substr(eq + 1);
     if (key == "device") spec.device = static_cast<uint32_t>(parseUint(value, 0, 255));
     else if (key == "after") spec.after = static_cast<uint32_t>(parseUint(value, 0, 1u << 30));
-    else if (key == "mode" && (value == "throw" || value == "hang")) spec.hang = value == "hang";
-    else throw std::invalid_argument("PENUMBRA_TEST_FAULTS: use device=N,after=K,mode=throw|hang");
+    else if (key == "mode" && value == "throw") spec.mode = FaultMode::Throw;
+    else if (key == "mode" && value == "hang") spec.mode = FaultMode::Hang;
+    else if (key == "mode" && value == "exit") spec.mode = FaultMode::Exit;
+    else if (key == "mode" && value == "freeze") spec.mode = FaultMode::Freeze;
+    else if (key == "mode" && value == "corrupt") spec.mode = FaultMode::Corrupt;
+    else throw std::invalid_argument("PENUMBRA_TEST_FAULTS: use device=N,after=K,mode=throw|hang|exit|freeze|corrupt");
     if (comma == std::string_view::npos) break;
     s.remove_prefix(comma + 1);
   }
   return spec;
+}
+
+std::string_view toString(FaultMode mode) {
+  switch (mode) {
+    case FaultMode::Throw: return "fail";
+    case FaultMode::Hang: return "hang";
+    case FaultMode::Exit: return "exit the process";
+    case FaultMode::Freeze: return "freeze the worker";
+    case FaultMode::Corrupt: return "corrupt its tiles";
+  }
+  return "?";
+}
+
+bool testFrozen() { return g_frozen.load(); }
+
+bool testTakeCorruptTile() {
+  uint32_t n = g_corrupt_tiles.load();
+  while (n > 0)
+    if (g_corrupt_tiles.compare_exchange_weak(n, n - 1)) return true;
+  return false;
 }
 
 std::unique_ptr<IBackend> wrapWithFault(std::unique_ptr<IBackend> backend, const FaultSpec& spec) {

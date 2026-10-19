@@ -268,3 +268,150 @@ keep every tile open. Penumbra refuses it with a clear message.
 Linux (WSL Ubuntu 22.04, GCC 12): 117/117 incl. real SIGINT. Gate: 1, 2 and 4 CPU slots (960x540, 32 spp, 4
 chunks) and 1, 4 and 8 null slots (1080p, 160 chunks) give bit-identical images; a device failing on its first
 item has its leases requeued and a hung device's lease is re-issued, both bit-identical to a single-slot render.
+
+## M4: Network controller and workers
+
+User approved the M4 plan on 2026-10-19. Machines: WSL is the LAN worker for now (the user's PCs are not near
+each other); the internet worker is the vast.ai server joining the laptop controller over Tailscale.
+
+**D-053 Tiles travel as float32, not float16.** The guide sends tile means as float16 when they fit. Rounding to
+float16 would make a tile from another host differ from a local one, breaking D-045 (any distribution gives the
+same bits). Tiles are sent as float32 split into 4 byte planes and compressed with zstd level 3 (lossless; the
+planes compress much better than raw floats). The protocol keeps a per-tile encoding field, so a float16 mode can
+be added in M9 if measured bandwidth needs it.
+
+**D-054 Network tests run processes with `penumbra-nettest`.** CMake cannot run several processes at once, so a
+small test program (`tests/net/nettest.cpp`) starts the controller and workers, can hard-kill one after a delay,
+collects each process's output, and checks every exit code. Each network test uses its own port (7501+) so
+`ctest -j` can run them side by side.
+
+**D-055 Worker device settings stay local.** A worker renders with the controller's settings except
+`--backend`, `--devices`, `--threads`, `--vram-limit`, `--ram-limit` and `--no-texture-downsize`, which come from
+the worker's own command line and config file. A worker that cannot connect because nothing listens yet keeps
+trying for 15 s (the controller may still be starting), then exits with code 7.
+
+**D-056 `DeviceFailed` message.** The guide's table has no message for "one of my devices failed". Version 1 adds
+`DeviceFailed` (device id, error) next to `Release`, so a remote device failure is logged and counted exactly like
+a local one.
+
+**D-057 M4 step 1 loads the scene from the controller's paths.** Until scene packages exist (step 3), a
+`SceneOffer` carries absolute paths and the worker loads the files from them, which works on one machine or a
+shared folder. Connections are not encrypted until step 2; the README says so.
+
+**D-058 TLS 1.3 with mbedTLS works; no Noise fallback.** A spike (unit tests in `tests/unit/test_net.cpp`)
+confirmed mbedTLS 3.6.5 completes a TLS 1.3 external-PSK handshake and refuses a different key. Details: key =
+HKDF-SHA256(16 canonical code characters, no salt, info `penumbra-join-v1`), identity `penumbra-join-v1`, only
+the `psk_dhe_ke` mode (ECDHE for forward secrecy), AES-256-GCM / ChaCha20-Poly1305 / AES-128-GCM. TLS runs on
+memory buffers under the existing Asio connection, so all socket work stays asynchronous on one network thread.
+A handshake must finish within 10 s.
+
+**D-059 Join code storage and checks.** The controller's code lives in `<user data>/join_code.txt` (created on
+first `--host`; delete it to regenerate until the UI has a Regenerate button). `--code` / `PENUMBRA_CODE` overrides
+it. More than 5 failed handshakes from one address within a minute block it for 10 minutes. A worker whose
+handshake fails exits with code 6 (rejected).
+
+**D-060 `--approve-workers` in the terminal** asks `Accept worker '<name>' from <address>? [y/N]` on stderr and
+reads stdin, one worker at a time; end of input or any other answer rejects (`NotApproved`). The UI asks with a
+dialog from M10.
+
+**D-061 Test hook `PENUMBRA_TEST_GIT_HASH`** (test-only like D-047, logged as a warning): a worker claims that git
+hash in its Hello, so the version-mismatch rejection is tested without building a second binary.
+
+**D-062 Scene packages leave the settings out.** The guide puts `RenderSettings` in the package manifest, which
+would make every change of spp or resolution a new package and a new download. The manifest describes only the
+files (paths relative to the deepest folder holding them all, sizes, file hashes, 4 MB chunk hashes), and the
+settings travel in each `SceneOffer`. The worker points the scene and HDRI paths into its cached copy. The package
+is not written to disk on the controller: chunks are read from the original files when sent. Files on different
+Windows drives cannot be packaged (Penumbra says so); glTF files keep their relative URIs, so no rewriting is
+needed.
+
+**D-063 Scene file discovery is explicit.** `collectSceneFiles` lists what the loaders read: the scene file, glTF
+buffers and images (external URIs), OBJ `mtllib` files and their `map_Kd` textures (the only map the OBJ loader
+uses), and the HDRI. Packaging runs for every render, so a missing file fails before rendering, with its name.
+
+**D-064 Scene cache and admission.** Cache folder per package hash, a `<hash>.partial` file for downloads in
+progress (verified chunks are kept, so a download resumes at the first missing chunk), least recently used
+packages evicted above `--cache-size`. A worker refuses a scene bigger than its cache, needing more than its free
+disk (twice the package: download plus unpacked copy), or more than its available RAM, and answers
+`SceneHave Rejected` with the reason; the render continues without it. Test hook `PENUMBRA_TEST_FREE_DISK`
+(test-only, logged) fakes the free disk space.
+
+**D-065 Protocol version 2** adds `SceneHave`, `SceneChunk` and the package fields of `SceneOffer`. The uploader
+keeps at most 2 chunks queued per connection (so acks and leases stay prompt), serves several workers
+round-robin, and counts `--upload-limit` in bytes on the wire.
+
+**D-066 Test hook `PENUMBRA_TEST_EXIT_AFTER_CHUNKS=N`** (test-only, logged): a worker exits abruptly with code 137
+right after its N-th scene chunk, so the resumed-download test does not depend on timing; `penumbra-nettest`
+can start a process once another has ended (`after:NAME`).
+
+**D-067 More test fault modes.** `PENUMBRA_TEST_FAULTS` (D-047) gains `mode=exit` (the process exits with 137 after
+K items: a crashed worker holding leases), `mode=freeze` (the device hangs and a network worker stops sending
+anything, heartbeats included: a dead link) and `mode=corrupt` (a network worker damages tiles after computing
+their checksums). Every fault-table row is a network test that must end bit-identical to the solo render.
+
+**D-068 Heartbeats: the worker asks, the controller echoes.** The worker sends `Heartbeat` every 5 s and the
+controller answers at once, so the answer is both the controller's heartbeat and a round-trip measurement (the
+guide's "3 items in flight above 50 ms" uses it). Both sides drop a connection with nothing received for 30 s; the
+controller checks every second and requeues the dropped worker's leases. A worker with 3 rejected results is sent
+`Kick` and disconnected.
+
+**D-069 `penumbra-netem-proxy` instead of OS traffic shaping.** Linux `tc netem` needs root and is missing on
+Windows, so the bad-network test runs through a small TCP proxy in `tools/`: a fixed delay each way, a bandwidth
+cap per direction, and "loss" as a 200 ms stall of a block (and the blocks behind it), which is what a lost TCP
+segment costs; a proxy cannot drop segments inside a TCP stream.
+
+**D-070 `--stay` and resuming a hosted render.** A `--stay` worker keeps its connection after `RenderComplete` and
+waits for the next `SceneOffer`; when the connection drops (or the controller is not up yet) it reconnects after 1,
+2, 4 ... 30 s, forever. A wrong code, another version or a kick still end it (exit code 6): retrying cannot fix
+those. A hosted render records `hosting` and its join code in the session file, so `penumbra --terminal --resume
+<session.json>` hosts again on the same port with the same code; the workers rejoin and download nothing (scene
+cache).
+
+**D-071 Scale test and `PENUMBRA_TEST_NULL_DELAY_MS`.** The guide's scale test (64 workers x 8 devices) runs as a
+normal network test: 64 worker processes with 8 null devices each on loopback. The null backend is instant, so a
+test-only delay (it only affects the test-only null backend) makes each item take 300 ms and keeps all 512 slots busy for
+the whole render. First result on the laptop: 64 workers joined, 8,640 items in 39 s, bit-identical.
+`penumbra-nettest` reads its process list from a file (`--procs`) because 64 command lines exceed the Windows
+command-line limit.
+
+**D-072 UPnP and the address list.** A headless `--host` controller asks the router (miniupnpc, 2 s discovery on a
+background thread) to forward its port, unless `--no-upnp` or it listens on loopback only; the mapping has no
+expiry and is removed when the render ends. Every outcome is logged: forwarded (with the public address for
+`--join`), no UPnP router, refused, or a router whose own internet address is private or in 100.64.0.0/10
+(carrier-grade NAT or a second router: use a VPN). On start the controller also lists its LAN and VPN addresses
+(Tailscale 100.64.0.0/10 and fd7a:115c:a1e0::/48, WireGuard/Tailscale adapters) with the full join command.
+Network tests pass `--no-upnp`. Checked on the laptop: the home router forwarded and later removed TCP 7420.
+
+**D-073 Bit-identical per platform build; across Windows and Linux within 1e-10.** Cross-OS runs on the laptop
+(Windows controller with two WSL Ubuntu workers, and a WSL controller with two Windows workers, same git commit,
+spheres scene at 720p / 64 spp) match the controller's solo render to relMSE 9.3e-11 (max abs diff 1.5e-3 on HDR
+values up to ~300), with about 3% of float values differing in the last bits. MSVC and GCC builds use different
+system math libraries (sin, cos, pow, exp) and build Embree with different compilers, so a tile rendered on Linux
+is not bit-identical to the same tile rendered on Windows. That is far inside the guide's tolerance for any
+distribution of work (relMSE < 1e-6) and invisible. D-045 still holds among hosts of one OS (any number of
+devices, workers, failures, resume). Making Windows and Linux bit-identical would need Penumbra's own math
+functions everywhere; not worth it, since GPU backends (M5/M6) differ by up to 1e-3 anyway. Two sources, measured: the
+renderer calls the math library (sampling warps, HDRI directions, glossy lobes), so even the Cornell box differs
+(Windows vs Linux solo: relMSE 6e-16); and `penumbra-scenegen` writes slightly different `spheres.gltf` files on
+each OS (sphere vertices use sin/cos), while `cornell.gltf` and `sky.hdr` are identical. The network path itself
+is exact: a Windows controller merging a Linux worker's Cornell tiles gives the Linux solo render bit for bit.
+
+**D-074 Internet worker over Tailscale in a container without a TUN device.** The vast.ai container has no
+`/dev/net/tun`, so `tailscaled` runs with `--tun=userspace-networking --outbound-http-proxy-listen=localhost:1055`,
+and `socat TCP-LISTEN:7420,fork,bind=127.0.0.1 PROXY:127.0.0.1:<laptop tailscale ip>:7420,proxyport=1055` lets the
+worker join `127.0.0.1:7420`; the bytes cross the internet inside Tailscale. Penumbra needs no proxy support.
+Results (2026-10-19, laptop controller on Windows, server Ubuntu 24.04 with 80 cores): the server joined from its
+Tailscale address, downloaded the package, rendered spheres at 1080p / 128 spp (68 items) in 22 s, and the image
+equals the server's own solo render of the cached package files bit for bit. Mixed render: laptop CPU + WSL worker
+over the LAN + server over the internet, Cornell 1080p / 256 spp: 8 + 12 + 108 items, relMSE 8.5e-11 against the
+Windows solo render (Linux tiles, D-073). UPnP on the home router forwarded and removed TCP 7420; an internet join
+through the public address was not tested (the user chose the VPN path).
+
+**D-075 M4 gate results (2026-10-19).** Windows (laptop, MSVC 19.51): 154/154 tests, also from a fresh clone of
+`m4` built with `scripts\build.ps1` per the README. Linux: 155/155 in WSL Ubuntu 22.04 (GCC 12.3) and 155/155 on the
+vast.ai server (Ubuntu 24.04, GCC 12.4) after following the README's Linux steps on a fresh machine. Loopback: a
+controller and 3 worker processes give the solo render bit for bit, also with failed devices, crashed, hung,
+silent and corrupt workers, a worker joining late, a 200 ms / 2% loss / 10 Mbit/s link, a killed and resumed
+controller with --stay workers, and 64 workers x 8 devices. LAN: Windows controller with WSL workers and the
+reverse (D-073). Internet: the server over Tailscale, bit-identical to its own render of the package (D-074).
+Not covered: an internet join through a forwarded public port (UPnP mapping itself checked), the UI (M10).

@@ -17,4 +17,13 @@ struct SystemInfo {
 SystemInfo querySystem();
 std::string hostName();
 
+// Whole-machine CPU use between two calls of sample(), in percent (0 on the first call).
+class CpuUsage {
+ public:
+  double sample();
+
+ private:
+  uint64_t idle_ = 0, total_ = 0;
+};
+
 }  // namespace pen

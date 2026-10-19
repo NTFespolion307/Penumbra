@@ -20,6 +20,7 @@ add_library(penumbra_core STATIC
   log/log.cpp
   output/output.cpp
   output/writers.cpp
+  package/package.cpp
   render/camera.cpp
   render/lights.cpp
   render/surface.cpp
