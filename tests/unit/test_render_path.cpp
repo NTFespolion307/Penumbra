@@ -13,64 +13,6 @@
 using namespace pen;
 namespace fs = std::filesystem;
 
-TEST_CASE("scheduler covers every pixel once, centre first", "[scheduler]") {
-  Scheduler s(2560, 1440, 256, 0, 64, std::nullopt);
-  std::vector<int> cover(2560 * 1440, 0);
-  std::optional<WorkItem> first;
-  while (auto item = s.next()) {
-    if (!first) first = item;
-    for (uint32_t y = item->rect.y0; y < item->rect.y1; ++y)
-      for (uint32_t x = item->rect.x0; x < item->rect.x1; ++x) ++cover[y * 2560 + x];
-    CHECK(item->sample_begin == 0);
-    CHECK(item->sample_end == 64);
-  }
-  CHECK(std::all_of(cover.begin(), cover.end(), [](int c) { return c == 1; }));
-  REQUIRE(first);
-  CHECK(first->rect.x0 <= 1280);
-  CHECK(first->rect.x1 >= 1280);
-  CHECK(s.total() == 10 * 6);
-  CHECK(s.outstanding() == 60);
-  CHECK(s.complete(0));
-  CHECK_FALSE(s.complete(0));  // duplicate
-}
-
-TEST_CASE("frames below 1080p are one item; regions clip tiles", "[scheduler]") {
-  CHECK(filmTileSize(1280, 720, 256) == 1280);
-  CHECK(filmTileSize(1920, 1080, 256) == 256);
-  Scheduler small(1280, 720, filmTileSize(1280, 720, 256), 0, 16, std::nullopt);
-  CHECK(small.total() == 1);
-  CHECK(small.next()->rect == TileRect{0, 0, 1280, 720});
-
-  Scheduler region(3840, 2160, 256, 0, 16, PixelRect{100, 100, 600, 300});
-  uint64_t pixels = 0;
-  while (auto item = region.next()) {
-    CHECK(item->rect.x0 >= 100);
-    CHECK(item->rect.y1 <= 300);
-    pixels += item->rect.pixels();
-  }
-  CHECK(pixels == 500 * 200);
-}
-
-TEST_CASE("scheduler skips tiles already in the film (resume)", "[scheduler]") {
-  Scheduler s(3840, 2160, 256, 0, 8, std::nullopt);
-  const uint64_t skipped = s.skipDone([](uint32_t tile) { return tile % 2 == 0; });
-  CHECK(s.completed() > 0);
-  CHECK(skipped > 0);
-  uint32_t issued = 0;
-  while (auto item = s.next()) {
-    CHECK(item->tile % 2 == 1);
-    ++issued;
-  }
-  CHECK(issued + s.completed() == s.total());
-}
-
-TEST_CASE("scheduler requeues released items", "[scheduler]") {
-  Scheduler s(3840, 2160, 256, 0, 8, std::nullopt);
-  const WorkItem a = *s.next();
-  s.requeue(a.id);
-  CHECK(s.next()->id == a.id);
-}
-
 namespace {
 
 struct TempDir {

@@ -33,10 +33,6 @@ int validate(const RenderSettings& s) {
                   "traversal steps");
     return toInt(ExitCode::BadArguments);
   }
-  if (s.spp == 0) {
-    spdlog::error("--spp 0 (render until the time limit) needs progressive passes, built in milestone M3");
-    return toInt(ExitCode::BadArguments);
-  }
   if (s.denoise != Denoiser::None) spdlog::warn("--denoise {} is built in milestone M11; not applied", toString(s.denoise));
   if (!s.aov.empty()) spdlog::warn("--aov is built in milestone M11; no extra passes are written");
   return -1;
@@ -115,7 +111,7 @@ ImageMetadata metadataFor(const RenderSettings& s, const RenderOutcome& outcome)
       {"Software", versionString()},
       {"Scene", pathToUtf8(s.scene)},
       {"Resolution", fmt::format("{}x{}", s.outputWidth(), s.outputHeight())},
-      {"Samples", std::to_string(s.spp)},
+      {"Samples", s.spp ? std::to_string(s.spp) : std::string("until the time limit")},
       {"MaxBounces", std::to_string(s.max_bounces)},
       {"Integrator", std::string(toString(s.integrator))},
       {"Seed", std::to_string(s.seed)},
@@ -132,7 +128,7 @@ ImageMetadata metadataFor(const RenderSettings& s, const RenderOutcome& outcome)
 
 void saveSession(Session& session, const std::filesystem::path& path, const RenderProgress& p, const Film& film) {
   session.updated = localTimestamp();
-  session.tiles_done = film.tilesDone();
+  session.tiles_done = p.items_done;
   session.tiles_total = film.layout().tileCount();
   session.samples_done = p.samples_done;
   session.samples_total = p.samples_total;
@@ -161,9 +157,16 @@ int renderAndFinish(const RenderSettings& s, std::shared_ptr<Scene> scene, Film&
     spdlog::info("device {}: {} (backend {}, {} threads)", i, d.name, toString(d.backend), d.threads);
   }
 
-  RenderController controller(s, scene, film);
-  if (const uint32_t skipped = controller.skipRenderedTiles(); skipped > 0)
-    spdlog::info("resume: {} of {} items are already in the film", skipped, controller.progress().items_total);
+  // RAM films refine the whole image pass by pass; disk films finish tile after tile (docs/GUIDE.md "Pass order").
+  const PassOrder order = film.inRam() ? PassOrder::BreadthFirst : PassOrder::DepthFirst;
+  spdlog::info("pass order: {}", order == PassOrder::BreadthFirst ? "breadth-first (whole image, pass by pass)"
+                                                                  : "depth-first (tile after tile)");
+  RenderController controller(s, scene, film, order);
+  if (const uint32_t restored = controller.restoreFromFilm(); restored > 0) {
+    const RenderProgress p = controller.progress();
+    spdlog::info("resume: {} of {} tiles already have samples in the film ({:.1f}% of the samples)", restored,
+                 p.items_total, p.samples_total ? 100.0 * double(p.samples_done) / double(p.samples_total) : 0.0);
+  }
   controller.addWorker(std::make_unique<LocalWorker>(controller.nextWorkerId(), controller, std::move(devices.devices)));
 
   RenderRunOptions run;
@@ -221,7 +224,9 @@ int renderAndFinish(const RenderSettings& s, std::shared_ptr<Scene> scene, Film&
                outcome.complete ? "done" : "stopped", outcome.seconds, samples / 1e6,
                outcome.seconds > 0 ? samples / 1e6 / outcome.seconds : 0.0, pathToUtf8(s.output));
   for (const auto& d : outcome.devices)
-    spdlog::info("  {}: {} tiles, {:.2f} M samples, {:.2f}s", d.name, d.tiles, d.samples / 1e6, d.seconds);
+    spdlog::info("  {}: {} items, {:.2f} M samples, {:.2f}s{}", d.name, d.items, d.samples / 1e6, d.seconds,
+                 d.failed ? " (failed)" : "");
+  if (outcome.reissued) spdlog::info("{} lease(s) were handed out again (late or from a failed device)", outcome.reissued);
   if (outcome.nan_count) spdlog::warn("{} non-finite samples were replaced by 0", outcome.nan_count);
 
   const std::filesystem::path filmPath = film.path();
@@ -252,7 +257,14 @@ int runLocalRender(const RenderSettings& s, const LocalRenderOptions& options) {
   const FilmLayout layout = FilmLayout::make(w, h, filmTileSize(w, h, s.tile_size));
   const std::filesystem::path filmPath = filmPathFor(s);
   const std::filesystem::path sessionPath = sessionPathFor(filmPath);
-  if (const int rc = checkDisk(s, filmPath, Film::fileBytes(layout)); rc >= 0) return rc;
+  const bool inRam = filmInRam(s, layout);
+  if (s.spp == 0 && !inRam) {
+    spdlog::error("--spp 0 refines the whole image pass by pass, which needs the film in RAM; this film does not "
+                  "fit (use a smaller --res, raise --ram-limit, or give --spp)");
+    return toInt(ExitCode::BadArguments);
+  }
+  // RAM films rewrite every tile at each checkpoint, alternating two slots per tile: up to twice the film.
+  if (const int rc = checkDisk(s, filmPath, Film::fileBytes(layout) * (inRam ? 2 : 1)); rc >= 0) return rc;
 
   std::error_code ec;
   if (std::filesystem::exists(sessionPath, ec))
@@ -271,7 +283,7 @@ int runLocalRender(const RenderSettings& s, const LocalRenderOptions& options) {
   std::unique_ptr<Film> film;
   try {
     if (!filmPath.parent_path().empty()) std::filesystem::create_directories(filmPath.parent_path());
-    film = Film::create(filmPath, layout, {session.settings_hash, session.scene_hash}, filmInRam(s, layout));
+    film = Film::create(filmPath, layout, {session.settings_hash, session.scene_hash}, inRam);
     session.save(sessionPath);
   } catch (const DiskFullError& e) {
     spdlog::error("{}", e.what());
@@ -375,7 +387,7 @@ int mergeFilmsToImage(const std::vector<std::filesystem::path>& paths, const Ren
     }
   }
   uint32_t tiles = 0;
-  for (const auto& f : films) tiles += f->tilesDone();
+  for (const auto& f : films) tiles += f->tilesWithData();
   spdlog::info("merging {} films ({}x{}, {} tiles with data in total)", films.size(), layout.width, layout.height, tiles);
 
   // Per pixel: sample-weighted mean of every film that has samples there.

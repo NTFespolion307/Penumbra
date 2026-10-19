@@ -3,6 +3,7 @@
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <stdexcept>
 
 #include "core/system/file.h"
@@ -10,25 +11,33 @@
 namespace pen {
 
 namespace {
+using Clock = std::chrono::steady_clock;
 uint32_t sampleBegin(const RenderSettings& s) { return s.sample_range ? s.sample_range->first : 0; }
-uint32_t sampleEnd(const RenderSettings& s) { return s.sample_range ? s.sample_range->last + 1 : s.spp; }
+uint32_t sampleEnd(const RenderSettings& s) {
+  if (s.sample_range) return s.sample_range->last + 1;
+  return s.spp == 0 ? kUnboundedSamples : s.spp;
+}
+constexpr double kMinLateSeconds = 2.0;  // never call a lease late before this
+constexpr size_t kDurationWindow = 256;
 }  // namespace
 
-RenderController::RenderController(const RenderSettings& settings, std::shared_ptr<const Scene> scene, Film& film)
+RenderController::RenderController(const RenderSettings& settings, std::shared_ptr<const Scene> scene, Film& film,
+                                   PassOrder order)
     : settings_(settings),
       scene_(std::move(scene)),
       film_(film),
-      scheduler_(film.layout().width, film.layout().height, film.layout().tile_size, sampleBegin(settings),
-                 sampleEnd(settings), settings.region) {}
+      scheduler_(film.layout(), sampleBegin(settings), sampleEnd(settings), settings.region, order),
+      sample_begin_(sampleBegin(settings)) {}
 
 void RenderController::addWorker(std::unique_ptr<WorkerLink> link) { workers_.push_back(std::move(link)); }
 
-uint32_t RenderController::skipRenderedTiles() {
+uint32_t RenderController::restoreFromFilm() {
   std::lock_guard lock(mutex_);
-  const uint32_t before = scheduler_.completed();
-  samples_done_ += scheduler_.skipDone([&](uint32_t tile) { return film_.tileDone(tile); });
-  return scheduler_.completed() - before;
+  scheduler_.restore([&](uint32_t tile) { return film_.tileSamples(tile); });
+  return film_.tilesWithData();
 }
+
+// ---------------------------------------------------------------- worker events
 
 void RenderController::onReady(WorkerId worker, const std::vector<DeviceReady>& devices) {
   const WorkerInfo info = workers_[worker]->info();
@@ -38,100 +47,210 @@ void RenderController::onReady(WorkerId worker, const std::vector<DeviceReady>& 
     spdlog::info("{} device {} ({}, {}): ready in {:.2f}s, {}", info.name, d.device, name, toString(d.backend),
                  d.build_seconds, d.summary);
     tallies_[{worker, d.device}].name = fmt::format("{}/{} {}", info.name, d.device, name);
+    ++live_devices_;
   }
 }
 
 void RenderController::onRequestWork(WorkerId worker, DeviceId device, int count) {
   std::lock_guard lock(mutex_);
-  for (int i = 0; i < count && !stop_issuing_; ++i) {
-    const std::optional<WorkItem> item = scheduler_.next();
-    if (!item) break;
-    workers_[worker]->sendLease({item->id, device, *item});
+  if (finished_ || tallies_[{worker, device}].failed) return;
+  wanted_[{worker, device}] = count;  // "I can take this many more", not cumulative
+  serveLocked();
+}
+
+void RenderController::serveLocked() {
+  for (auto it = wanted_.begin(); it != wanted_.end();) {
+    auto& [key, want] = *it;
+    while (want > 0) {
+      std::optional<WorkItem> item = scheduler_.next();
+      if (!item) return;  // nothing to hand out now; devices keep waiting
+      item->lease = next_lease_++;
+      leases_[item->lease] = {*item, key.first, key.second, Clock::now(), false};
+      --want;
+      workers_[key.first]->sendLease({item->lease, key.second, *item});
+    }
+    it = wanted_.erase(it);
   }
 }
 
-void RenderController::stopLocked() {
-  stop_issuing_ = true;
-  for (auto& w : workers_) w->cancel({});
-  finished_ = true;
-  cv_.notify_all();
-}
-
-void RenderController::onTileResult(WorkerId worker, TileResult&& r) {
-  std::lock_guard lock(mutex_);
-  if (finished_) return;  // stopping: late results are not merged
-  const auto& items = scheduler_.items();
-  const bool known = r.item_id < items.size();
-  const WorkItem* item = known ? &items[r.item_id] : nullptr;
-  const bool valid = item && item->rect == r.rect && item->sample_begin == r.sample_begin &&
-                     item->sample_end == r.sample_end && r.mean.size() == r.rect.pixels();
-  if (!valid) {
-    spdlog::warn("rejected an invalid result for item {} from worker {}", r.item_id, worker);
-    workers_[worker]->ackTile(r.item_id, AckStatus::Rejected);
-    if (known) scheduler_.requeue(r.item_id);
-    return;
-  }
-  if (!scheduler_.complete(r.item_id)) {
-    workers_[worker]->ackTile(r.item_id, AckStatus::Duplicate);
-    return;
-  }
+bool RenderController::mergeLocked(const TileResult& r) {
   try {
-    film_.merge(r);
+    film_.merge(r, r.sample_end - sample_begin_);
   } catch (const DiskFullError& e) {
     spdlog::error("out of disk while writing the film: {}", e.what());
     film_error_ = e.what();
     out_of_disk_ = true;
     stopLocked();
-    return;
+    return false;
   } catch (const FileError& e) {
     spdlog::error("cannot write the film: {}", e.what());
     film_error_ = e.what();
     stopLocked();
+    return false;
+  }
+  const uint32_t tile = static_cast<uint32_t>(r.item_id >> 32);
+  scheduler_.markMerged(tile);
+  if (scheduler_.tileComplete(tile)) {
+    try {
+      film_.flushTile(tile);
+    } catch (const FileError& e) {
+      spdlog::error("cannot write the film: {}", e.what());
+      film_error_ = e.what();
+      out_of_disk_ = dynamic_cast<const DiskFullError*>(&e) != nullptr;
+      stopLocked();
+      return false;
+    }
+  }
+  return true;
+}
+
+void RenderController::mergeReadyLocked(uint32_t tile) {
+  for (;;) {
+    const uint64_t id = WorkItem::makeId(tile, scheduler_.mergedChunks(tile));
+    auto it = early_.find(id);
+    if (it == early_.end()) return;
+    TileResult r = std::move(it->second);
+    early_.erase(it);
+    if (!mergeLocked(r)) return;
+  }
+}
+
+void RenderController::onTileResult(WorkerId worker, TileResult&& r) {
+  std::lock_guard lock(mutex_);
+  if (finished_) return;  // stopping: late results are not merged
+  auto lease = leases_.find(r.lease);
+  if (lease == leases_.end()) {
+    workers_[worker]->ackTile(r.lease, AckStatus::Rejected);  // cancelled or unknown lease
     return;
   }
-  workers_[worker]->ackTile(r.item_id, AckStatus::Accepted);
-  const uint64_t samples = r.rect.pixels() * (r.sample_end - r.sample_begin);
-  samples_done_ += samples;
+  const WorkItem item = lease->second.item;
+  const double seconds = std::chrono::duration<double>(Clock::now() - lease->second.issued).count();
+  leases_.erase(lease);
+
+  const bool valid = item.id == r.item_id && item.rect == r.rect && item.sample_begin == r.sample_begin &&
+                     item.sample_end == r.sample_end && r.mean.size() == r.rect.pixels();
+  if (!valid) {
+    spdlog::warn("rejected an invalid result for lease {} from worker {}; item requeued", r.lease, worker);
+    workers_[worker]->ackTile(r.lease, AckStatus::Rejected);
+    scheduler_.requeue(item);
+    serveLocked();
+    return;
+  }
+  item_seconds_.push_back(seconds);
+  if (item_seconds_.size() > kDurationWindow) item_seconds_.pop_front();
+
+  // Already merged (a late copy of a re-issued item) or already waiting: the first valid result won.
+  if (item.chunk < scheduler_.mergedChunks(item.tile) || early_.count(item.id)) {
+    workers_[worker]->ackTile(r.lease, AckStatus::Duplicate);
+    checkFinishedLocked();
+    return;
+  }
+  workers_[worker]->ackTile(r.lease, AckStatus::Accepted);
   if (r.nan_count) {
     nan_count_ += r.nan_count;
-    spdlog::warn("item {}: {} non-finite samples replaced by 0", r.item_id, r.nan_count);
+    spdlog::warn("tile {} chunk {}: {} non-finite samples replaced by 0", item.tile, item.chunk, r.nan_count);
   }
   DeviceTally& t = tallies_[{worker, r.device}];
-  ++t.tiles;
-  t.samples += samples;
+  ++t.items;
+  t.samples += r.rect.pixels() * (r.sample_end - r.sample_begin);
   t.seconds += r.render_seconds;
-  if (scheduler_.done() || (stop_issuing_ && scheduler_.outstanding() == 0)) {
+
+  early_.emplace(item.id, std::move(r));
+  mergeReadyLocked(item.tile);
+  checkFinishedLocked();
+}
+
+void RenderController::checkFinishedLocked() {
+  if (finished_) return;
+  if (scheduler_.done() || (scheduler_.stopped() && leases_.empty())) {
     finished_ = true;
     cv_.notify_all();
   }
 }
 
-void RenderController::onRelease(WorkerId, std::span<const LeaseId> leases) {
+void RenderController::onRelease(WorkerId worker, std::span<const LeaseId> released) {
   std::lock_guard lock(mutex_);
-  for (LeaseId id : leases) {
-    spdlog::info("item {} released; requeued", id);
-    scheduler_.requeue(id);
+  for (LeaseId id : released) {
+    auto it = leases_.find(id);
+    if (it == leases_.end()) continue;
+    spdlog::info("lease {} (tile {} chunk {}) released by worker {}; requeued", id, it->second.item.tile,
+                 it->second.item.chunk, worker);
+    if (!it->second.reissued) scheduler_.requeue(it->second.item);
+    ++reissued_;
+    leases_.erase(it);
+  }
+  serveLocked();
+  checkFinishedLocked();
+}
+
+void RenderController::onDeviceFailed(WorkerId worker, DeviceId device, const std::string& error) {
+  std::lock_guard lock(mutex_);
+  DeviceTally& t = tallies_[{worker, device}];
+  if (t.failed) return;
+  t.failed = true;
+  wanted_.erase({worker, device});
+  spdlog::error("device {} of worker {} failed and is removed: {}", device, worker, error);
+  if (live_devices_ > 0) --live_devices_;
+  if (live_devices_ == 0) {
+    failure_ = fmt::format("every device failed (last: {})", error);
+    stopLocked();
   }
 }
 
 void RenderController::onGone(WorkerId worker, GoneReason reason, const std::string& detail) {
   std::lock_guard lock(mutex_);
   if (reason == GoneReason::Failed) {
-    // M2 has a single local worker, so a device failure ends the render; M3 requeues its items instead.
     spdlog::error("worker {} failed: {}", worker, detail);
     failure_ = detail;
-    finished_ = true;
-    cv_.notify_all();
+    stopLocked();
   }
+}
+
+// ---------------------------------------------------------------- run loop
+
+void RenderController::stopLocked() {
+  scheduler_.stopNew();
+  for (auto& w : workers_) w->cancel({});
+  finished_ = true;
+  cv_.notify_all();
+}
+
+double RenderController::medianItemSecondsLocked() const {
+  if (item_seconds_.size() < 3) return -1;
+  std::vector<double> v(item_seconds_.begin(), item_seconds_.end());
+  std::nth_element(v.begin(), v.begin() + v.size() / 2, v.end());
+  return v[v.size() / 2];
+}
+
+void RenderController::reissueLateLocked() {
+  const double median = medianItemSecondsLocked();
+  if (median < 0) return;
+  const double limit = std::max(10 * median, kMinLateSeconds);
+  const auto now = Clock::now();
+  bool any = false;
+  for (auto& [id, info] : leases_) {
+    if (info.reissued) continue;
+    const double age = std::chrono::duration<double>(now - info.issued).count();
+    if (age <= limit) continue;
+    spdlog::warn("lease {} (tile {} chunk {}) on device {} of worker {} is late ({:.1f}s, 10x median is {:.1f}s); "
+                 "handing it out again, the first valid result wins",
+                 id, info.item.tile, info.item.chunk, info.device, info.worker, age, 10 * median);
+    info.reissued = true;
+    ++reissued_;
+    scheduler_.requeue(info.item);
+    any = true;
+  }
+  if (any) serveLocked();
 }
 
 RenderProgress RenderController::progressLocked() const {
   RenderProgress p;
-  p.samples_done = samples_done_;
+  p.samples_done = scheduler_.mergedSamples();
   p.samples_total = scheduler_.totalSamples();
-  p.items_done = scheduler_.completed();
-  p.items_total = scheduler_.total();
-  p.elapsed_seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start_).count();
+  p.items_done = scheduler_.tilesComplete();
+  p.items_total = scheduler_.tileCount();
+  p.elapsed_seconds = std::chrono::duration<double>(Clock::now() - start_).count();
+  p.time_limit_seconds = static_cast<double>(settings_.time_limit_s);
   return p;
 }
 
@@ -141,7 +260,7 @@ RenderProgress RenderController::progress() const {
 }
 
 RenderOutcome RenderController::run(const RenderRunOptions& options) {
-  start_ = std::chrono::steady_clock::now();
+  start_ = Clock::now();
   RenderOutcome outcome;
   {
     std::lock_guard lock(mutex_);
@@ -150,33 +269,36 @@ RenderOutcome RenderController::run(const RenderRunOptions& options) {
   if (!finished_)
     for (auto& w : workers_) w->offerScene(scene_, settings_);
 
-  auto lastProgress = std::chrono::steady_clock::now();
+  auto lastProgress = Clock::now();
   auto lastCheckpoint = lastProgress;
   {
     std::unique_lock lock(mutex_);
     while (!finished_) {
       cv_.wait_for(lock, std::chrono::milliseconds(200));
       if (finished_) break;
-      const auto now = std::chrono::steady_clock::now();
+      const auto now = Clock::now();
       const RenderProgress p = progressLocked();
 
       if (options.interrupt && options.interrupt->load()) {
-        spdlog::warn("interrupted: stopping; tiles in progress are discarded and the film is checkpointed");
+        spdlog::warn("interrupted: stopping; chunks in progress are discarded and the film is checkpointed");
         outcome.interrupted = true;
         stopLocked();
         break;
       }
-      if (settings_.time_limit_s > 0 && !stop_issuing_ && p.elapsed_seconds >= settings_.time_limit_s) {
-        stop_issuing_ = true;
+      if (settings_.time_limit_s > 0 && !scheduler_.stopped() && p.elapsed_seconds >= settings_.time_limit_s) {
+        scheduler_.stopNew();
         outcome.time_limited = true;
-        spdlog::info("time limit reached: no new work; waiting for {} item(s) in progress", scheduler_.outstanding());
-        if (scheduler_.outstanding() == 0) finished_ = true;
+        spdlog::info("time limit reached: no new work; waiting for {} lease(s) in progress", leases_.size());
+        checkFinishedLocked();
+        if (finished_) break;
       }
+      reissueLateLocked();
       if (std::chrono::duration<double>(now - lastCheckpoint).count() >= settings_.checkpoint_s) {
         lastCheckpoint = now;
         try {
           film_.checkpoint();
-          spdlog::info("checkpoint: {} of {} tiles in the film", film_.tilesDone(), film_.layout().tileCount());
+          spdlog::info("checkpoint: {} of {} tiles finished, {} with data", scheduler_.tilesComplete(),
+                       scheduler_.tileCount(), film_.tilesWithData());
         } catch (const FileError& e) {
           spdlog::error("checkpoint failed: {}", e.what());
           film_error_ = e.what();
@@ -198,6 +320,8 @@ RenderOutcome RenderController::run(const RenderRunOptions& options) {
       }
     }
   }
+  // Wake devices that are still busy (a hung device waits for cancel), then let every worker finish.
+  for (auto& w : workers_) w->cancel({});
   for (auto& w : workers_) w->complete();
 
   std::lock_guard lock(mutex_);
@@ -207,6 +331,7 @@ RenderOutcome RenderController::run(const RenderRunOptions& options) {
   outcome.out_of_disk = out_of_disk_;
   outcome.error = film_error_;
   outcome.nan_count = nan_count_;
+  outcome.reissued = reissued_;
   outcome.seconds = progressLocked().elapsed_seconds;
   for (const auto& [key, tally] : tallies_) outcome.devices.push_back(tally);
   return outcome;

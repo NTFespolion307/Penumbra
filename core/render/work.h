@@ -16,18 +16,26 @@ struct TileRect {
   bool operator==(const TileRect&) const = default;
 };
 
-// A tile plus a range of samples [sample_begin, sample_end) to render for it (docs/GUIDE.md "Work item").
+using LeaseId = uint64_t;
+
+// A film tile (clipped to --region) plus one chunk of its samples [sample_begin, sample_end)
+// (docs/GUIDE.md "Work item"). Chunk boundaries depend only on the settings (DECISIONS D-045).
 struct WorkItem {
-  uint64_t id = 0;
+  uint64_t id = 0;  // (tile << 32) | chunk
   uint32_t tile = 0;
+  uint32_t chunk = 0;
   TileRect rect;
   uint32_t sample_begin = 0, sample_end = 0;
+  LeaseId lease = 0;  // set when the item is handed to a device
   uint32_t samples() const { return sample_end - sample_begin; }
+
+  static uint64_t makeId(uint32_t tile, uint32_t chunk) { return (uint64_t(tile) << 32) | chunk; }
 };
 
-// What a device sends back for a work item: the mean radiance per pixel over the item's samples.
+// What a device sends back for a lease: the mean radiance per pixel over the item's samples.
 struct TileResult {
   uint64_t item_id = 0;
+  LeaseId lease = 0;
   uint32_t device = 0;
   TileRect rect;
   uint32_t sample_begin = 0, sample_end = 0;

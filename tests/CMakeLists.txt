@@ -13,6 +13,7 @@ add_executable(penumbra_unit_tests
   unit/test_presets.cpp
   unit/test_render_path.cpp
   unit/test_sampling.cpp
+  unit/test_scheduler.cpp
   unit/test_settings.cpp)
 target_link_libraries(penumbra_unit_tests PRIVATE penumbra_cli penumbra_controller Catch2::Catch2WithMain)
 target_compile_definitions(penumbra_unit_tests PRIVATE PEN_TEST_DATA_DIR="${PEN_TEST_DATA}")
@@ -96,6 +97,19 @@ pen_render_test(merge_samples merge_samples cornell.pen.json "--res|1080p|--spp|
 pen_render_test(region_crop region_crop cornell.pen.json "--res|1080p|--spp|4")
 pen_render_test(presets presets cornell.pen.json "--spp|1|--scale|0.01")
 set_tests_properties(render.resume PROPERTIES LABELS "render;gate;slow")
+# M3: N local slots match 1 slot bit for bit; failed and hung devices are recovered without changing the image.
+pen_render_test(slots_cpu devices cornell.pen.json "--res|1080p|--scale|0.5|--spp|32" "-DDEVICE_SETS=cpu+cpu,cpu+cpu,cpu,cpu,cpu")
+pen_render_test(slots_null devices cornell.pen.json "--res|1080p|--spp|256|--backend|null"
+                "-DDEVICE_SETS=cpu+cpu,cpu,cpu,cpu+cpu,cpu,cpu,cpu,cpu,cpu,cpu,cpu")
+# 12 chunks for 3 slots (2 in flight each), so the faulty device surely gets work; it fails on its first item.
+pen_render_test(fault_throw faults cornell.pen.json "--res|1080p|--scale|0.5|--spp|96" -DREF_DEVICES=cpu
+                -DFAULT_DEVICES=cpu,cpu,cpu "-DFAULTS=device=1,after=0,mode=throw" "-DEXPECT_LOG=failed and is removed")
+pen_render_test(fault_hang faults cornell.pen.json "--res|1080p|--spp|256|--backend|null" -DREF_DEVICES=cpu
+                -DFAULT_DEVICES=cpu,cpu,cpu "-DFAULTS=device=1,after=2,mode=hang" "-DEXPECT_LOG=is late")
+pen_render_test(spp0_time_limit timelimit cornell.pen.json "--res|1080p|--scale|0.5|--spp|0|--time-limit|5s")
+# Killed mid-pass: the single tile holds some of its 8 chunks; resume continues from there, bit for bit.
+pen_render_test(resume_chunks resume cornell.pen.json "--res|1080p|--scale|0.5|--spp|64" -DKILL_AFTER=15 -DCUT_THREADS=4)
+set_tests_properties(render.slots_cpu render.fault_throw render.resume_chunks PROPERTIES LABELS "render;gate;slow")
 if(UNIX)  # sends a real SIGINT with coreutils `timeout`
   pen_render_test(interrupt interrupt cornell.pen.json "--res|1080p|--spp|16" -DKILL_AFTER=6)
   set_tests_properties(render.interrupt PROPERTIES LABELS "render;gate;slow")

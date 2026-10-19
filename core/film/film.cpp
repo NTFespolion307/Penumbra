@@ -13,10 +13,11 @@ namespace pen {
 namespace {
 
 constexpr char kMagic[8] = {'P', 'E', 'N', 'F', 'I', 'L', 'M', '1'};
-constexpr uint32_t kVersion = 1;
+constexpr uint32_t kVersion = 2;
 constexpr uint64_t kHeaderBytes = 256;
-constexpr uint64_t kEntryBytes = 24;
+constexpr uint64_t kEntryBytes = 40;
 constexpr uint64_t kPixelBytes = 16;
+constexpr uint32_t kFlagPresent = 1, kFlagSavedSlot1 = 2;
 
 // Fixed header; every field little-endian (x86-64 and ARM64 hosts both are).
 struct Header {
@@ -82,6 +83,7 @@ std::unique_ptr<Film> Film::create(const std::filesystem::path& path, const Film
   f->writable_ = true;
   f->file_ = BinaryFile(path, BinaryFile::Mode::Create);
   f->index_.assign(layout.tileCount(), {});
+  f->dirty_.assign(layout.tileCount(), 0);
   f->index_offset_ = kHeaderBytes;
   f->data_offset_ = kHeaderBytes + uint64_t(layout.tileCount()) * kEntryBytes;
   f->data_end_ = f->data_offset_;
@@ -114,25 +116,36 @@ std::unique_ptr<Film> Film::open(const std::filesystem::path& path, bool writabl
   f->data_end_ = h.data_end;
   if (f->data_end_ > f->file_.size())
     throw FileError(fmt::format("'{}' is shorter than its last checkpoint (truncated copy?)", pathToUtf8(path)));
-  f->index_.assign(f->layout_.tileCount(), {});
-  std::vector<uint8_t> raw(f->index_.size() * kEntryBytes);
+  const uint32_t n = f->layout_.tileCount();
+  f->index_.assign(n, {});
+  f->dirty_.assign(n, 0);
+  std::vector<uint8_t> raw(size_t(n) * kEntryBytes);
   if (!raw.empty()) f->file_.readAt(f->index_offset_, raw.data(), raw.size());
-  for (size_t i = 0; i < f->index_.size(); ++i) {
-    const uint8_t* p = raw.data() + i * kEntryBytes;
-    std::memcpy(&f->index_[i].offset, p, 8);
-    std::memcpy(&f->index_[i].checksum, p + 8, 8);
-    std::memcpy(&f->index_[i].present, p + 16, 4);
-    std::memcpy(&f->index_[i].max_samples, p + 20, 4);
+  for (uint32_t i = 0; i < n; ++i) {
+    const uint8_t* p = raw.data() + size_t(i) * kEntryBytes;
+    Entry& e = f->index_[i];
+    uint64_t checksum = 0;
+    uint32_t flags = 0;
+    std::memcpy(&e.slot[0], p, 8);
+    std::memcpy(&e.slot[1], p + 8, 8);
+    std::memcpy(&checksum, p + 16, 8);
+    std::memcpy(&e.samples, p + 24, 4);
+    std::memcpy(&flags, p + 28, 4);
+    e.saved = e.live = (flags & kFlagSavedSlot1) ? 1 : 0;
+    e.on_disk = e.saved_valid = (flags & kFlagPresent) != 0;
+    e.checksum[e.saved] = checksum;
+    e.written_samples = e.samples;
+    if (!e.on_disk) e.samples = e.written_samples = 0;
   }
-  if (writable) f->file_.truncate(f->data_end_);  // drop blocks appended after the last checkpoint
+  if (writable) f->file_.truncate(f->data_end_);  // drop slots allocated after the last checkpoint
   if (keepInRam) {
     const FilmLayout& l = f->layout_;
     f->ram_mean_.assign(size_t(l.width) * l.height, Vec3f(0));
     f->ram_count_.assign(size_t(l.width) * l.height, 0);
     std::vector<Vec3f> m;
     std::vector<uint32_t> c;
-    for (uint32_t t = 0; t < l.tileCount(); ++t) {
-      if (!f->index_[t].present) continue;
+    for (uint32_t t = 0; t < n; ++t) {
+      if (!f->index_[t].on_disk) continue;
       f->readTileFromDisk(t, m, c);
       const TileRect r = l.tileRect(t);
       for (uint32_t y = r.y0; y < r.y1; ++y)
@@ -150,9 +163,9 @@ Film::~Film() { close(); }
 
 void Film::close() { file_.close(); }
 
-uint32_t Film::tilesDone() const {
+uint32_t Film::tilesWithData() const {
   uint32_t n = 0;
-  for (const Entry& e : index_) n += e.present ? 1 : 0;
+  for (const Entry& e : index_) n += e.samples > 0 ? 1 : 0;
   return n;
 }
 
@@ -161,10 +174,10 @@ void Film::readTileFromDisk(uint32_t tile, std::vector<Vec3f>& mean, std::vector
   mean.assign(r.pixels(), Vec3f(0));
   count.assign(r.pixels(), 0);
   const Entry& e = index_[tile];
-  if (!e.present) return;
+  if (!e.on_disk) return;
   std::vector<uint8_t> bytes(r.pixels() * kPixelBytes);
-  file_.readAt(e.offset, bytes.data(), bytes.size());
-  if (hash64(bytes) != e.checksum)
+  file_.readAt(e.slot[e.live], bytes.data(), bytes.size());
+  if (hash64(bytes) != e.checksum[e.live])
     throw FileError(fmt::format("film '{}': tile {} is corrupt (checksum mismatch)", pathToUtf8(file_.path()), tile));
   for (size_t i = 0; i < mean.size(); ++i) {
     const uint8_t* p = bytes.data() + i * kPixelBytes;
@@ -175,20 +188,27 @@ void Film::readTileFromDisk(uint32_t tile, std::vector<Vec3f>& mean, std::vector
   }
 }
 
-void Film::readTile(uint32_t tile, std::vector<Vec3f>& mean, std::vector<uint32_t>& count) const {
-  if (!inRam()) {
-    readTileFromDisk(tile, mean, count);
-    return;
-  }
+void Film::copyTileFromRam(uint32_t tile, std::vector<Vec3f>& mean, std::vector<uint32_t>& count) const {
   const TileRect r = layout_.tileRect(tile);
-  mean.assign(r.pixels(), Vec3f(0));
-  count.assign(r.pixels(), 0);
+  mean.resize(r.pixels());
+  count.resize(r.pixels());
   for (uint32_t y = r.y0; y < r.y1; ++y)
     for (uint32_t x = r.x0; x < r.x1; ++x) {
       const size_t dst = size_t(y - r.y0) * r.width() + (x - r.x0), src = size_t(y) * layout_.width + x;
       mean[dst] = ram_mean_[src];
       count[dst] = ram_count_[src];
     }
+}
+
+void Film::readTile(uint32_t tile, std::vector<Vec3f>& mean, std::vector<uint32_t>& count) const {
+  if (inRam()) {
+    copyTileFromRam(tile, mean, count);
+  } else if (auto it = open_.find(tile); it != open_.end()) {
+    mean = it->second.mean;
+    count = it->second.count;
+  } else {
+    readTileFromDisk(tile, mean, count);
+  }
 }
 
 void Film::readRect(const TileRect& rect, std::vector<Vec3f>& out, std::vector<uint32_t>* counts) const {
@@ -210,7 +230,7 @@ void Film::readRect(const TileRect& rect, std::vector<Vec3f>& out, std::vector<u
   for (uint32_t ty = rect.y0 / ts; ty * ts < rect.y1; ++ty) {
     for (uint32_t tx = rect.x0 / ts; tx * ts < rect.x1; ++tx) {
       const uint32_t tile = ty * layout_.tiles_x + tx;
-      if (!index_[tile].present) continue;
+      if (index_[tile].samples == 0) continue;
       readTile(tile, mean, count);
       const TileRect tr = layout_.tileRect(tile);
       for (uint32_t y = std::max(tr.y0, rect.y0); y < std::min(tr.y1, rect.y1); ++y)
@@ -223,53 +243,77 @@ void Film::readRect(const TileRect& rect, std::vector<Vec3f>& out, std::vector<u
   }
 }
 
-void Film::writeBlock(uint32_t tile, const std::vector<Vec3f>& mean, const std::vector<uint32_t>& count) {
-  const std::vector<uint8_t> bytes = packBlock(mean, count);
-  file_.writeAt(data_end_, bytes.data(), bytes.size());
+void Film::writeTile(uint32_t tile, const std::vector<Vec3f>& mean, const std::vector<uint32_t>& count) {
   Entry& e = index_[tile];
-  e.offset = data_end_;
-  e.checksum = hash64(bytes);
-  e.present = 1;
-  e.max_samples = count.empty() ? 0 : *std::max_element(count.begin(), count.end());
-  data_end_ += bytes.size();
+  // Never overwrite the slot the saved index points at.
+  const uint32_t target = e.saved_valid ? 1 - e.saved : e.saved;
+  const std::vector<uint8_t> bytes = packBlock(mean, count);
+  if (e.slot[target] == 0) {
+    e.slot[target] = data_end_;
+    data_end_ += bytes.size();
+  }
+  file_.writeAt(e.slot[target], bytes.data(), bytes.size());
+  e.checksum[target] = hash64(bytes);
+  e.live = target;
+  e.written_samples = e.samples;
+  e.on_disk = true;
 }
 
-void Film::merge(const TileResult& r) {
+void Film::merge(const TileResult& r, uint32_t tileSamples) {
   const uint32_t k = r.sample_end - r.sample_begin;
   if (k == 0) return;
   const uint32_t ts = layout_.tile_size;
-  std::vector<Vec3f> mean;
-  std::vector<uint32_t> count;
   for (uint32_t ty = r.rect.y0 / ts; ty * ts < r.rect.y1; ++ty) {
     for (uint32_t tx = r.rect.x0 / ts; tx * ts < r.rect.x1; ++tx) {
       const uint32_t tile = ty * layout_.tiles_x + tx;
       const TileRect tr = layout_.tileRect(tile);
-      readTile(tile, mean, count);
+      Vec3f* mean = nullptr;
+      uint32_t* count = nullptr;
+      size_t stride = 0;
+      Tile* cached = nullptr;
+      if (inRam()) {
+        mean = ram_mean_.data();
+        count = ram_count_.data();
+        stride = layout_.width;
+      } else {
+        auto it = open_.find(tile);
+        if (it == open_.end()) {
+          Tile t;
+          readTileFromDisk(tile, t.mean, t.count);
+          it = open_.emplace(tile, std::move(t)).first;
+        }
+        cached = &it->second;
+        mean = cached->mean.data();
+        count = cached->count.data();
+        stride = tr.width();
+      }
       for (uint32_t y = std::max(tr.y0, r.rect.y0); y < std::min(tr.y1, r.rect.y1); ++y) {
         for (uint32_t x = std::max(tr.x0, r.rect.x0); x < std::min(tr.x1, r.rect.x1); ++x) {
-          const size_t t = size_t(y - tr.y0) * tr.width() + (x - tr.x0);
+          const size_t i = cached ? size_t(y - tr.y0) * stride + (x - tr.x0) : size_t(y) * stride + x;
           const Vec3f& v = r.mean[size_t(y - r.rect.y0) * r.rect.width() + (x - r.rect.x0)];
-          const uint32_t n = count[t];
+          const uint32_t n = count[i];
           if (n == 0) {
-            mean[t] = v;  // exact: a single result is stored bit for bit
+            mean[i] = v;  // exact: a single result is stored bit for bit
           } else {
             const float w = static_cast<float>(k) / static_cast<float>(uint64_t(n) + k);
-            mean[t] = mean[t] + (v - mean[t]) * w;
+            mean[i] = mean[i] + (v - mean[i]) * w;
           }
-          count[t] = n + k;
+          count[i] = n + k;
         }
       }
-      if (writable_) writeBlock(tile, mean, count);
-      if (inRam()) {
-        for (uint32_t y = tr.y0; y < tr.y1; ++y)
-          for (uint32_t x = tr.x0; x < tr.x1; ++x) {
-            const size_t t = size_t(y - tr.y0) * tr.width() + (x - tr.x0), g = size_t(y) * layout_.width + x;
-            ram_mean_[g] = mean[t];
-            ram_count_[g] = count[t];
-          }
-      }
+      index_[tile].samples = tileSamples;
+      dirty_[tile] = 1;
     }
   }
+}
+
+void Film::flushTile(uint32_t tile) {
+  if (inRam()) return;  // RAM films reach the disk at checkpoints
+  auto it = open_.find(tile);
+  if (it == open_.end()) return;
+  if (dirty_[tile] && writable_) writeTile(tile, it->second.mean, it->second.count);
+  dirty_[tile] = 0;
+  open_.erase(it);
 }
 
 void Film::writeHeader() {
@@ -296,14 +340,34 @@ void Film::writeHeader() {
 
 void Film::checkpoint() {
   if (!writable_) return;
-  file_.sync();  // tile blocks first, so the index never points at data that is not on disk
-  std::vector<uint8_t> raw(index_.size() * kEntryBytes);
+  // 1. Dirty tiles into their free slot.
+  std::vector<Vec3f> mean;
+  std::vector<uint32_t> count;
+  for (uint32_t t = 0; t < dirty_.size(); ++t) {
+    if (!dirty_[t]) continue;
+    if (inRam()) {
+      copyTileFromRam(t, mean, count);
+      writeTile(t, mean, count);
+    } else if (auto it = open_.find(t); it != open_.end()) {
+      writeTile(t, it->second.mean, it->second.count);
+    }
+    dirty_[t] = 0;
+  }
+  file_.sync();  // tile data first, so the index never points at data that is not on disk
+  // 2. The index now references the newest slot of every tile.
+  std::vector<uint8_t> raw(index_.size() * kEntryBytes, 0);
   for (size_t i = 0; i < index_.size(); ++i) {
+    Entry& e = index_[i];
+    if (e.on_disk) e.saved = e.live;
+    e.saved_valid = e.on_disk;
     uint8_t* p = raw.data() + i * kEntryBytes;
-    std::memcpy(p, &index_[i].offset, 8);
-    std::memcpy(p + 8, &index_[i].checksum, 8);
-    std::memcpy(p + 16, &index_[i].present, 4);
-    std::memcpy(p + 20, &index_[i].max_samples, 4);
+    const uint64_t checksum = e.checksum[e.saved];
+    const uint32_t flags = (e.on_disk ? kFlagPresent : 0) | (e.saved ? kFlagSavedSlot1 : 0);
+    std::memcpy(p, &e.slot[0], 8);
+    std::memcpy(p + 8, &e.slot[1], 8);
+    std::memcpy(p + 16, &checksum, 8);
+    std::memcpy(p + 24, &e.written_samples, 4);
+    std::memcpy(p + 28, &flags, 4);
   }
   if (!raw.empty()) file_.writeAt(index_offset_, raw.data(), raw.size());
   writeHeader();

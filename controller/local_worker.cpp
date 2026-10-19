@@ -46,8 +46,10 @@ void LocalWorker::offerScene(std::shared_ptr<const Scene> scene, const RenderSet
     DeviceSlot::Callbacks cb;
     cb.request_work = [this](uint32_t device, int count) { events_.onRequestWork(id_, device, count); };
     cb.result = [this](TileResult&& r) { events_.onTileResult(id_, std::move(r)); };
-    cb.failed = [this](uint32_t device, const std::string& error) {
-      events_.onGone(id_, GoneReason::Failed, "device " + std::to_string(device) + ": " + error);
+    cb.failed = [this](uint32_t device, const std::string& error, const std::vector<LeaseId>& lost) {
+      // The worker keeps going with its other devices (docs/GUIDE.md "Device failure").
+      events_.onDeviceFailed(id_, device, error);
+      events_.onRelease(id_, lost);
     };
     slots_.push_back(std::make_unique<DeviceSlot>(d, *devices_[d], cb));
   }
@@ -55,7 +57,11 @@ void LocalWorker::offerScene(std::shared_ptr<const Scene> scene, const RenderSet
 }
 
 void LocalWorker::sendLease(const Lease& lease) {
-  if (lease.device < slots_.size()) slots_[lease.device]->addLease(lease.item);
+  if (lease.device < slots_.size()) {
+    WorkItem item = lease.item;
+    item.lease = lease.id;
+    slots_[lease.device]->addLease(item);
+  }
 }
 
 // M2: cancels everything (Ctrl+C, out of disk). Cancelling single leases arrives with requeue in M3.

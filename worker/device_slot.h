@@ -7,20 +7,23 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "backends/backend.h"
 #include "core/render/work.h"
 
 namespace pen {
 
-// One device on its own thread: asks for work, renders the items it is given, hands back results
+// One device on its own thread: asks for work, renders the leases it is given, hands back results
 // (docs/GUIDE.md "Per-device flow"). Used by the controller's local worker now and by remote workers in M4.
 class DeviceSlot {
  public:
   struct Callbacks {
-    std::function<void(uint32_t device, int count)> request_work;  // may call addLease before returning
+    // "I can take `count` more items." The controller may answer by calling addLease, now or later.
+    std::function<void(uint32_t device, int count)> request_work;
     std::function<void(TileResult&& result)> result;
-    std::function<void(uint32_t device, const std::string& error)> failed;
+    // The device threw; it stops for good. `lost` holds the lease it was rendering and the queued ones.
+    std::function<void(uint32_t device, const std::string& error, const std::vector<LeaseId>& lost)> failed;
   };
 
   DeviceSlot(uint32_t id, IBackend& backend, Callbacks callbacks, int inFlight = 2);

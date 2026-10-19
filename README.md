@@ -8,12 +8,12 @@ the image. Any number of **workers**, each with one or more GPUs, join with the 
 code, render tiles and send them back. A render on one machine is the same thing with no workers, and every
 combination of machines, GPUs and backends converges to the same image.
 
-> **Status: milestone M2 (tiled film and gigapixel output).** Penumbra renders glTF and OBJ scenes on the CPU
+> **Status: milestone M3 (scheduler and local worker).** Penumbra renders glTF and OBJ scenes on the CPU
 > (Embree) with a path tracer (next-event estimation, MIS), the glTF PBR material with its common extensions and
 > HDRI lighting, at any size up to 160K, with checkpoints, `--resume` and `merge`, writing EXR, PNG, JPEG, TIFF
-> or WebP. Several local devices and work splitting arrive in M3, networking in M4, GPU backends in M5/M6, the
-> UI in M10. Features marked *(planned, Mx)* below are not built yet. The roadmap is in
-> [`docs/GUIDE.md`](docs/GUIDE.md).
+> or WebP. Work is split into tile and sample chunks that any number of local devices share, with recovery from
+> failed or hung devices. Networking arrives in M4, GPU backends in M5/M6, the UI in M10. Features marked
+> *(planned, Mx)* below are not built yet. The roadmap is in [`docs/GUIDE.md`](docs/GUIDE.md).
 
 <!-- A screenshot goes here once the UI exists (M10). -->
 
@@ -261,6 +261,17 @@ film for `merge`.
 Before rendering, Penumbra checks that the film and output fit on disk and exits with code 4 if not; if the disk
 fills up during the render, it checkpoints and exits with code 4 too.
 
+**How the work is split.** Each tile's samples are cut into fixed chunks (a few million samples each), and every
+device pulls chunks as it finishes them, two at a time. Films kept in RAM refine the whole image pass by pass, so
+an early look shows the full frame; disk films finish one tile after another. Chunks of a tile are always
+combined in the same order, so the image is identical to the bit whatever the number of devices, failures or
+resumes. A device that fails hands its chunks back to the others; a chunk that takes more than 10 times the
+usual time is handed out again, and the first result wins.
+
+- **Render for a fixed time:** `--spp 0 --time-limit 2h` adds passes until the deadline (needs the film in RAM).
+- **Several CPU slots:** `--devices cpu,cpu,cpu,cpu` splits the CPU into four devices that work in parallel
+  (mainly for testing; GPUs arrive in M5/M6).
+
 **Test scenes and image comparison.** The build also makes two tools next to `penumbra`:
 
 1. Write the test scenes (Cornell box, furnace spheres, material spheres on an HDRI) into a folder:
@@ -364,7 +375,7 @@ full text on your machine.
 | Render | `--camera` | camera name | first in scene | `penumbra --camera Camera.001` | `camera` | Camera to render from |
 | Render | `--time-limit` | duration (2h30m, 45m, 90s) or none | none | `penumbra --time-limit 2h30m` | `time_limit` | Stop and write the output at the deadline |
 | Devices | `--backend` | auto, vulkan, cuda, cpu, optix | auto | `penumbra --backend cuda` | `backend` | Ray tracing backend |
-| Devices | `--devices` | all, gpu, or a list like 0,1,cpu | all | `penumbra --devices 0,cpu` | `devices` | Which local devices render (controller or worker) |
+| Devices | `--devices` | all, gpu, or a list like 0,1,cpu (repeat cpu for several CPU slots) | all | `penumbra --devices 0,cpu` | `devices` | Which local devices render (controller or worker) |
 | Devices | `--threads` | 0-4096, 0 = all cores | 0 | `penumbra --threads 8` | `threads` | CPU worker threads |
 | Devices | `--tile-size` | 16-4096 | 256 | `penumbra --tile-size 128` | `tile_size` | Work item tile size in pixels |
 | Devices | `--vram-limit` | size (6G, 512M) or auto | auto | `penumbra --vram-limit 6G` | `vram_limit` | VRAM budget per GPU (default: free VRAM minus 10%) |

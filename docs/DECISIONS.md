@@ -228,3 +228,38 @@ tile against a `--region` render; the build scripts run `ctest -LE large`, the g
 at 1 spp: film 241.6 GB on disk only, render 20.7 min (15.1 G samples, 12.2 M samples/s, 86 threads), EXR half
 ZIP 35.4 GB written in ~12 min, a 256x256 tile identical (relMSE 0) to a `--region` render; film and session
 removed on completion. Display sizes now use decimal GB like the guide (`formatBytes`).
+
+## M3: Scheduler and local worker
+
+User approved the M3 plan and these choices on 2026-10-19 ("yes chef").
+
+**D-045 Bit-identical results for any distribution of work.** Each tile's sample range is cut into fixed chunks
+computed only from the settings (chunk = largest power of two with tile pixels x chunk <= 2^22, capped by the
+range), never from device speed, and the controller merges a tile's chunks strictly in chunk order (results that
+arrive early wait). One slot, many slots, failed or hung devices and resume all produce the same bits. This
+replaces the guide's per-device 2-10 s item sizing; fast devices take more chunks instead. M9 may retune the
+chunk size for GPUs (a retune changes images once and needs a new golden image).
+
+**D-046 Several CPU slots: repeat `cpu` in `--devices`.** `--devices cpu,cpu,cpu,cpu` gives 4 CPU slots that
+split the CPU threads (each slot has its own Embree scene). `all` still means one CPU slot until GPUs exist.
+
+**D-047 Test-only hooks, hidden from --help and the README.** `--backend null` returns correctly shaped tiles
+instantly (values depend on pixel and sample range, so merge order matters) for scheduler tests and the M4 scale
+test. `PENUMBRA_TEST_FAULTS=device=N,after=K,mode=throw|hang` makes local device N fail (throw) or hang until
+cancelled after K items; it does nothing unless set, and Penumbra logs a warning when it is active.
+
+**D-048 Film format version 2.** Each tile owns up to two block slots and records how many samples it holds (for
+resume in the middle of a tile). New data goes only to the slot the saved index does not reference; RAM films
+write dirty tiles at checkpoints, disk films write a tile when it is finished or at a checkpoint. The file stays
+below twice the film size (the free-disk check asks for 2x for RAM films). Version 1 films are refused.
+
+**D-049 Requests set, not add.** A device's "I can take N more" replaces its previous request; the controller
+hands requeued or re-issued work to waiting devices as soon as it appears, so idle devices pick up a failed
+device's chunks without asking again. Leases are re-issued after max(10 x median item time, 2 s).
+
+**D-050 `--spp 0` needs a RAM film**, because it refines every tile pass by pass; a disk-only film would have to
+keep every tile open. Penumbra refuses it with a clear message.
+
+**D-051 The golden image test still passes after chunking.** The Cornell golden test renders 256 spp as four
+64-sample chunks merged in order instead of one item, which changes the last bits but stays within its relMSE
+1e-3 threshold (no new golden image needed).

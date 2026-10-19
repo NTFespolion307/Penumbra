@@ -12,7 +12,7 @@
 namespace pen {
 
 enum class Integrator { Path, Ao, DebugNormal, DebugAlbedo, DebugDepth, DebugBvh };
-enum class BackendKind { Auto, Vulkan, Cuda, Cpu, Optix };
+enum class BackendKind { Auto, Vulkan, Cuda, Cpu, Optix, Null };  // Null: test-only (D-047)
 enum class ImageFormat { Png, Exr, Jpeg, Tiff, Webp };
 enum class Denoiser { None, Oidn, Optix };
 enum class Tonemap { Agx, Filmic, Aces, None };
@@ -32,8 +32,9 @@ struct EnumNames;
 PEN_ENUM_NAMES(Integrator, 6, {Integrator::Path, "path"}, {Integrator::Ao, "ao"},
                {Integrator::DebugNormal, "debug:normal"}, {Integrator::DebugAlbedo, "debug:albedo"},
                {Integrator::DebugDepth, "debug:depth"}, {Integrator::DebugBvh, "debug:bvh"})
-PEN_ENUM_NAMES(BackendKind, 5, {BackendKind::Auto, "auto"}, {BackendKind::Vulkan, "vulkan"},
-               {BackendKind::Cuda, "cuda"}, {BackendKind::Cpu, "cpu"}, {BackendKind::Optix, "optix"})
+PEN_ENUM_NAMES(BackendKind, 6, {BackendKind::Auto, "auto"}, {BackendKind::Vulkan, "vulkan"},
+               {BackendKind::Cuda, "cuda"}, {BackendKind::Cpu, "cpu"}, {BackendKind::Optix, "optix"},
+               {BackendKind::Null, "null"})
 PEN_ENUM_NAMES(ImageFormat, 5, {ImageFormat::Png, "png"}, {ImageFormat::Exr, "exr"}, {ImageFormat::Jpeg, "jpg"},
                {ImageFormat::Tiff, "tiff"}, {ImageFormat::Webp, "webp"})
 PEN_ENUM_NAMES(Denoiser, 3, {Denoiser::None, "none"}, {Denoiser::Oidn, "oidn"}, {Denoiser::Optix, "optix"})

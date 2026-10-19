@@ -19,7 +19,6 @@ namespace pen {
 
 using WorkerId = uint32_t;
 using DeviceId = uint32_t;
-using LeaseId = uint64_t;
 
 struct Lease {
   LeaseId id = 0;
@@ -50,7 +49,10 @@ class WorkerEvents {
   virtual void onReady(WorkerId worker, const std::vector<DeviceReady>& devices) = 0;
   virtual void onRequestWork(WorkerId worker, DeviceId device, int count) = 0;
   virtual void onTileResult(WorkerId worker, TileResult&& result) = 0;
+  // Leases handed back unfinished (device failed, worker leaving); their items are requeued.
   virtual void onRelease(WorkerId worker, std::span<const LeaseId> leases) = 0;
+  // One device stopped for good; the worker continues with its other devices (docs/GUIDE.md "Device failure").
+  virtual void onDeviceFailed(WorkerId worker, DeviceId device, const std::string& error) = 0;
   virtual void onGone(WorkerId worker, GoneReason reason, const std::string& detail) = 0;
 };
 

@@ -52,8 +52,8 @@ TEST_CASE("film merge is a sample-weighted mean, in RAM and on disk", "[film]") 
     const FilmLayout layout = FilmLayout::make(40, 30, 16);  // 3 x 2 tiles, ragged edges
     auto film = Film::create(dir.path / "a.penfilm", layout, {1, 2}, ram);
     CHECK(film->inRam() == ram);
-    film->merge(result({0, 0, 40, 30}, 0, 3, {1, 2, 3}));
-    film->merge(result({20, 10, 40, 30}, 3, 4, {5, 6, 7}));  // spans several tiles
+    film->merge(result({0, 0, 40, 30}, 0, 3, {1, 2, 3}), 3);
+    film->merge(result({20, 10, 40, 30}, 3, 4, {5, 6, 7}), 4);  // spans several tiles
     std::vector<Vec3f> out;
     std::vector<uint32_t> counts;
     film->readRect({0, 0, 40, 30}, out, &counts);
@@ -62,7 +62,7 @@ TEST_CASE("film merge is a sample-weighted mean, in RAM and on disk", "[film]") 
     const size_t i = size_t(15) * 40 + 25;
     CHECK(counts[i] == 4);
     CHECK(std::fabs(out[i].x - 2.0f) < 1e-6f);  // (1*3 + 5*1) / 4
-    CHECK(film->tilesDone() == 6);
+    CHECK(film->tilesWithData() == 6);
   }
 }
 
@@ -72,16 +72,16 @@ TEST_CASE("film survives a checkpoint and reopen", "[film]") {
   const FilmLayout layout = FilmLayout::make(64, 64, 32);
   {
     auto film = Film::create(path, layout, {11, 22}, false);
-    film->merge(result(layout.tileRect(0), 0, 8, {0.5f, 0.25f, 0.125f}));
-    film->merge(result(layout.tileRect(3), 0, 8, {2, 2, 2}));
+    film->merge(result(layout.tileRect(0), 0, 8, {0.5f, 0.25f, 0.125f}), 8);
+    film->merge(result(layout.tileRect(3), 0, 8, {2, 2, 2}), 8);
     film->checkpoint();
   }
   auto film = Film::open(path, false, true);
   CHECK(film->layout() == layout);
   CHECK(film->identity() == FilmIdentity{11, 22});
-  CHECK(film->tileDone(0));
-  CHECK_FALSE(film->tileDone(1));
-  CHECK(film->tileDone(3));
+  CHECK(film->tileHasData(0));
+  CHECK_FALSE(film->tileHasData(1));
+  CHECK(film->tileHasData(3));
   std::vector<Vec3f> mean;
   std::vector<uint32_t> count;
   film->readTile(3, mean, count);
@@ -96,22 +96,66 @@ TEST_CASE("a crash after a checkpoint loses only the tiles merged since", "[film
   uint64_t sizeAtCheckpoint = 0;
   {
     auto film = Film::create(path, layout, {}, false);
-    film->merge(result(layout.tileRect(0), 0, 4, {1, 1, 1}));
+    film->merge(result(layout.tileRect(0), 0, 4, {1, 1, 1}), 4);
     film->checkpoint();
     sizeAtCheckpoint = fs::file_size(path);
-    film->merge(result(layout.tileRect(1), 0, 4, {9, 9, 9}));  // never checkpointed: the "crash"
+    film->merge(result(layout.tileRect(1), 0, 4, {9, 9, 9}), 4);  // never checkpointed: the "crash"
+    film->flushTile(1);  // even written to disk, it is not in the saved index
   }
   CHECK(fs::file_size(path) > sizeAtCheckpoint);
   auto film = Film::open(path, /*writable=*/true, false);
   CHECK(fs::file_size(path) == sizeAtCheckpoint);  // the unconfirmed block is gone
-  CHECK(film->tileDone(0));
-  CHECK_FALSE(film->tileDone(1));
-  film->merge(result(layout.tileRect(1), 0, 4, {3, 3, 3}));  // rendering continues normally
+  CHECK(film->tileHasData(0));
+  CHECK_FALSE(film->tileHasData(1));
+  film->merge(result(layout.tileRect(1), 0, 4, {3, 3, 3}), 4);  // rendering continues normally
   film->checkpoint();
   std::vector<Vec3f> mean;
   std::vector<uint32_t> count;
   film->readTile(1, mean, count);
   CHECK(mean[0] == Vec3f(3, 3, 3));
+}
+
+TEST_CASE("a tile rewritten many times never grows the file past two slots", "[film]") {
+  TempDir dir;
+  const fs::path path = dir.path / "slots.penfilm";
+  const FilmLayout layout = FilmLayout::make(64, 64, 32);  // 4 tiles
+  {
+    auto film = Film::create(path, layout, {}, /*keepInRam=*/true);
+    for (uint32_t pass = 0; pass < 10; ++pass) {
+      for (uint32_t t = 0; t < 4; ++t)
+        film->merge(result(layout.tileRect(t), pass * 2, pass * 2 + 2, {float(pass), 0, 0}), pass * 2 + 2);
+      film->checkpoint();
+    }
+  }
+  CHECK(fs::file_size(path) <= Film::fileBytes(layout) * 2);
+  auto film = Film::open(path, false, false);
+  CHECK(film->tileSamples(2) == 20);
+  std::vector<Vec3f> mean;
+  std::vector<uint32_t> count;
+  film->readTile(2, mean, count);
+  CHECK(count[0] == 20);
+  CHECK(std::fabs(mean[0].x - 4.5f) < 1e-5f);  // mean of 0..9, each twice
+}
+
+TEST_CASE("a crash between checkpoints keeps the last saved version of a rewritten tile", "[film]") {
+  TempDir dir;
+  const fs::path path = dir.path / "cow.penfilm";
+  const FilmLayout layout = FilmLayout::make(32, 32, 32);
+  {
+    auto film = Film::create(path, layout, {}, true);
+    film->merge(result(layout.tileRect(0), 0, 2, {1, 1, 1}), 2);
+    film->checkpoint();
+    film->merge(result(layout.tileRect(0), 2, 4, {3, 3, 3}), 4);
+    film->checkpoint();
+    film->merge(result(layout.tileRect(0), 4, 6, {5, 5, 5}), 6);  // lost in the "crash"
+  }
+  auto film = Film::open(path, true, false);
+  CHECK(film->tileSamples(0) == 4);
+  std::vector<Vec3f> mean;
+  std::vector<uint32_t> count;
+  film->readTile(0, mean, count);
+  CHECK(mean[0] == Vec3f(2, 2, 2));
+  CHECK(count[0] == 4);
 }
 
 TEST_CASE("corrupt tiles are detected", "[film]") {
@@ -120,7 +164,7 @@ TEST_CASE("corrupt tiles are detected", "[film]") {
   const FilmLayout layout = FilmLayout::make(32, 32, 32);
   {
     auto film = Film::create(path, layout, {}, false);
-    film->merge(result(layout.tileRect(0), 0, 1, {1, 1, 1}));
+    film->merge(result(layout.tileRect(0), 0, 1, {1, 1, 1}), 1);
     film->checkpoint();
   }
   {
