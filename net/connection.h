@@ -1,9 +1,10 @@
 #pragma once
 
-// One TCP connection carrying framed messages (docs/GUIDE.md "Wire protocol"). All socket work runs on an
-// IoThread; send() and close() may be called from any thread. Two send queues: control messages always go
-// next, bulk messages (tiles, scene data) are split into 4 MB parts, so a control frame never waits behind
-// more than one part.
+// One TLS-encrypted TCP connection carrying framed messages (docs/GUIDE.md "Wire protocol", "Security"). The
+// TLS 1.3 handshake uses the key derived from the join code; a peer with another code cannot connect. All
+// socket and TLS work runs on an IoThread; send() and close() may be called from any thread. Two send queues:
+// control messages always go next, bulk messages (tiles, scene data) are split into 4 MB parts, so a control
+// frame never waits behind more than one part.
 
 #include <asio.hpp>
 
@@ -18,6 +19,7 @@
 #include <thread>
 
 #include "net/frame.h"
+#include "net/tls.h"
 
 namespace pen::net {
 
@@ -46,10 +48,10 @@ class Connection : public std::enable_shared_from_this<Connection> {
     std::function<void(const std::string& reason)> closed;          // on the io thread, exactly once
   };
 
-  explicit Connection(asio::ip::tcp::socket socket);
+  Connection(asio::ip::tcp::socket socket, TlsSession::Role role, const JoinKey& key);
   ~Connection();
 
-  // Begins reading. Handlers must be set before any message can arrive.
+  // Starts the TLS handshake and reading. Messages may be sent before the handshake completes; they wait.
   void start(Handlers handlers);
 
   void send(MsgType type, std::vector<uint8_t> payload, Priority priority = Priority::Control);
@@ -64,32 +66,42 @@ class Connection : public std::enable_shared_from_this<Connection> {
   void closeAfterSend(const std::string& reason);
 
   bool isOpen() const { return open_.load(); }
+  // The TLS handshake failed (almost always a wrong join code) or timed out.
+  bool handshakeFailed() const { return handshake_failed_.load(); }
   uint64_t queuedBytes() const { return queued_.load(); }
   const std::string& peer() const { return peer_; }        // "192.168.1.20:51234"
   const std::string& peerAddress() const { return address_; }  // "192.168.1.20"
 
  private:
-  void readHeader();
-  void readPayload(const FrameHeader& h);
+  void readSome();
+  void onCipher(size_t n);
+  void parseFrames();
   void writeNext();
   void fail(const std::string& reason);
 
   asio::ip::tcp::socket socket_;
+  asio::steady_timer handshake_timer_;
+  TlsSession tls_;  // used on the io thread only
   Handlers handlers_;
   std::string peer_, address_;
   std::atomic<bool> open_{true};
+  std::atomic<bool> established_{false};
+  std::atomic<bool> handshake_failed_{false};
   std::atomic<uint64_t> queued_{0};
   std::atomic<uint32_t> next_transfer_{1};
 
-  std::array<uint8_t, kHeaderBytes> header_{};
-  std::vector<uint8_t> payload_;
+  std::array<uint8_t, 65536> cipher_in_{};
+  std::vector<uint8_t> plain_;  // decrypted bytes not yet parsed into frames
+  size_t plain_pos_ = 0;
   PartAssembler parts_;
 
   std::mutex mutex_;  // guards the queues and the flags below
   std::deque<FrameBytes> control_, bulk_;
-  FrameBytes writing_frame_;
-  bool writing_ = false;
+  std::vector<uint8_t> writing_;  // ciphertext being written
+  uint64_t writing_plain_ = 0;     // plaintext bytes it carries (for queuedBytes)
+  bool busy_ = false;              // a write is in progress or posted
   bool close_after_send_ = false;
+  bool close_notified_ = false;
   std::string close_reason_;
 };
 
@@ -99,15 +111,15 @@ struct ConnectError : std::runtime_error {
   bool refused;
 };
 
-// Resolves `host` and connects (blocking). Throws ConnectError.
-std::shared_ptr<Connection> connectTo(IoThread& io, const std::string& host, uint16_t port);
+// Resolves `host` and connects (blocking); the TLS handshake starts with Connection::start. Throws ConnectError.
+std::shared_ptr<Connection> connectTo(IoThread& io, const std::string& host, uint16_t port, const JoinKey& key);
 
 // Accepts connections on bind:port (all interfaces when bind is empty, IPv6 and IPv4 where possible).
 class Listener {
  public:
   using AcceptFn = std::function<void(std::shared_ptr<Connection>)>;  // on the io thread
   // Throws std::runtime_error when the address cannot be bound (port in use, bad address).
-  Listener(IoThread& io, const std::string& bind, uint16_t port, AcceptFn onAccept);
+  Listener(IoThread& io, const std::string& bind, uint16_t port, const JoinKey& key, AcceptFn onAccept);
   ~Listener();
   uint16_t port() const { return port_; }
   void stop();
@@ -115,6 +127,7 @@ class Listener {
  private:
   void acceptNext();
   asio::ip::tcp::acceptor acceptor_;
+  JoinKey key_;
   AcceptFn on_accept_;
   uint16_t port_ = 0;
   std::atomic<bool> stopped_{false};

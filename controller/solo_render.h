@@ -14,6 +14,7 @@ struct LocalRenderOptions {
   std::function<void(const RenderProgress&)> progress;
   const std::atomic<bool>* interrupt = nullptr;  // Ctrl+C
   bool host = false;  // --host: accept workers on --port while rendering (docs/GUIDE.md "Controller and workers")
+  std::string code;   // --code / PENUMBRA_CODE: a fixed join code; empty = the saved one (created on first use)
 };
 
 // A headless controller render (`--terminal`, with `--host` also on workers that join): load the scene, create

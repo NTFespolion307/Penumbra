@@ -107,10 +107,13 @@ bool startProc(Proc& p, const fs::path& out) {
   si.dwFlags = STARTF_USESTDHANDLES;
   si.hStdOutput = file;
   si.hStdError = file;
-  si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+  // No terminal input: a process that asks a question (--approve-workers) reads end-of-input.
+  HANDLE nul = CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, 0, nullptr);
+  si.hStdInput = nul;
   PROCESS_INFORMATION pi{};
   const BOOL ok = CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, TRUE, 0, nullptr, nullptr, &si, &pi);
   CloseHandle(file);
+  if (nul != INVALID_HANDLE_VALUE) CloseHandle(nul);
   if (!ok) return false;
   CloseHandle(pi.hThread);
   p.process = pi.hProcess;
@@ -137,6 +140,8 @@ bool startProc(Proc& p, const fs::path& out) {
     dup2(fd, 1);
     dup2(fd, 2);
     close(fd);
+    const int nul = open("/dev/null", O_RDONLY);  // no terminal input (see the Windows branch)
+    if (nul >= 0) dup2(nul, 0);
     std::vector<char*> args;
     for (auto& a : p.argv) args.push_back(a.data());
     args.push_back(nullptr);

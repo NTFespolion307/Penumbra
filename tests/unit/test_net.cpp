@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
@@ -11,6 +12,7 @@
 #include "core/version.h"
 #include "net/connection.h"
 #include "net/frame.h"
+#include "net/join_code.h"
 #include "net/protocol.h"
 #include "net/tile_codec.h"
 
@@ -133,7 +135,8 @@ TEST_CASE("a loopback connection delivers control frames between bulk parts", "[
   std::condition_variable cv;
   std::vector<Message> got;
   std::shared_ptr<Connection> server;
-  Listener listener(io, "127.0.0.1", 0, [&](std::shared_ptr<Connection> c) {
+  const JoinKey key = deriveJoinKey("K7QDM2XR9FHT4WNB");
+  Listener listener(io, "127.0.0.1", 0, key, [&](std::shared_ptr<Connection> c) {
     std::lock_guard lock(m);
     server = c;
     c->start({[&](Message&& msg, uint16_t) {
@@ -143,7 +146,7 @@ TEST_CASE("a loopback connection delivers control frames between bulk parts", "[
               },
               [](const std::string&) {}});
   });
-  auto client = connectTo(io, "127.0.0.1", listener.port());
+  auto client = connectTo(io, "127.0.0.1", listener.port(), key);
   client->start({[](Message&&, uint16_t) {}, [](const std::string&) {}});
 
   std::vector<uint8_t> big(kChunkBytes * 3, 0xAB);
@@ -162,5 +165,113 @@ TEST_CASE("a loopback connection delivers control frames between bulk parts", "[
   lock.unlock();
   client->close("done");
   if (server) server->close("done");
+  listener.stop();
+}
+
+// ---------------------------------------------------------------- TLS and join codes
+
+
+namespace {
+// Moves ciphertext between two sessions until neither has anything to send.
+void pump(TlsSession& a, TlsSession& b) {
+  for (int i = 0; i < 64; ++i) {
+    auto ab = a.takeOutput();
+    auto ba = b.takeOutput();
+    if (ab.empty() && ba.empty()) return;
+    b.feed(ab);
+    a.feed(ba);
+    if (!a.established()) a.handshake();
+    if (!b.established()) b.handshake();
+  }
+}
+}  // namespace
+
+TEST_CASE("join codes normalise, format and derive keys", "[net]") {
+  const std::string code = generateJoinCode();
+  CHECK(code.size() == 16);
+  CHECK(normalizeJoinCode(code) == code);
+  CHECK(normalizeJoinCode("k7qd-m2xr-9fht-4wnb") == "K7QDM2XR9FHT4WNB");
+  CHECK(normalizeJoinCode("K7QD M2XR 9FHT 4WNB") == "K7QDM2XR9FHT4WNB");
+  CHECK(normalizeJoinCode("IOLI-0000-0000-0000") == "1011000000000000");  // Crockford: I, L -> 1, O -> 0
+  CHECK_FALSE(normalizeJoinCode("K7QD-M2XR-9FHT-4WN").has_value());     // too short
+  CHECK_FALSE(normalizeJoinCode("K7QD-M2XR-9FHT-4WNU").has_value());    // U is not Crockford
+  CHECK(formatJoinCode("K7QDM2XR9FHT4WNB") == "K7QD-M2XR-9FHT-4WNB");
+  CHECK(deriveJoinKey("K7QDM2XR9FHT4WNB") == deriveJoinKey("K7QDM2XR9FHT4WNB"));
+  CHECK(deriveJoinKey("K7QDM2XR9FHT4WNB") != deriveJoinKey("K7QDM2XR9FHT4WNC"));
+  CHECK(generateJoinCode() != generateJoinCode());
+}
+
+TEST_CASE("TLS 1.3 with the join key: same code connects, data round-trips", "[net]") {
+  const JoinKey key = deriveJoinKey("K7QDM2XR9FHT4WNB");
+  TlsSession client(TlsSession::Role::Client, key), server(TlsSession::Role::Server, key);
+  client.handshake();
+  pump(client, server);
+  REQUIRE(client.established());
+  REQUIRE(server.established());
+
+  std::vector<uint8_t> msg(100000);
+  for (size_t i = 0; i < msg.size(); ++i) msg[i] = uint8_t(i * 31);
+  client.write(msg);
+  const auto wire = client.takeOutput();
+  CHECK(wire.size() > msg.size());  // records add headers and tags
+  CHECK(std::search(wire.begin(), wire.end(), msg.begin(), msg.begin() + 64) == wire.end());  // not plaintext
+  server.feed(wire);
+  std::vector<uint8_t> got;
+  CHECK(server.read(got));
+  CHECK(got == msg);
+
+  server.close();
+  client.feed(server.takeOutput());
+  std::vector<uint8_t> none;
+  CHECK_FALSE(client.read(none));
+}
+
+TEST_CASE("TLS with a different join code cannot complete the handshake", "[net]") {
+  TlsSession client(TlsSession::Role::Client, deriveJoinKey("K7QDM2XR9FHT4WNB"));
+  TlsSession server(TlsSession::Role::Server, deriveJoinKey("AAAAAAAAAAAAAAAA"));
+  client.handshake();
+  bool failed = false;
+  try {
+    pump(client, server);
+  } catch (const TlsError& e) {
+    failed = e.during_handshake;
+  }
+  CHECK(failed);
+  CHECK_FALSE(server.established());
+}
+
+TEST_CASE("a worker with the wrong join code cannot connect over a real socket", "[net]") {
+  IoThread io;
+  std::mutex m;
+  std::condition_variable cv;
+  std::shared_ptr<Connection> server;
+  bool serverClosed = false, clientClosed = false, gotMessage = false;
+  Listener listener(io, "127.0.0.1", 0, deriveJoinKey("K7QDM2XR9FHT4WNB"), [&](std::shared_ptr<Connection> c) {
+    std::lock_guard lock(m);
+    server = c;
+    c->start({[&](Message&&, uint16_t) { gotMessage = true; },
+              [&](const std::string&) {
+                std::lock_guard lock2(m);
+                serverClosed = true;
+                cv.notify_all();
+              }});
+  });
+  auto client = connectTo(io, "127.0.0.1", listener.port(), deriveJoinKey("AAAAAAAAAAAAAAAA"));
+  client->start({[&](Message&&, uint16_t) { gotMessage = true; },
+                 [&](const std::string&) {
+                   std::lock_guard lock(m);
+                   clientClosed = true;
+                   cv.notify_all();
+                 }});
+  wire::HelloT hello;
+  hello.worker_name = "intruder";
+  client->send(hello);
+
+  std::unique_lock lock(m);
+  REQUIRE(cv.wait_for(lock, std::chrono::seconds(15), [&] { return serverClosed && clientClosed; }));
+  CHECK(server->handshakeFailed());
+  CHECK(client->handshakeFailed());
+  CHECK_FALSE(gotMessage);
+  lock.unlock();
   listener.stop();
 }

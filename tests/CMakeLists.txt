@@ -144,6 +144,20 @@ pen_net_test(loopback_local 7502 2 cornell.pen.json "--res|1080p|--scale|0.5|--s
 pen_net_test(loopback_null 7503 3 cornell.pen.json "--res|4k|--spp|256|--backend|null" "-DREF_ARGS=--devices|cpu"
              "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--backend|null|--devices|cpu,cpu,cpu,cpu"
              -DWORKER_DELAY_MS=30)
+# M4 step 2: a wrong join code or another git commit is turned away while the render goes on; more than 5
+# wrong codes in a minute block the address; --approve-workers with no answer rejects the worker.
+pen_net_test(wrong_code 7504 1 cornell.pen.json "--res|1080p|--scale|0.5|--spp|32" "-DREF_ARGS=--devices|cpu"
+             "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|4" -DWRONG_CODE_WORKERS=1
+             "-DEXPECT_LOG=failed the encrypted handshake")
+pen_net_test(version_mismatch 7505 1 cornell.pen.json "--res|1080p|--scale|0.5|--spp|32" "-DREF_ARGS=--devices|cpu"
+             "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|4" -DBAD_VERSION_WORKER=1
+             "-DEXPECT_LOG=rejected .*0000000badc0de")
+pen_net_test(ip_block 7506 1 cornell.pen.json "--res|1080p|--scale|0.5|--spp|128" "-DREF_ARGS=--devices|cpu"
+             "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|4" -DWRONG_CODE_WORKERS=7
+             "-DEXPECT_LOG=blocking 127.0.0.1 for 10 minutes")
+pen_net_test(approve_no 7507 1 cornell.pen.json "--res|1080p|--scale|0.5|--spp|16" "-DREF_ARGS=--devices|cpu"
+             "-DCONTROLLER_ARGS=--approve-workers|--threads|4" "-DWORKER_ARGS=--threads|2" -DWORKER_EXPECT=6
+             "-DEXPECT_LOG=did not approve")
 
 if(NOT EXISTS "${PROJECT_SOURCE_DIR}/tests/golden/cornell_256_4096spp.exr")
   message(STATUS "tests/golden/cornell_256_4096spp.exr not found: render.golden_cornell is disabled")

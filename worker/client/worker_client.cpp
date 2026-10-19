@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <condition_variable>
 #include <deque>
 #include <map>
@@ -21,6 +22,7 @@
 #include "core/system/sysinfo.h"
 #include "core/version.h"
 #include "net/connection.h"
+#include "net/join_code.h"
 #include "net/tile_codec.h"
 #include "worker/device_manager.h"
 #include "worker/device_prep.h"
@@ -130,11 +132,17 @@ int Worker::connect() {
     spdlog::error("--join {}", e.what());
     return toInt(ExitCode::BadArguments);
   }
+  const auto code = net::normalizeJoinCode(opt_.code);
+  if (!code) {
+    spdlog::error("--code '{}' is not a join code (16 characters like K7QD-M2XR-9FHT-4WNB)", opt_.code);
+    return toInt(ExitCode::BadArguments);
+  }
+  const net::JoinKey key = net::deriveJoinKey(*code);
   spdlog::info("connecting to {}:{}", addr.host, addr.port);
   const auto deadline = Clock::now() + kConnectRetry;
   for (;;) {
     try {
-      conn_ = net::connectTo(io_, addr.host, addr.port);
+      conn_ = net::connectTo(io_, addr.host, addr.port, key);
       break;
     } catch (const net::ConnectError& e) {
       // The controller may still be starting: keep trying for a while when nothing listens yet.
@@ -172,6 +180,10 @@ int Worker::connect() {
   hello.protocol_version = kProtocolVersion;
   hello.app_version = std::string(appVersion());
   hello.git_hash = std::string(gitHash());
+  if (const char* fake = std::getenv("PENUMBRA_TEST_GIT_HASH")) {  // test-only (D-047): pose as another build
+    spdlog::warn("TEST HOOK ACTIVE (PENUMBRA_TEST_GIT_HASH): claiming git hash {}", fake);
+    hello.git_hash = fake;
+  }
   hello.worker_name = name_;
   hello.os = sys.os;
   hello.cpu = sys.cpu;
@@ -227,6 +239,13 @@ int Worker::run() {
     if (closed) {
       stopSlots(true);
       if (completed_) return toInt(ExitCode::Success);
+      if (!welcomed_ && conn_->handshakeFailed()) {
+        spdlog::debug("handshake: {}", reason);
+        spdlog::error("could not join: the controller did not accept the join code. Check --code (the controller "
+                      "prints it when it starts hosting); after more than 5 wrong codes in a minute the controller "
+                      "ignores this address for 10 minutes.");
+        return toInt(ExitCode::RejectedByController);
+      }
       spdlog::error("lost the connection to the controller: {}", reason);
       return toInt(ExitCode::ConnectionLost);
     }

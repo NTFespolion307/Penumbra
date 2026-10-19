@@ -48,6 +48,7 @@ int dispatch(const Invocation& inv, bool fromExplorer) {
       spdlog::info("render: {}", pen::cli::describe(inv.settings));
       render.interrupt = &pen::app::installInterruptHandler();
       render.host = inv.host;
+      render.code = inv.code;
       return pen::runLocalRender(inv.settings, render);
     case Mode::Worker: {
       pen::WorkerOptions worker;

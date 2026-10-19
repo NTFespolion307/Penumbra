@@ -12,8 +12,8 @@ combination of machines, GPUs and backends converges to the same image.
 > (Embree) with a path tracer (next-event estimation, MIS), the glTF PBR material with its common extensions and
 > HDRI lighting, at any size up to 160K, with checkpoints, `--resume` and `merge`, writing EXR, PNG, JPEG, TIFF
 > or WebP. Work is split into tile and sample chunks that any number of local devices share, with recovery from
-> failed or hung devices. Networking (M4) is being built: hosting and joining work, but connections are not
-> encrypted yet. GPU backends arrive in M5/M6, the UI in M10. Features marked
+> failed or hung devices. Networking (M4) is being built: hosting and joining work, encrypted with the join code;
+> sending the scene to workers comes next. GPU backends arrive in M5/M6, the UI in M10. Features marked
 > *(planned, Mx)* below are not built yet. The roadmap is in [`docs/GUIDE.md`](docs/GUIDE.md).
 
 <!-- A screenshot goes here once the UI exists (M10). -->
@@ -290,10 +290,10 @@ usual time is handed out again, and the first result wins.
 
 ## Rendering with several machines
 
-*(in progress, M4.)* Working now: `--terminal --host`, `--no-local` and `--worker --join` on one machine or a
-shared folder (workers read the scene files from the controller's paths). **Not yet:** encryption and join-code
-checks (until then, host only on a network you trust), sending the scene to workers, heartbeats, `--stay`, UPnP.
-The rest of this section describes the finished networking.
+*(in progress, M4.)* Working now: `--terminal --host`, `--no-local`, `--worker --join`, join codes and
+encryption, `--approve-workers`. Workers still read the scene files from the controller's paths, so for now they
+must run on the same machine or see the same shared folder. **Not yet:** sending the scene to workers, heartbeats,
+`--stay`, UPnP. The rest of this section describes the finished networking.
 
 **Hosting.** In the UI, LAN hosting starts with the app and the Dashboard shows the join code and the address to
 give workers; internet hosting is switched on in Settings. Headless, add `--host`:
@@ -302,8 +302,12 @@ give workers; internet hosting is switched on in Settings. Headless, add `--host
 penumbra --terminal --host scene.glb -o out.exr --res 8k
 ```
 
-The controller prints its addresses and a join code like `K7QD-M2XR-9FHT-4WNB`. The code stays the same across
-restarts until you regenerate it.
+The controller prints its addresses and a join code like `K7QD-M2XR-9FHT-4WNB`. The code is saved in your user
+data folder (`%LOCALAPPDATA%\Penumbra\join_code.txt` on Windows, `~/.local/share/penumbra/join_code.txt` on Linux)
+and stays the same across restarts; delete that file to get a new one. `--code` uses a code of your choice
+instead. The code is never sent over the network: both sides derive the encryption key from it (TLS 1.3), so a
+machine with the wrong code cannot connect, and an address that tries more than 5 wrong codes in a minute is
+ignored for 10 minutes. Add `--approve-workers` to be asked before each new worker joins.
 
 **Joining.** On each worker machine:
 

@@ -21,6 +21,7 @@
 #include "core/system/paths.h"
 #include "core/system/sysinfo.h"
 #include "core/version.h"
+#include "net/join_code.h"
 #include "worker/device_manager.h"
 
 namespace pen {
@@ -181,16 +182,41 @@ int renderAndFinish(const RenderSettings& s, std::shared_ptr<Scene> scene, Film&
     });
 
   if (options.host) {
+    // The join code: --code / PENUMBRA_CODE, else the one saved in the user data folder (docs/GUIDE.md "Join code").
+    std::string code;
+    if (!options.code.empty()) {
+      const auto c = net::normalizeJoinCode(options.code);
+      if (!c) {
+        spdlog::error("--code '{}' is not a join code (16 characters like K7QD-M2XR-9FHT-4WNB)", options.code);
+        return toInt(ExitCode::BadArguments);
+      }
+      code = *c;
+      spdlog::info("join code {} (from --code)", net::formatJoinCode(code));
+    } else {
+      const std::filesystem::path file = paths::userDataDir() / "join_code.txt";
+      try {
+        bool created = false;
+        code = net::loadOrCreateJoinCode(file, created);
+        spdlog::info("join code {} ({} {})", net::formatJoinCode(code), created ? "new, saved in" : "saved in",
+                     pathToUtf8(file));
+      } catch (const std::exception& e) {
+        spdlog::error("cannot create the join code in '{}': {}", pathToUtf8(file), e.what());
+        return toInt(ExitCode::BadArguments);
+      }
+    }
     controller.setHosting(true);
     try {
-      host = std::make_unique<Host>(s, controller, [&](const Host::MakeLink& make) { controller.addWorker(make); });
+      host = std::make_unique<Host>(s, code, controller,
+                                    [&](const Host::MakeLink& make) { controller.addWorker(make); });
     } catch (const std::exception& e) {
       spdlog::error("{}", e.what());
       return toInt(ExitCode::BadArguments);
     }
     spdlog::info("hosting on port {}{}; workers join with: penumbra --worker --join <this machine's address>:{} "
-                 "--code <code>",
-                 host->port(), s.bind.empty() ? " (all interfaces)" : fmt::format(" ({})", s.bind), host->port());
+                 "--code {}",
+                 host->port(), s.bind.empty() ? " (all interfaces)" : fmt::format(" ({})", s.bind), host->port(),
+                 net::formatJoinCode(code));
+    if (s.approve_workers) spdlog::info("--approve-workers: each new worker waits for your answer here");
     if (s.no_local) spdlog::info("waiting for workers to join");
   }
 

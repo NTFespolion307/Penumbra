@@ -297,3 +297,22 @@ a local one.
 **D-057 M4 step 1 loads the scene from the controller's paths.** Until scene packages exist (step 3), a
 `SceneOffer` carries absolute paths and the worker loads the files from them, which works on one machine or a
 shared folder. Connections are not encrypted until step 2; the README says so.
+
+**D-058 TLS 1.3 with mbedTLS works; no Noise fallback.** A spike (unit tests in `tests/unit/test_net.cpp`)
+confirmed mbedTLS 3.6.5 completes a TLS 1.3 external-PSK handshake and refuses a different key. Details: key =
+HKDF-SHA256(16 canonical code characters, no salt, info `penumbra-join-v1`), identity `penumbra-join-v1`, only
+the `psk_dhe_ke` mode (ECDHE for forward secrecy), AES-256-GCM / ChaCha20-Poly1305 / AES-128-GCM. TLS runs on
+memory buffers under the existing Asio connection, so all socket work stays asynchronous on one network thread.
+A handshake must finish within 10 s.
+
+**D-059 Join code storage and checks.** The controller's code lives in `<user data>/join_code.txt` (created on
+first `--host`; delete it to regenerate until the UI has a Regenerate button). `--code` / `PENUMBRA_CODE` overrides
+it. More than 5 failed handshakes from one address within a minute block it for 10 minutes. A worker whose
+handshake fails exits with code 6 (rejected).
+
+**D-060 `--approve-workers` in the terminal** asks `Accept worker '<name>' from <address>? [y/N]` on stderr and
+reads stdin, one worker at a time; end of input or any other answer rejects (`NotApproved`). The UI asks with a
+dialog from M10.
+
+**D-061 Test hook `PENUMBRA_TEST_GIT_HASH`** (test-only like D-047, logged as a warning): a worker claims that git
+hash in its Hello, so the version-mismatch rejection is tested without building a second binary.

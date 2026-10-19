@@ -38,9 +38,11 @@ std::string addressText(const asio::ip::tcp::endpoint& ep) {
     return asio::ip::make_address_v4(asio::ip::v4_mapped, a.to_v6()).to_string();
   return a.to_string();
 }
+constexpr auto kHandshakeTimeout = std::chrono::seconds(10);
 }  // namespace
 
-Connection::Connection(asio::ip::tcp::socket socket) : socket_(std::move(socket)) {
+Connection::Connection(asio::ip::tcp::socket socket, TlsSession::Role role, const JoinKey& key)
+    : socket_(std::move(socket)), handshake_timer_(socket_.get_executor()), tls_(role, key) {
   std::error_code ec;
   socket_.set_option(asio::ip::tcp::no_delay(true), ec);
   socket_.set_option(asio::socket_base::keep_alive(true), ec);
@@ -56,42 +58,110 @@ Connection::~Connection() {
 
 void Connection::start(Handlers handlers) {
   handlers_ = std::move(handlers);
-  asio::post(socket_.get_executor(), [self = shared_from_this()] { self->readHeader(); });
-}
-
-void Connection::readHeader() {
-  asio::async_read(socket_, asio::buffer(header_), [self = shared_from_this()](std::error_code ec, size_t) {
-    if (ec) return self->fail(ec == asio::error::eof ? "the other side closed the connection" : ec.message());
-    FrameHeader h;
+  asio::post(socket_.get_executor(), [self = shared_from_this()] {
+    // A peer that has not finished the handshake in time does not have the right code (or is not Penumbra).
+    self->handshake_timer_.expires_after(kHandshakeTimeout);
+    self->handshake_timer_.async_wait([weak = std::weak_ptr<Connection>(self)](std::error_code ec) {
+      auto c = weak.lock();
+      if (ec || !c || c->established_) return;
+      c->handshake_failed_ = true;
+      c->fail("the encrypted handshake timed out");
+    });
     try {
-      h = decodeHeader(self->header_);
-    } catch (const ProtocolError& e) {
+      self->tls_.handshake();  // the client produces its ClientHello here
+    } catch (const TlsError& e) {
+      self->handshake_failed_ = true;
       return self->fail(e.what());
     }
-    self->readPayload(h);
+    bool kick = false;
+    {
+      std::lock_guard lock(self->mutex_);
+      if (!self->busy_) kick = self->busy_ = true;
+    }
+    if (kick) self->writeNext();
+    self->readSome();
   });
 }
 
-void Connection::readPayload(const FrameHeader& h) {
-  payload_.resize(h.length);
-  asio::async_read(socket_, asio::buffer(payload_), [self = shared_from_this(), h](std::error_code ec, size_t) {
-    if (ec) return self->fail(ec == asio::error::eof ? "the other side closed the connection" : ec.message());
-    if (!self->open_) return;
+void Connection::readSome() {
+  socket_.async_read_some(asio::buffer(cipher_in_), [self = shared_from_this()](std::error_code ec, size_t n) {
+    if (ec) {
+      if (!self->established_) {
+        self->handshake_failed_ = true;
+        return self->fail("the other side closed the connection during the encrypted handshake (wrong join code?)");
+      }
+      return self->fail(ec == asio::error::eof ? "the other side closed the connection" : ec.message());
+    }
+    self->onCipher(n);
+  });
+}
+
+void Connection::onCipher(size_t n) {
+  tls_.feed(std::span(cipher_in_.data(), n));
+  bool more = true;
+  try {
+    if (!established_ && tls_.handshake()) {
+      established_ = true;
+      handshake_timer_.cancel();
+    }
+    if (established_) {
+      if (plain_pos_ > 0) {  // drop the frames already parsed
+        plain_.erase(plain_.begin(), plain_.begin() + static_cast<std::ptrdiff_t>(plain_pos_));
+        plain_pos_ = 0;
+      }
+      more = tls_.read(plain_);
+    }
+  } catch (const TlsError& e) {
+    if (e.during_handshake) handshake_failed_ = true;
+    // Send the alert, if any, so the other side learns why.
+    const auto alert = tls_.takeOutput();
+    if (!alert.empty()) {
+      std::error_code ec;
+      asio::write(socket_, asio::buffer(alert), ec);
+    }
+    return fail(e.during_handshake ? fmt::format("{} (wrong join code?)", e.what()) : e.what());
+  }
+  // Handshake replies, and frames that waited for the handshake.
+  bool kick = false;
+  {
+    std::lock_guard lock(mutex_);
+    if (!busy_) kick = busy_ = true;
+  }
+  if (kick) writeNext();
+  if (!open_) return;
+  parseFrames();
+  if (!open_) return;
+  if (!more) return fail("the other side closed the connection");
+  readSome();
+}
+
+void Connection::parseFrames() {
+  for (;;) {
+    const size_t avail = plain_.size() - plain_pos_;
+    if (avail < kHeaderBytes) return;
+    FrameHeader h;
+    try {
+      h = decodeHeader(std::span<const uint8_t, kHeaderBytes>(plain_.data() + plain_pos_, kHeaderBytes));
+    } catch (const ProtocolError& e) {
+      return fail(e.what());
+    }
+    if (avail < kHeaderBytes + h.length) return;
+    const auto payload = std::span<const uint8_t>(plain_.data() + plain_pos_ + kHeaderBytes, h.length);
+    plain_pos_ += kHeaderBytes + h.length;
     Message msg;
     try {
       if (h.flags & kFlagPart) {
-        if (!self->parts_.feed(h.type, self->payload_, msg)) return self->readHeader();
+        if (!parts_.feed(h.type, payload, msg)) continue;
       } else {
         msg.type = h.type;
-        msg.payload = std::move(self->payload_);
-        self->payload_ = {};
+        msg.payload.assign(payload.begin(), payload.end());
       }
     } catch (const ProtocolError& e) {
-      return self->fail(e.what());
+      return fail(e.what());
     }
-    if (self->handlers_.message) self->handlers_.message(std::move(msg), h.version);
-    if (self->open_) self->readHeader();
-  });
+    if (handlers_.message) handlers_.message(std::move(msg), h.version);
+    if (!open_) return;
+  }
 }
 
 void Connection::send(MsgType type, std::vector<uint8_t> payload, Priority priority) {
@@ -106,34 +176,63 @@ void Connection::send(MsgType type, std::vector<uint8_t> payload, Priority prior
       queued_ += f.size();
       (priority == Priority::Control ? control_ : bulk_).push_back(std::move(f));
     }
-    if (!writing_) kick = writing_ = true;
+    if (!busy_) kick = busy_ = true;
   }
   if (kick) asio::post(socket_.get_executor(), [self = shared_from_this()] { self->writeNext(); });
 }
 
+// Io thread, with busy_ set: writes pending TLS output (handshake, alerts, close_notify), else encrypts the
+// next frame, control frames first. Clears busy_ when there is nothing to write.
 void Connection::writeNext() {
-  {
+  if (!open_) {
     std::lock_guard lock(mutex_);
-    if (!open_) {
-      writing_ = false;
-      return;
-    }
-    auto& q = !control_.empty() ? control_ : bulk_;
-    if (q.empty()) {
-      writing_ = false;
-      if (close_after_send_) {
-        std::error_code ec;
-        socket_.shutdown(asio::ip::tcp::socket::shutdown_send, ec);
-        // The peer closes its side after reading everything; reading then ends with eof and fail() runs.
-      }
-      return;
-    }
-    writing_frame_ = std::move(q.front());
-    q.pop_front();
+    busy_ = false;
+    return;
   }
-  asio::async_write(socket_, asio::buffer(writing_frame_), [self = shared_from_this()](std::error_code ec, size_t n) {
-    self->queued_ -= n;
+  std::vector<uint8_t> cipher = tls_.takeOutput();
+  uint64_t plainBytes = 0;
+  bool shutdownAfter = false;
+  if (cipher.empty() && established_) {
+    FrameBytes frame;
+    {
+      std::lock_guard lock(mutex_);
+      auto& q = !control_.empty() ? control_ : bulk_;
+      if (!q.empty()) {
+        frame = std::move(q.front());
+        q.pop_front();
+      } else if (close_after_send_ && !close_notified_) {
+        close_notified_ = true;
+        shutdownAfter = true;
+      }
+    }
+    try {
+      if (!frame.empty()) {
+        tls_.write(frame);
+        plainBytes = frame.size();
+      } else if (shutdownAfter) {
+        tls_.close();
+      }
+    } catch (const TlsError& e) {
+      return fail(e.what());
+    }
+    cipher = tls_.takeOutput();
+  }
+  if (cipher.empty()) {
+    std::lock_guard lock(mutex_);
+    busy_ = false;
+    return;
+  }
+  writing_ = std::move(cipher);
+  writing_plain_ = plainBytes;
+  asio::async_write(socket_, asio::buffer(writing_), [self = shared_from_this(), shutdownAfter](std::error_code ec, size_t) {
+    self->queued_ -= self->writing_plain_;
+    self->writing_plain_ = 0;
     if (ec) return self->fail(ec.message());
+    if (shutdownAfter) {
+      // The peer closes its side after reading everything; our read then ends and fail() runs.
+      std::error_code ec2;
+      self->socket_.shutdown(asio::ip::tcp::socket::shutdown_send, ec2);
+    }
     self->writeNext();
   });
 }
@@ -149,6 +248,7 @@ void Connection::fail(const std::string& reason) {
     queued_ = 0;
   }
   std::error_code ec;
+  handshake_timer_.cancel();
   socket_.shutdown(asio::ip::tcp::socket::shutdown_both, ec);
   socket_.close(ec);
   if (handlers_.closed) handlers_.closed(why);
@@ -165,14 +265,14 @@ void Connection::closeAfterSend(const std::string& reason) {
     if (close_after_send_) return;
     close_after_send_ = true;
     close_reason_ = reason;
-    if (!writing_) kick = writing_ = true;
+    if (!busy_) kick = busy_ = true;
   }
   if (kick) asio::post(socket_.get_executor(), [self = shared_from_this()] { self->writeNext(); });
 }
 
 // ---------------------------------------------------------------- connect / listen
 
-std::shared_ptr<Connection> connectTo(IoThread& io, const std::string& host, uint16_t port) {
+std::shared_ptr<Connection> connectTo(IoThread& io, const std::string& host, uint16_t port, const JoinKey& key) {
   asio::ip::tcp::resolver resolver(io.context());
   std::error_code ec;
   const auto endpoints = resolver.resolve(host, std::to_string(port), ec);
@@ -183,11 +283,11 @@ std::shared_ptr<Connection> connectTo(IoThread& io, const std::string& host, uin
     const bool refused = ec == asio::error::connection_refused;
     throw ConnectError(fmt::format("cannot connect to {}:{}: {}", host, port, ec.message()), refused);
   }
-  return std::make_shared<Connection>(std::move(socket));
+  return std::make_shared<Connection>(std::move(socket), TlsSession::Role::Client, key);
 }
 
-Listener::Listener(IoThread& io, const std::string& bind, uint16_t port, AcceptFn onAccept)
-    : acceptor_(io.context()), on_accept_(std::move(onAccept)) {
+Listener::Listener(IoThread& io, const std::string& bind, uint16_t port, const JoinKey& key, AcceptFn onAccept)
+    : acceptor_(io.context()), key_(key), on_accept_(std::move(onAccept)) {
   std::error_code ec;
   asio::ip::tcp::endpoint ep;
   if (bind.empty()) {
@@ -237,7 +337,13 @@ void Listener::stop() {
 void Listener::acceptNext() {
   acceptor_.async_accept([this](std::error_code ec, asio::ip::tcp::socket socket) {
     if (stopped_ || !acceptor_.is_open()) return;
-    if (!ec) on_accept_(std::make_shared<Connection>(std::move(socket)));
+    if (!ec) {
+      try {
+        on_accept_(std::make_shared<Connection>(std::move(socket), TlsSession::Role::Server, key_));
+      } catch (const TlsError&) {
+        // TLS setup failed (no entropy source); drop this connection and keep listening.
+      }
+    }
     acceptNext();
   });
 }

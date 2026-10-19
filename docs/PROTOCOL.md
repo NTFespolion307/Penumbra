@@ -4,15 +4,19 @@ Protocol version **1** (`kProtocolVersion` in `core/version.h`). The schema is `
 file explains it and must change in the same commit as the schema. Any change to a message bumps the protocol
 version.
 
-> **M4 status (step 1 of 6):** framing, messages and the render flow work, but the TCP connection is **not
-> encrypted yet** and the join code is not checked. TLS 1.3 with a key derived from the join code arrives in
-> M4 step 2. Until then, host only on networks you trust.
-
 ## Connection
 
 - One TCP connection per worker host, opened by the worker to the controller (default port 7420). TCP keepalive
   on, Nagle off.
-- Every message is one **frame**. Integers are little-endian.
+- **Encryption:** TLS 1.3 (mbedTLS) with an external pre-shared key and nothing else: no certificates, no older
+  TLS versions. Key = HKDF-SHA256(join code, 16 canonical characters; no salt; info `penumbra-join-v1`), 32
+  bytes; PSK identity `penumbra-join-v1`. Key exchange mode `psk_dhe_ke` only (ECDHE on top of the PSK, so a
+  recorded session stays secret even if the code leaks later). Cipher suites: AES-256-GCM-SHA384,
+  ChaCha20-Poly1305-SHA256, AES-128-GCM-SHA256. The code itself is never sent; a peer with another code fails the
+  handshake (the PSK binder does not verify). A handshake must complete within 10 s.
+- **Failed joins:** the controller counts failed handshakes per IP address; more than 5 within a minute block that
+  address for 10 minutes (its connections are closed at once).
+- Every message is one **frame**, inside the TLS stream. Integers are little-endian.
 
 ```
 magic "PNBR" (4 bytes) | protocol version u16 | message type u16 | flags u16 | payload length u32 | payload
@@ -36,7 +40,7 @@ magic "PNBR" (4 bytes) | protocol version u16 | message type u16 | flags u16 | p
 | --- | --- | --- | --- |
 | `Hello` | 1 | W → C | Protocol + app version, git hash, worker name, OS, CPU, cores, RAM, free cache disk, devices (name, backend, threads, memory, RT support). First message on a connection. |
 | `Welcome` | 2 | C → W | Session id, worker id, controller name, heartbeat interval (ms). |
-| `Reject` | 3 | C → W | Reason (`VersionMismatch`, `NotApproved`, `SessionFull`, `SessionClosed`, `Kicked`, `BadMessage`) and text; the controller then closes. |
+| `Reject` | 3 | C → W | Reason (`VersionMismatch`, `NotApproved`, `SessionFull`, `SessionClosed`, `Kicked`, `BadMessage`) and text; the controller then closes. With `--approve-workers` the controller asks its user before `Welcome`; no answer means `NotApproved`. |
 | `SceneOffer` | 10 | C → W | Render id, full `RenderSettings` as JSON, pixel settings hash, scene hash, film size. Step 1: the worker loads the scene from the paths in the settings (loopback and shared folders only); scene packages replace this in step 3. |
 | `WorkerReady` | 13 | W → C | Render id; per device: backend, memory tier, build time, summary. Or `scene_rejected` with a reason. A worker gets no lease before this. |
 | `RequestWork` | 20 | W → C | Device id and how many more items it can take. A request replaces the device's previous one (D-049). |
@@ -65,6 +69,7 @@ rectangle, sample range, pixel count) is answered with `Rejected`, and its item 
 ## A render, message by message
 
 ```
+W+C: TLS 1.3 handshake (join-code key)
 W: Hello                      C: Welcome
 C: SceneOffer                 W: (loads scene, builds BVH per device) WorkerReady
 W: RequestWork(dev 0, 2)      C: Lease, Lease

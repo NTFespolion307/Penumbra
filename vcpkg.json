@@ -19,6 +19,7 @@
     "flatbuffers",
     "libjpeg-turbo",
     "libpng",
+    "mbedtls",
     {
       "name": "libwebp",
       "default-features": false,
