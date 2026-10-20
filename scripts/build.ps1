@@ -104,7 +104,7 @@ try {
 
   if (-not $NoTests) {
     Step 'Running tests'
-    ctest --preset $preset -LE large; Run 'Tests'  # the 20K gate test runs with: ctest -L large
+    ctest --preset $preset -LE 'large|gpu'; Run 'Tests'  # 20K gate: ctest -L large; GPU: scripts\test-gpu.ps1
   }
 
   $exe = Join-Path $root "build\$preset\bin\penumbra.exe"

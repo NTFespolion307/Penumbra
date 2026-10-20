@@ -4,8 +4,13 @@
 #   threads      THREADS ("|"-separated)   renders once per thread count; all outputs must be bit-identical
 #   reference    REFERENCE, MAXRELMSE      relMSE against a golden image
 #   runs         -                         the render must succeed
+#   pair         ARGS_A, ARGS_B, MAXRELMSE two renders that differ only in ARGS_A / ARGS_B agree within MAXRELMSE
+# Renders use the CPU unless ARGS names a backend, so a test means the same on a machine with a GPU.
 
 string(REPLACE "|" ";" extra "${ARGS}")
+if(NOT "${ARGS}${ARGS_A}${ARGS_B}" MATCHES "--backend")
+  list(APPEND extra --backend cpu)
+endif()
 set(common --terminal "${SCENE}" --config "${WORKDIR}/empty-config.json" --log-file "${WORKDIR}/${NAME}.log"
            --progress plain --bit-depth 32 ${extra})
 file(WRITE "${WORKDIR}/empty-config.json" "{}\n")
@@ -54,6 +59,12 @@ elseif(MODE STREQUAL "reference")
   diff("${NAME}.exr" "${REFERENCE}" --max-relmse ${MAXRELMSE})
 elseif(MODE STREQUAL "runs")
   render("${NAME}.exr")
+elseif(MODE STREQUAL "pair")
+  string(REPLACE "|" ";" a "${ARGS_A}")
+  string(REPLACE "|" ";" b "${ARGS_B}")
+  render("${NAME}_a.exr" ${a})
+  render("${NAME}_b.exr" ${b})
+  diff("${NAME}_a.exr" "${NAME}_b.exr" --max-relmse ${MAXRELMSE})
 elseif(MODE STREQUAL "devices")
   # The same image, bit for bit, whatever the number of device slots (D-045). DEVICE_SETS: "+"-separated.
   string(REPLACE "+" ";" sets "${DEVICE_SETS}")
@@ -248,6 +259,9 @@ elseif(MODE STREQUAL "network")
       set(w "${CMAKE_COMMAND}|-E|env|${WORKER_ENV}|${w}")
     endif()
     string(APPEND w "|--worker-name|w${i}|${WORKER_ARGS}")
+    if(NOT WORKER_ARGS MATCHES "--backend")
+      string(APPEND w "|--backend|cpu")
+    endif()
     math(EXPR delay "${WORKER_DELAY_MS} * ${i}")
     if(i EQUAL 1 AND DEFINED FIRST_WORKER_ARGS)
       string(APPEND w "|${FIRST_WORKER_ARGS}")

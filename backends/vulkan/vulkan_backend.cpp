@@ -23,6 +23,8 @@ namespace pen {
 // SPIR-V of shaders/pathtrace.slang, generated at build time.
 extern const uint32_t* const kPathtraceSpv;
 extern const size_t kPathtraceSpvWords;
+extern const uint32_t* const kParitySpv;
+extern const size_t kParitySpvWords;
 
 namespace {
 
@@ -166,6 +168,7 @@ class VulkanBackend final : public IBackend {
   void prepare(const FrameSetup& frame) override;
   void render(const WorkItem& item, TileResult& out) override;
   void cancel() override { cancel_ = true; }
+  std::vector<float> runParity(uint32_t count);
 
  private:
   enum class Memory { Device, Upload, Readback };
@@ -965,7 +968,96 @@ void VulkanBackend::render(const WorkItem& item, TileResult& out) {
   out.render_seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
 }
 
+// ---------------------------------------------------------------- parity test
+
+std::vector<float> VulkanBackend::runParity(uint32_t count) {
+  constexpr uint32_t kValues = 32;
+  const std::vector<float> sheen(sheenAlbedoTable(), sheenAlbedoTable() + kSheenTableSize * kSheenTableSize);
+  Buffer sheenBuf = deviceBuffer(sheen, 0);
+  Buffer out = createBuffer(VkDeviceSize(count) * kValues * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                            Memory::Readback);
+  VkDescriptorSetLayoutBinding b[2]{};
+  b[0] = {0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+  b[1] = {20, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+  VkDescriptorSetLayoutCreateInfo lci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+  lci.bindingCount = 2;
+  lci.pBindings = b;
+  VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+  check(vk_.vkCreateDescriptorSetLayout(device_, &lci, nullptr, &layout), "vkCreateDescriptorSetLayout");
+  VkPushConstantRange pcr{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t)};
+  VkPipelineLayoutCreateInfo plci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+  plci.setLayoutCount = 1;
+  plci.pSetLayouts = &layout;
+  plci.pushConstantRangeCount = 1;
+  plci.pPushConstantRanges = &pcr;
+  VkPipelineLayout pl = VK_NULL_HANDLE;
+  check(vk_.vkCreatePipelineLayout(device_, &plci, nullptr, &pl), "vkCreatePipelineLayout");
+  VkShaderModuleCreateInfo smci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+  smci.codeSize = kParitySpvWords * sizeof(uint32_t);
+  smci.pCode = kParitySpv;
+  VkShaderModule module = VK_NULL_HANDLE;
+  check(vk_.vkCreateShaderModule(device_, &smci, nullptr, &module), "vkCreateShaderModule");
+  VkComputePipelineCreateInfo cpci{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+  cpci.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_COMPUTE_BIT, module,
+                "parity", nullptr};
+  cpci.layout = pl;
+  VkPipeline pipe = VK_NULL_HANDLE;
+  const VkResult r = vk_.vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &cpci, nullptr, &pipe);
+  vk_.vkDestroyShaderModule(device_, module, nullptr);
+  check(r, "vkCreateComputePipelines");
+  VkDescriptorPoolSize ps{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2};
+  VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+  dpci.maxSets = 1;
+  dpci.poolSizeCount = 1;
+  dpci.pPoolSizes = &ps;
+  VkDescriptorPool pool = VK_NULL_HANDLE;
+  check(vk_.vkCreateDescriptorPool(device_, &dpci, nullptr, &pool), "vkCreateDescriptorPool");
+  VkDescriptorSetAllocateInfo dsai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+  dsai.descriptorPool = pool;
+  dsai.descriptorSetCount = 1;
+  dsai.pSetLayouts = &layout;
+  VkDescriptorSet set = VK_NULL_HANDLE;
+  check(vk_.vkAllocateDescriptorSets(device_, &dsai, &set), "vkAllocateDescriptorSets");
+  VkDescriptorBufferInfo infos[2] = {{out.buffer, 0, VK_WHOLE_SIZE}, {sheenBuf.buffer, 0, VK_WHOLE_SIZE}};
+  VkWriteDescriptorSet w[2]{};
+  for (int i = 0; i < 2; ++i) {
+    w[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    w[i].dstSet = set;
+    w[i].dstBinding = b[i].binding;
+    w[i].descriptorCount = 1;
+    w[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    w[i].pBufferInfo = &infos[i];
+  }
+  vk_.vkUpdateDescriptorSets(device_, 2, w, 0, nullptr);
+  submitAndWait([&](VkCommandBuffer c) {
+    vk_.vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_COMPUTE, pipe);
+    vk_.vkCmdBindDescriptorSets(c, VK_PIPELINE_BIND_POINT_COMPUTE, pl, 0, 1, &set, 0, nullptr);
+    vk_.vkCmdPushConstants(c, pl, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t), &count);
+    vk_.vkCmdDispatch(c, (count + 63) / 64, 1, 1);
+    VkMemoryBarrier mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    mb.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    mb.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+    vk_.vkCmdPipelineBarrier(c, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &mb, 0, nullptr,
+                             0, nullptr);
+  });
+  vmaInvalidateAllocation(vma_, out.alloc, 0, VK_WHOLE_SIZE);
+  std::vector<float> result(size_t(count) * kValues);
+  std::memcpy(result.data(), out.mapped, result.size() * sizeof(float));
+  vk_.vkDestroyPipeline(device_, pipe, nullptr);
+  vk_.vkDestroyDescriptorPool(device_, pool, nullptr);
+  vk_.vkDestroyPipelineLayout(device_, pl, nullptr);
+  vk_.vkDestroyDescriptorSetLayout(device_, layout, nullptr);
+  destroy(out);
+  destroy(sheenBuf);
+  return result;
+}
+
 }  // namespace
+
+std::vector<float> runVulkanParity(uint32_t physicalIndex, uint32_t count) {
+  VulkanBackend b(physicalIndex);
+  return b.runParity(count);
+}
 
 const VulkanProbe& probeVulkan() { return instanceState().probe; }
 

@@ -27,7 +27,24 @@ if(PEN_ENABLE_VULKAN)
             -P "${PROJECT_SOURCE_DIR}/cmake/EmbedSpirv.cmake"
     DEPENDS "${_spv}" "${PROJECT_SOURCE_DIR}/cmake/EmbedSpirv.cmake"
     VERBATIM)
-  target_sources(penumbra_backends PRIVATE vulkan/vulkan_backend.cpp vulkan/vma.cpp "${_spv_cpp}")
+  # The GPU parity test kernel (tests/gpu/parity.cpp).
+  set(_par "${CMAKE_CURRENT_BINARY_DIR}/generated/parity.spv")
+  set(_par_cpp "${CMAKE_CURRENT_BINARY_DIR}/generated/parity_spv.cpp")
+  add_custom_command(
+    OUTPUT "${_par}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/generated"
+    COMMAND "${PEN_SLANGC}" "${PROJECT_SOURCE_DIR}/shaders/parity.slang" -target spirv -profile spirv_1_5
+            -fvk-use-scalar-layout -fvk-use-entrypoint-name -O3 -o "${_par}"
+    DEPENDS ${PEN_SHADER_SOURCES}
+    COMMENT "Compiling the GPU parity kernel (Slang -> SPIR-V)"
+    VERBATIM)
+  add_custom_command(
+    OUTPUT "${_par_cpp}"
+    COMMAND "${CMAKE_COMMAND}" -DINPUT=${_par} -DOUTPUT=${_par_cpp} -DNAME=kParitySpv
+            -P "${PROJECT_SOURCE_DIR}/cmake/EmbedSpirv.cmake"
+    DEPENDS "${_par}" "${PROJECT_SOURCE_DIR}/cmake/EmbedSpirv.cmake"
+    VERBATIM)
+  target_sources(penumbra_backends PRIVATE vulkan/vulkan_backend.cpp vulkan/vma.cpp "${_spv_cpp}" "${_par_cpp}")
   target_link_libraries(penumbra_backends PRIVATE volk::volk volk::volk_headers GPUOpen::VulkanMemoryAllocator)
   target_compile_definitions(penumbra_backends PUBLIC PEN_HAS_VULKAN=1)
   # VMA's implementation trips compiler warnings that are not ours.

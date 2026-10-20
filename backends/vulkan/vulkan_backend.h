@@ -34,4 +34,8 @@ const VulkanProbe& probeVulkan();
 // A backend on one ray-tracing GPU (VulkanGpu::physical_index). Throws BackendError.
 std::unique_ptr<IBackend> createVulkanBackend(uint32_t physicalIndex);
 
+// Test only (tests/gpu/parity.cpp): runs shaders/parity.slang for `count` cases on the GPU and returns its output
+// (32 floats per case). Throws BackendError.
+std::vector<float> runVulkanParity(uint32_t physicalIndex, uint32_t count);
+
 }  // namespace pen
