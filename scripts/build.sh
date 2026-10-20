@@ -54,7 +54,16 @@ echo "    vcpkg: $VCPKG_ROOT"
 
 # Parallel jobs: one per core, but at most one per 2 GB of available RAM. Embree's kernels need about 2 GB per
 # GCC process; running out of memory gets a compiler killed and vcpkg falls back to a single core.
+# nproc follows the affinity mask but not a container's CPU quota (cgroup v2 cpu.max): a container can show 192
+# cores and be allowed 23 (DECISIONS D-081).
 cores="$(nproc)"
+if [[ -r /sys/fs/cgroup/cpu.max ]]; then
+  read -r quota period < /sys/fs/cgroup/cpu.max
+  if [[ "$quota" != "max" && "$period" -gt 0 ]]; then
+    allowed=$(( (quota + period - 1) / period ))
+    (( allowed < cores )) && cores=$allowed
+  fi
+fi
 if [[ -z "${VCPKG_MAX_CONCURRENCY:-}" ]]; then
   mem_gb="$(awk '/MemAvailable/ {print int($2 / 1048576)}' /proc/meminfo)"
   jobs=$(( mem_gb / 2 ))
