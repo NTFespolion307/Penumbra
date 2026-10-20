@@ -18,6 +18,8 @@
 [[vk::binding(12, 0)]] StructuredBuffer<uint> g_texels8;     // RGBA8, R in the low byte
 [[vk::binding(13, 0)]] StructuredBuffer<float4> g_texels32;
 [[vk::binding(21, 0)]] StructuredBuffer<float> g_srgb_lut;   // 256 entries, as the CPU's table
+// [0] non-finite samples, [1] BVH traversals cut short by a full stack (CUDA); read back after every item.
+[[vk::binding(24, 0)]] RWStructuredBuffer<uint> g_counters;
 
 struct Hit {
   bool valid;
@@ -27,6 +29,7 @@ struct Hit {
   uint triangle;
   float u;
   float v;
+  uint steps;  // BVH nodes visited plus triangles tested (software traversal only; debug:bvh)
 };
 
 struct SurfaceInteraction {

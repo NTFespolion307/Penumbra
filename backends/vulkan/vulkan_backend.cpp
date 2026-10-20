@@ -13,8 +13,7 @@
 #include <functional>
 #include <mutex>
 
-#include "backends/vulkan/gpu_types.h"
-#include "core/image/image.h"
+#include "backends/gpu/gpu_scene.h"
 #include "core/shading/bsdf.h"
 #include "core/settings/parse.h"
 
@@ -422,214 +421,36 @@ void VulkanBackend::releaseScene() {
   scene_ready_ = false;
 }
 
-namespace conv {
-
-void copy3(float* d, Vec3f v) {
-  d[0] = v.x;
-  d[1] = v.y;
-  d[2] = v.z;
-}
-
-gpu::TextureRef ref(const TextureRef& r) {
-  gpu::TextureRef g;
-  g.index = r.index;
-  g.tex_coord = r.tex_coord;
-  g.has_transform = r.has_transform ? 1 : 0;
-  g.offset[0] = r.offset.x;
-  g.offset[1] = r.offset.y;
-  g.rotation = r.rotation;
-  g.scale[0] = r.scale.x;
-  g.scale[1] = r.scale.y;
-  return g;
-}
-
-gpu::Material material(const Material& m) {
-  gpu::Material g{};
-  g.base_color[0] = m.base_color.x;
-  g.base_color[1] = m.base_color.y;
-  g.base_color[2] = m.base_color.z;
-  g.base_color[3] = m.base_color.w;
-  g.base_color_tex = ref(m.base_color_tex);
-  g.metallic = m.metallic;
-  g.roughness = m.roughness;
-  g.metallic_roughness_tex = ref(m.metallic_roughness_tex);
-  g.normal_tex = ref(m.normal_tex);
-  g.normal_scale = m.normal_scale;
-  copy3(g.emissive, m.emissive);
-  g.emissive_strength = m.emissive_strength;
-  g.emissive_tex = ref(m.emissive_tex);
-  g.transmission = m.transmission;
-  g.transmission_tex = ref(m.transmission_tex);
-  g.ior = m.ior;
-  g.specular = m.specular;
-  g.specular_tex = ref(m.specular_tex);
-  copy3(g.specular_color, m.specular_color);
-  g.specular_color_tex = ref(m.specular_color_tex);
-  g.clearcoat = m.clearcoat;
-  g.clearcoat_tex = ref(m.clearcoat_tex);
-  g.clearcoat_roughness = m.clearcoat_roughness;
-  g.clearcoat_roughness_tex = ref(m.clearcoat_roughness_tex);
-  copy3(g.sheen_color, m.sheen_color);
-  g.sheen_color_tex = ref(m.sheen_color_tex);
-  g.sheen_roughness = m.sheen_roughness;
-  g.sheen_roughness_tex = ref(m.sheen_roughness_tex);
-  g.anisotropy = m.anisotropy;
-  g.anisotropy_rotation = m.anisotropy_rotation;
-  g.anisotropy_tex = ref(m.anisotropy_tex);
-  g.alpha_mode = static_cast<uint32_t>(m.alpha_mode);
-  g.alpha_cutoff = m.alpha_cutoff;
-  g.double_sided = m.double_sided ? 1 : 0;
-  g.emits = m.emits() ? 1 : 0;
-  return g;
-}
-
-void appendTable(std::vector<gpu::AliasEntry>& out, const AliasTable& t) {
-  for (uint32_t i = 0; i < t.size(); ++i) out.push_back({t.prob(i), t.alias(i), t.pmf(i)});
-}
-
-}  // namespace conv
-
 void VulkanBackend::upload(const Scene& scene, const MemoryPlan&) {
   const auto t0 = std::chrono::steady_clock::now();
   vk_.vkDeviceWaitIdle(device_);
   releaseScene();
 
-  // ---- Flatten geometry ----
-  std::vector<Vec3f> positions, normals;
-  std::vector<Vec4f> tangents, colors;
-  std::vector<Vec2f> uvs;
-  std::vector<uint32_t> indices;
-  std::vector<gpu::Primitive> prims;
-  std::vector<uint32_t> meshPrimBase;
-  for (const Mesh& mesh : scene.meshes) {
-    meshPrimBase.push_back(static_cast<uint32_t>(prims.size()));
-    for (const MeshPrimitive& p : mesh.primitives) {
-      gpu::Primitive g{};
-      g.index_offset = static_cast<uint32_t>(indices.size());
-      g.position_offset = static_cast<uint32_t>(positions.size());
-      g.material = p.material;
-      const auto attr = [](auto& dst, const auto& src) {
-        if (src.empty()) return -1;
-        const int32_t off = static_cast<int32_t>(dst.size());
-        dst.insert(dst.end(), src.begin(), src.end());
-        return off;
-      };
-      positions.insert(positions.end(), p.positions.begin(), p.positions.end());
-      indices.insert(indices.end(), p.indices.begin(), p.indices.end());
-      g.normal_offset = attr(normals, p.normals);
-      g.tangent_offset = attr(tangents, p.tangents);
-      g.uv0_offset = attr(uvs, p.uv0);
-      g.uv1_offset = attr(uvs, p.uv1);
-      g.color_offset = attr(colors, p.colors);
-      prims.push_back(g);
-    }
-  }
+  const GpuScene g = flattenScene(scene);
 
-  std::vector<gpu::Instance> instances;
-  std::vector<int32_t> emissiveOffset;
-  for (uint32_t i = 0; i < scene.instances.size(); ++i) {
-    const Instance& inst = scene.instances[i];
-    gpu::Instance g{};
-    const Affine3f inv = inst.to_world.inverse();
-    for (int r = 0; r < 3; ++r)
-      for (int c = 0; c < 4; ++c) {
-        g.to_world[r * 4 + c] = inst.to_world.m[r][c];
-        g.inverse[r * 4 + c] = inv.m[r][c];
-      }
-    g.mesh = inst.mesh;
-    g.primitive_base = meshPrimBase[inst.mesh];
-    g.slot_base = static_cast<uint32_t>(emissiveOffset.size());
-    const auto& slots = scene.emissive_offset[i];
-    emissiveOffset.insert(emissiveOffset.end(), slots.begin(), slots.end());
-    instances.push_back(g);
-  }
-
-  std::vector<gpu::Material> materials;
-  for (const Material& m : scene.materials) materials.push_back(conv::material(m));
-
-  std::vector<gpu::Texture> textures;
-  std::vector<uint32_t> texels8;
-  std::vector<Vec4f> texels32;
-  for (const Texture& t : scene.textures) {
-    gpu::Texture g{};
-    g.width = t.width;
-    g.height = t.height;
-    g.is_float = t.is_float ? 1 : 0;
-    g.wrap_s = static_cast<uint32_t>(t.wrap_s);
-    g.wrap_t = static_cast<uint32_t>(t.wrap_t);
-    g.nearest = t.nearest ? 1 : 0;
-    if (t.is_float) {
-      g.offset = static_cast<uint32_t>(texels32.size());
-      for (size_t i = 0; i + 3 < t.hdr.size(); i += 4) texels32.push_back({t.hdr[i], t.hdr[i + 1], t.hdr[i + 2], t.hdr[i + 3]});
-    } else {
-      g.offset = static_cast<uint32_t>(texels8.size());
-      for (size_t i = 0; i + 3 < t.ldr.size(); i += 4)
-        texels8.push_back(uint32_t(t.ldr[i]) | (uint32_t(t.ldr[i + 1]) << 8) | (uint32_t(t.ldr[i + 2]) << 16) |
-                          (uint32_t(t.ldr[i + 3]) << 24));
-    }
-    textures.push_back(g);
-  }
-
-  std::vector<gpu::EmissiveTriangle> emissive;
-  for (const EmissiveTriangle& e : scene.emissive_triangles) {
-    gpu::EmissiveTriangle g{};
-    conv::copy3(g.p0, e.p0);
-    conv::copy3(g.e1, e.e1);
-    conv::copy3(g.e2, e.e2);
-    conv::copy3(g.normal, e.normal);
-    g.area = e.area;
-    g.instance = e.instance;
-    g.primitive = e.primitive;
-    g.triangle = e.triangle;
-    g.double_sided = e.double_sided ? 1 : 0;
-    emissive.push_back(g);
-  }
-  std::vector<gpu::AliasEntry> lightTable;
-  conv::appendTable(lightTable, scene.light_table);
-  std::vector<gpu::PunctualLight> lights;
-  for (const PunctualLight& l : scene.lights) {
-    gpu::PunctualLight g{};
-    g.type = static_cast<uint32_t>(l.type);
-    conv::copy3(g.position, l.position);
-    conv::copy3(g.direction, l.direction);
-    conv::copy3(g.intensity, l.intensity);
-    g.cos_inner = l.cos_inner;
-    g.cos_outer = l.cos_outer;
-    lights.push_back(g);
-  }
-  const Environment& env = scene.environment;
-  std::vector<gpu::AliasEntry> envTables;
-  if (env.hasMap() && !env.sampling.empty()) {
-    conv::appendTable(envTables, env.sampling.rows());
-    for (uint32_t v = 0; v < env.sampling.nv(); ++v) conv::appendTable(envTables, env.sampling.row(v));
-  }
-  const std::vector<float> sheen(sheenAlbedoTable(), sheenAlbedoTable() + kSheenTableSize * kSheenTableSize);
-  const std::vector<float> srgb(srgbToLinearTable(), srgbToLinearTable() + 256);
-
-  // ---- Upload ----
   constexpr VkBufferUsageFlags kAsInput = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
   scene_buffers_.resize(kBindCount);
-  scene_buffers_[2] = deviceBuffer(instances);
-  scene_buffers_[3] = deviceBuffer(prims);
-  scene_buffers_[4] = deviceBuffer(positions, kAsInput);
-  scene_buffers_[5] = deviceBuffer(normals);
-  scene_buffers_[6] = deviceBuffer(tangents);
-  scene_buffers_[7] = deviceBuffer(uvs);
-  scene_buffers_[8] = deviceBuffer(colors);
-  scene_buffers_[9] = deviceBuffer(indices, kAsInput);
-  scene_buffers_[10] = deviceBuffer(materials);
-  scene_buffers_[11] = deviceBuffer(textures);
-  scene_buffers_[12] = deviceBuffer(texels8);
-  scene_buffers_[13] = deviceBuffer(texels32);
-  scene_buffers_[14] = deviceBuffer(emissive);
-  scene_buffers_[15] = deviceBuffer(emissiveOffset);
-  scene_buffers_[16] = deviceBuffer(lightTable);
-  scene_buffers_[17] = deviceBuffer(lights);
-  scene_buffers_[18] = deviceBuffer(env.map.pixels);
-  scene_buffers_[19] = deviceBuffer(envTables);
-  scene_buffers_[20] = deviceBuffer(sheen);
-  scene_buffers_[21] = deviceBuffer(srgb);
-  scene_buffers_[22] = deviceBuffer(env.hasMap() ? env.sampling.weights() : std::vector<float>{});
+  scene_buffers_[2] = deviceBuffer(g.instances);
+  scene_buffers_[3] = deviceBuffer(g.primitives);
+  scene_buffers_[4] = deviceBuffer(g.positions, kAsInput);
+  scene_buffers_[5] = deviceBuffer(g.normals);
+  scene_buffers_[6] = deviceBuffer(g.tangents);
+  scene_buffers_[7] = deviceBuffer(g.uvs);
+  scene_buffers_[8] = deviceBuffer(g.colors);
+  scene_buffers_[9] = deviceBuffer(g.indices, kAsInput);
+  scene_buffers_[10] = deviceBuffer(g.materials);
+  scene_buffers_[11] = deviceBuffer(g.textures);
+  scene_buffers_[12] = deviceBuffer(g.texels8);
+  scene_buffers_[13] = deviceBuffer(g.texels32);
+  scene_buffers_[14] = deviceBuffer(g.emissive);
+  scene_buffers_[15] = deviceBuffer(g.emissive_offset);
+  scene_buffers_[16] = deviceBuffer(g.light_table);
+  scene_buffers_[17] = deviceBuffer(g.lights);
+  scene_buffers_[18] = deviceBuffer(*g.env_map);
+  scene_buffers_[19] = deviceBuffer(g.env_tables);
+  scene_buffers_[20] = deviceBuffer(g.sheen_table);
+  scene_buffers_[21] = deviceBuffer(g.srgb_table);
+  scene_buffers_[22] = deviceBuffer(*g.env_weights);
 
   buildAccelerationStructures(scene);
   scene_ = &scene;
@@ -882,42 +703,10 @@ void VulkanBackend::writeDescriptors() {
 void VulkanBackend::prepare(const FrameSetup& frame) {
   cancel_ = false;
   if (!scene_ready_) throw BackendError("Vulkan: prepare() before upload()");
-  gpu::Frame f{};
-  const Camera& cam = frame.camera.camera();
-  f.projection = static_cast<uint32_t>(cam.projection);
-  for (int r = 0; r < 3; ++r)
-    for (int c = 0; c < 4; ++c) f.cam_to_world[r * 4 + c] = cam.to_world.m[r][c];
-  f.ymag = cam.ymag;
-  f.aperture_radius = cam.aperture_radius;
-  f.focus_distance = cam.focus_distance;
-  f.width = frame.camera.width();
-  f.height = frame.camera.height();
-  f.tan_x = frame.camera.tanX();
-  f.tan_y = frame.camera.tanY();
-  const IntegratorParams& p = frame.params;
-  f.mode = static_cast<uint32_t>(p.mode);
-  f.max_bounces = p.max_bounces;
-  f.max_diffuse = p.max_diffuse;
-  f.max_glossy = p.max_glossy;
-  f.max_transmission = p.max_transmission;
-  f.russian_roulette = p.russian_roulette ? 1 : 0;
-  f.ao_distance = p.ao_distance;
-  f.seed = frame.seed;
-  const Scene& scene = *scene_;
-  f.num_emissive = static_cast<uint32_t>(scene.emissive_triangles.size());
-  f.num_punctual = static_cast<uint32_t>(scene.lights.size());
-  f.light_count = scene.light_table.size();
-  f.light_sum = scene.light_table.sum();
-  const Environment& env = scene.environment;
-  f.env_has_map = env.hasMap() ? 1 : 0;
-  f.env_width = env.map.width;
-  f.env_height = env.map.height;
-  f.env_strength = env.strength;
-  f.env_rotation = env.rotation;
-  conv::copy3(f.env_color, env.color);
-  f.env_is_black = env.isBlack() ? 1 : 0;
-  f.env_dist_sum = env.hasMap() ? env.sampling.sum() : 0;
-  f.env_light_index = scene.environmentLightIndex();
+  if (frame.params.mode == Integrator::DebugBvh)
+    throw BackendError("debug:bvh needs traversal step counts, which Vulkan ray tracing does not report; use "
+                       "--backend cuda");
+  const gpu::Frame f = makeGpuFrame(frame, *scene_);
   std::memcpy(frame_buffer_.mapped, &f, sizeof(f));
   vmaFlushAllocation(vma_, frame_buffer_.alloc, 0, VK_WHOLE_SIZE);
   ensureOutput(256 * 256);
@@ -948,7 +737,8 @@ void VulkanBackend::render(const WorkItem& item, TileResult& out) {
   ensureOutput(r.pixels());
   std::memset(counter_buffer_.mapped, 0, 16);
   vmaFlushAllocation(vma_, counter_buffer_.alloc, 0, VK_WHOLE_SIZE);
-  const gpu::PushConstants pc{r.x0, r.y0, r.width(), r.height(), item.sample_begin, item.sample_end};
+  const gpu::PushConstants pc{r.x0, r.y0, r.width(), r.height(), item.sample_begin, item.sample_end,
+                              item.sample_end - item.sample_begin, gpu::kItemFinish};
   submitAndWait([&](VkCommandBuffer c) {
     vk_.vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipeline_);
     vk_.vkCmdBindDescriptorSets(c, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipeline_layout_, 0, 1, &set_, 0, nullptr);

@@ -1,8 +1,13 @@
 #pragma once
 
-// Scene and frame data as the Vulkan shaders read it (scalar block layout: every field 4-byte aligned, so these
-// structs are copied to GPU buffers as they are). shaders/types.slang declares the same structs; a static_assert
-// on each size and the GPU parity test catch any mismatch.
+// Scene and frame data as the GPU backends read it. shaders/types.slang declares the same structs.
+//
+// One byte layout serves both GPU backends (DECISIONS D-086): Vulkan reads it with the scalar block layout (no
+// implicit padding) and CUDA with C's natural alignment (float2 on 8 bytes, float4 on 16). Fields are ordered so
+// the two agree: every float2 starts on a multiple of 8, every float4 on a multiple of 16, and each struct's size
+// is padded by hand to its alignment. The CUDA backend checks every offset below against the layout slangc
+// reports for the CUDA kernels (static_asserts in backends/cuda/cuda_backend.cpp), and the GPU parity and golden
+// image tests catch any remaining mismatch.
 
 #include <cstdint>
 
@@ -11,45 +16,46 @@ namespace pen::gpu {
 struct TextureRef {
   int32_t index = -1;
   uint32_t tex_coord = 0;
+  float offset[2] = {0, 0};  // float2: offset 8
   uint32_t has_transform = 0;
-  float offset[2] = {0, 0};
   float rotation = 0;
-  float scale[2] = {1, 1};
+  float scale[2] = {1, 1};   // float2: offset 24
 };
 static_assert(sizeof(TextureRef) == 32);
 
 struct Material {
-  float base_color[4];
+  float base_color[4];  // float4: offset 0
   TextureRef base_color_tex;
-  float metallic, roughness;
   TextureRef metallic_roughness_tex;
   TextureRef normal_tex;
+  TextureRef emissive_tex;
+  TextureRef transmission_tex;
+  TextureRef specular_tex;
+  TextureRef specular_color_tex;
+  TextureRef clearcoat_tex;
+  TextureRef clearcoat_roughness_tex;
+  TextureRef sheen_color_tex;
+  TextureRef sheen_roughness_tex;
+  TextureRef anisotropy_tex;
+  float metallic, roughness;
   float normal_scale;
   float emissive[3];
   float emissive_strength;
-  TextureRef emissive_tex;
   float transmission;
-  TextureRef transmission_tex;
   float ior, specular;
-  TextureRef specular_tex;
   float specular_color[3];
-  TextureRef specular_color_tex;
   float clearcoat;
-  TextureRef clearcoat_tex;
   float clearcoat_roughness;
-  TextureRef clearcoat_roughness_tex;
   float sheen_color[3];
-  TextureRef sheen_color_tex;
   float sheen_roughness;
-  TextureRef sheen_roughness_tex;
   float anisotropy, anisotropy_rotation;
-  TextureRef anisotropy_tex;
   uint32_t alpha_mode;  // 0 opaque, 1 mask, 2 blend
   float alpha_cutoff;
   uint32_t double_sided;
   uint32_t emits;
+  uint32_t pad[3];  // size to a multiple of 16 (float4 alignment)
 };
-static_assert(sizeof(Material) == 4 * 29 + 32 * 12);
+static_assert(sizeof(Material) == 512);
 
 struct Texture {
   uint32_t width, height;
@@ -71,7 +77,7 @@ static_assert(sizeof(Primitive) == 32);
 
 struct Instance {
   float to_world[12];  // row-major 3x4
-  float inverse[12];   // of to_world, for normals (inverse transpose of the linear part)
+  float inverse[12];   // of to_world: rays into object space (CUDA) and normals (inverse transpose)
   uint32_t mesh;
   uint32_t primitive_base;  // first Primitive of the mesh
   uint32_t slot_base;       // first entry of this instance's primitives in the emissive offset table
@@ -125,10 +131,39 @@ struct Frame {
 };
 static_assert(sizeof(Frame) == 4 * 43);
 
-// Per work item.
+// Per launch: Vulkan push constants, CUDA kernel argument. A work item may be split into several launches over
+// consecutive sample ranges (CUDA, to keep each launch short); the running sum stays in the output buffer, so the
+// result is the same bits as one launch.
 struct PushConstants {
   uint32_t x0, y0, width, height;
-  uint32_t sample_begin, sample_end;
+  uint32_t sample_begin, sample_end;  // this launch's samples
+  uint32_t sample_count;              // the work item's samples (the divisor of the mean)
+  uint32_t flags;                     // kItem* below
 };
+static_assert(sizeof(PushConstants) == 32);
+constexpr uint32_t kItemAccumulate = 1;  // start from the sum in the output buffer instead of zero
+constexpr uint32_t kItemFinish = 2;      // write the mean (sum / sample_count) instead of the sum
+
+// ---- Software ray tracing (CUDA backend; shaders/bvh.slang) ----
+
+// One mesh's bottom-level structure. kind: 0 no triangles, 1 CWBVH (tinybvh BVH8_CWBVH: 5 float4 per node,
+// 3 float4 per triangle), 2 triangle list (meshes of 1 to 3 triangles, too small for a CWBVH).
+struct Blas {
+  uint32_t kind;
+  uint32_t node_base;  // first float4 of the mesh's nodes
+  uint32_t tri_base;   // first float4 of the mesh's triangles
+  uint32_t tri_count;
+};
+static_assert(sizeof(Blas) == 16);
+
+// Top-level BVH over the scene instances (binary). Leaf: count > 0 instances from tlas_index[first].
+// Inner: count == 0, children at left_first and left_first + 1.
+struct TlasNode {
+  float lo[3];
+  uint32_t left_first;
+  float hi[3];
+  uint32_t count;
+};
+static_assert(sizeof(TlasNode) == 32);
 
 }  // namespace pen::gpu

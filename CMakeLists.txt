@@ -40,16 +40,18 @@ option(PEN_ENABLE_VULKAN "Vulkan RT backend and UI swapchain (built from M5)" ON
 option(PEN_ENABLE_OPTIX "OptiX backend and denoiser (optional, M13)" OFF)
 option(PEN_ENABLE_UI "Dear ImGui user interface (built from M10)" ON)
 if(NOT DEFINED PEN_ENABLE_CUDA)
-  include(CheckLanguage)
-  check_language(CUDA)
-  if(CMAKE_CUDA_COMPILER)
+  # ON when a CUDA toolkit (nvcc) is found: on PATH, through CUDA_PATH (the Windows installer sets it) or in
+  # /usr/local/cuda. Nothing links against CUDA; the driver is loaded at run time (DECISIONS D-087).
+  find_package(CUDAToolkit QUIET)
+  if(CUDAToolkit_FOUND AND CUDAToolkit_NVCC_EXECUTABLE)
     set(_pen_cuda_default ON)
   else()
     set(_pen_cuda_default OFF)
   endif()
   option(PEN_ENABLE_CUDA "CUDA compute backend (built from M6); ON if the CUDA toolkit is found" ${_pen_cuda_default})
 endif()
-set(PEN_CUDA_ARCHS "75;80;86;89;90;120" CACHE STRING "CUDA architectures to compile for")
+set(PEN_CUDA_ARCHS "75;80;86;89;90;120" CACHE STRING
+    "CUDA architectures to compile for (machine code for each; the oldest also as PTX for newer GPUs)")
 
 # ---- Compiler settings ----
 if(MSVC)
@@ -91,5 +93,4 @@ if(PEN_BUILD_TESTS)
 endif()
 
 message(STATUS "Penumbra ${PROJECT_VERSION}: Vulkan=${PEN_ENABLE_VULKAN} CUDA=${PEN_ENABLE_CUDA} "
-               "OptiX=${PEN_ENABLE_OPTIX} UI=${PEN_ENABLE_UI} tests=${PEN_BUILD_TESTS} "
-               "(GPU backends and UI are not built yet: M5, M6, M10)")
+               "OptiX=${PEN_ENABLE_OPTIX} UI=${PEN_ENABLE_UI} tests=${PEN_BUILD_TESTS} (the UI is built from M10)")
