@@ -8,20 +8,22 @@ the image. Any number of **workers**, each with one or more GPUs, join with the 
 code, render tiles and send them back. A render on one machine is the same thing with no workers, and every
 combination of machines, GPUs and backends converges to the same image.
 
-> **Status: milestone M4 (network controller and workers).** Penumbra renders glTF and OBJ scenes on the CPU
-> (Embree) with a path tracer (next-event estimation, MIS), the glTF PBR material with its common extensions and
+> **Status: milestone M5 (Vulkan ray tracing on the GPU).** Penumbra renders glTF and OBJ scenes on GPUs with
+> hardware ray tracing (Vulkan RT) and on the CPU (Embree), alone or together, with a path tracer (next-event estimation, MIS), the glTF PBR material with its common extensions and
 > HDRI lighting, at any size up to 160K, with checkpoints, `--resume` and `merge`, writing EXR, PNG, JPEG, TIFF
 > or WebP. Work is split into tile and sample chunks that any number of local devices share, with recovery from
 > failed or hung devices. Several machines render together: a controller hosts, workers on the LAN or the
 > internet join with a code (encrypted), download the scene once, and any failure of a worker, its devices or the
-> network is recovered without changing the image. GPU backends arrive in M5/M6, the UI in M10. Features marked
+> network is recovered without changing the image. CUDA (GPUs without ray tracing) arrives in M6, several GPUs
+> per machine in M7, the UI in M10. Features marked
 > *(planned, Mx)* below are not built yet. The roadmap is in [`docs/GUIDE.md`](docs/GUIDE.md).
 
 <!-- A screenshot goes here once the UI exists (M10). -->
 
-**Supported GPUs (planned):** NVIDIA first (RTX 20 series and newer through Vulkan ray tracing, any NVIDIA GPU
-through CUDA). AMD RDNA2+ and Intel Arc should work through Vulkan ray tracing but are untested. Integrated
-GPUs without ray tracing do not render in v1; the CPU renders instead.
+**Supported GPUs:** NVIDIA first: RTX 20 series and newer through Vulkan ray tracing (tested on an RTX 5060 Ti
+under Linux), and any NVIDIA GPU through CUDA *(planned, M6)*. AMD RDNA2+ and Intel Arc should work through Vulkan
+ray tracing but are untested. Integrated GPUs without ray tracing do not render in v1; the CPU renders instead.
+On the GPU, an image matches the CPU's within float rounding (relMSE about 1e-8 at 4,096 samples per pixel).
 
 ## Contents
 
@@ -54,7 +56,7 @@ Every machine that runs Penumbra (controller and workers) needs these. Versions 
 | Git | any recent | |
 | CMake | 3.26+ | Bundled with Visual Studio; a separate install also works |
 | vcpkg | current | Package manager for the C++ libraries |
-| Vulkan SDK | 1.3.280+ | *(planned, M5)* not needed yet |
+| GPU driver | recent | Only to render on a GPU: NVIDIA 570+ (any GPU with Vulkan ray tracing). No Vulkan SDK is needed: the build gets the Vulkan headers and the shader compiler from vcpkg |
 | CUDA Toolkit | 12.8+ | *(planned, M6)* optional, NVIDIA only; not needed yet |
 
 Install from a PowerShell window:
@@ -89,7 +91,7 @@ Install from a PowerShell window:
 | CMake | 3.26+ | Ubuntu 22.04 ships 3.22 and Debian 12 ships 3.25, so install the official build below |
 | Ninja, Git, curl, zip, unzip, tar, pkg-config | distro versions | |
 | vcpkg | current | |
-| Vulkan SDK or distro Vulkan packages | 1.3.280+ | *(planned, M5)* not needed yet |
+| GPU driver | recent | Only to render on a GPU: the NVIDIA proprietary driver 570+ (`sudo ubuntu-drivers install`), or Mesa 23.1+ for AMD. No Vulkan SDK is needed. In Docker, start the container with `-e NVIDIA_DRIVER_CAPABILITIES=all` (the default "compute,utility" hides Vulkan) |
 | CUDA Toolkit | 12.8+ | *(planned, M6)* optional, NVIDIA only; not needed yet |
 
 Run these in a terminal:
@@ -193,7 +195,12 @@ Use this if you want to drive CMake yourself. On Windows, run these in an **x64*
    ```
 3. Test; success ends with `100% tests passed`:
    ```
-   ctest --preset windows-msvc-release
+   ctest --preset windows-msvc-release -LE "large|gpu"
+   ```
+4. On a machine with a ray-tracing GPU, run the GPU tests (Vulkan against the CPU, and every shading function
+   compared with its CPU original); success ends with `100% tests passed`:
+   ```
+   .\scripts\test-gpu.ps1        # Linux: ./scripts/test-gpu.sh
    ```
 
 The binary is `build/<preset>/bin/penumbra` (`penumbra.exe` on Windows).
@@ -202,7 +209,7 @@ The binary is `build/<preset>/bin/penumbra` (`penumbra.exe` on Windows).
 
 | CMake option | Default | Meaning |
 | --- | --- | --- |
-| `PEN_ENABLE_VULKAN` | `ON` | Vulkan RT backend and UI swapchain *(planned, M5)* |
+| `PEN_ENABLE_VULKAN` | `ON` | Vulkan RT backend (the UI swapchain from M10). `OFF` builds a CPU-only Penumbra |
 | `PEN_ENABLE_CUDA` | `ON` if the CUDA toolkit is found | CUDA backend *(planned, M6)* |
 | `PEN_ENABLE_OPTIX` | `OFF` | OptiX backend and denoiser *(planned, M13, optional)* |
 | `PEN_ENABLE_UI` | `ON` | The user interface *(planned, M10)*; turn off for headless servers |
@@ -220,7 +227,7 @@ cmake --preset linux-gcc-release -DPEN_ENABLE_CUDA=OFF -DPEN_ENABLE_UI=OFF
 | Command | What it does |
 | --- | --- |
 | `penumbra` | Opens the UI as controller *(planned, M10; shows a notice until then)* |
-| `penumbra --terminal scene.glb -o out.png` | Headless render on this machine's devices (CPU until M5) |
+| `penumbra --terminal scene.glb -o out.png` | Headless render on this machine's devices (GPUs with ray tracing, else the CPU) |
 | `penumbra --terminal scene.glb --res 720p --spp 16 -o preview.png` | Quick preview |
 | `penumbra --terminal scene.pen.json --res 4k --spp 1024 -o final.exr` | 4K final with settings from a `.pen.json` |
 | `penumbra --terminal scene.glb --integrator debug:normal -o normals.png` | Debug views: `ao`, `debug:normal`, `debug:albedo`, `debug:depth` |
@@ -271,8 +278,9 @@ resumes. A device that fails hands its chunks back to the others; a chunk that t
 usual time is handed out again, and the first result wins.
 
 - **Render for a fixed time:** `--spp 0 --time-limit 2h` adds passes until the deadline (needs the film in RAM).
-- **Several CPU slots:** `--devices cpu,cpu,cpu,cpu` splits the CPU into four devices that work in parallel
-  (mainly for testing; GPUs arrive in M5/M6).
+- **Pick devices:** `--devices 0` renders on GPU 0 only, `--devices 0,cpu` on GPU 0 and the CPU together,
+  `--devices cpu` on the CPU only (numbers as `penumbra --list-devices` prints them). `--devices cpu,cpu,cpu,cpu`
+  splits the CPU into four devices (mainly for testing).
 
 **Test scenes and image comparison.** The build also makes two tools next to `penumbra`:
 
@@ -476,14 +484,14 @@ It always has a copy on disk (the checkpoint); "RAM" in the table means it is al
 which happens up to `40k` when the film fits in half of the RAM budget (`--ram-limit`, default 75% of RAM).
 Before a render starts Penumbra checks there is room for the film and the output.
 
-### Backends *(planned, M1/M5/M6/M13)*
+### Backends
 
 | `--backend` | Runs on | Role |
 | --- | --- | --- |
 | `vulkan` | NVIDIA RTX 20+, AMD RDNA2+, Intel Arc | Default on GPUs with ray tracing; uses the RT cores |
-| `cuda` | Any NVIDIA GPU | GPUs without RT cores; 2–5× slower than Vulkan RT |
+| `cuda` *(planned, M6)* | Any NVIDIA GPU | GPUs without RT cores; 2–5× slower than Vulkan RT |
 | `cpu` | Any x86-64 or ARM64 CPU | Fallback and reference; joins GPUs in hybrid mode |
-| `optix` | NVIDIA RTX | Optional, only if it beats Vulkan RT |
+| `optix` *(planned, M13)* | NVIDIA RTX | Optional, only if it beats Vulkan RT |
 
 `--backend auto` (default) picks Vulkan RT on every GPU with ray-tracing support, CUDA on NVIDIA GPUs without it,
 and the CPU only when no GPU qualifies or `--devices` lists `cpu`. Every choice is printed in the log.
@@ -557,7 +565,7 @@ Start with `penumbra --diagnose` and include its output in any bug report.
 | Windows: configure fails with `C1083 ... Invalid argument` or "Detecting CXX compiler ABI info - failed" | The folder path is too long for MSVC (260-character limit). Clone Penumbra to a short path such as `C:\dev\Penumbra`. |
 | Build fails with `Killed signal terminated program cc1plus`, or a dependency build crawls on one core | The machine ran out of memory: some library files need about 2 GB per compiler. The build scripts already limit parallel jobs to available RAM / 2 GB; if it still happens, close other programs or lower the limit, e.g. `VCPKG_MAX_CONCURRENCY=4 ./scripts/build.sh` (PowerShell: `$env:VCPKG_MAX_CONCURRENCY=4` first). |
 | Linux: "CMake 3.26 or newer is required" | Install the official CMake as in [Prerequisites](#prerequisites); check `which cmake` points to `/opt/cmake/bin/cmake`. |
-| No Vulkan ray tracing *(M5)* | Update the GPU driver; `penumbra --diagnose` shows whether each GPU reports ray-tracing support. GPUs without it use CUDA (NVIDIA) or are skipped. |
+| No Vulkan ray tracing, or the GPU is not listed | Update the GPU driver; `penumbra --list-devices` and `--diagnose` show each GPU and what it is missing. In Docker, the container needs `-e NVIDIA_DRIVER_CAPABILITIES=all`. GPUs without ray tracing are skipped (CUDA covers NVIDIA ones from M6) and the CPU renders. |
 | CUDA not found *(M6)* | Install CUDA 12.8+ and rebuild; without it Penumbra still builds with Vulkan and CPU. |
 | Worker: "could not join: the controller did not accept the join code" (exit code 6) | The code differs from the one the controller printed; copy it again (case and dashes do not matter). After more than 5 wrong codes in a minute the controller ignores that address for 10 minutes: wait, or restart the controller. |
 | Worker: "the controller rejected this worker: ... runs Penumbra ... (git ...)" (exit code 6) | The two machines run different builds. Run `git pull` and rebuild on both ([Updating](#updating)); the git hashes must match. |

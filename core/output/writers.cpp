@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "core/system/paths.h"
+#include "core/system/sysinfo.h"
 
 #if defined(_MSC_VER)
 #pragma warning(disable : 4611)  // setjmp: the functions using it hold no destructible objects across it
@@ -59,7 +60,7 @@ class ExrWriter final : public ImageWriter {
     for (const auto& [k, v] : md) header.insert("penumbra:" + k, Imf::StringAttribute(v));
     // OpenEXR compresses on one thread unless told otherwise; gigapixel outputs need every core.
     if (Imf::globalThreadCount() == 0)
-      Imf::setGlobalThreadCount(static_cast<int>(std::max(1u, std::thread::hardware_concurrency())));
+      Imf::setGlobalThreadCount(static_cast<int>(usableCpuThreads()));
     try {
       file_ = std::make_unique<Imf::TiledOutputFile>(pathToUtf8(path).c_str(), header);
     } catch (const std::exception& e) {

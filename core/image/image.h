@@ -38,6 +38,8 @@ struct Texture {
 };
 
 float srgbToLinear(float c);
+// srgbToLinear(i / 255) for i = 0..255, as Texture lookups use it (also for GPU backends).
+const float* srgbToLinearTable();
 float linearToSrgb(float c);
 
 }  // namespace pen

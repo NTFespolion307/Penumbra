@@ -42,6 +42,8 @@ int wrapCoord(int i, int n, TextureWrap mode) {
 
 }  // namespace
 
+const float* srgbToLinearTable() { return srgbLut().data(); }
+
 Vec4f Texture::texel(int x, int y, bool srgb) const {
   x = wrapCoord(x, static_cast<int>(width), wrap_s);
   y = wrapCoord(y, static_cast<int>(height), wrap_t);

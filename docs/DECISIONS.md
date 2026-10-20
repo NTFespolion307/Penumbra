@@ -415,3 +415,57 @@ silent and corrupt workers, a worker joining late, a 200 ms / 2% loss / 10 Mbit/
 controller with --stay workers, and 64 workers x 8 devices. LAN: Windows controller with WSL workers and the
 reverse (D-073). Internet: the server over Tailscale, bit-identical to its own render of the package (D-074).
 Not covered: an internet join through a forwarded public port (UPnP mapping itself checked), the UI (M10).
+
+## M5: Vulkan RT backend
+
+User approved the M5 plan on 2026-10-20 and decided to close M5 without a Windows GPU run for now (Linux GPU on a
+rented vast.ai container plus the Windows build).
+
+**D-076 No Vulkan SDK needed.** vcpkg supplies the Vulkan headers, volk (runtime loading, so Penumbra starts on
+machines without a Vulkan driver), Vulkan Memory Allocator and a pinned Slang release (2026.19, used as a host
+build tool: `slangc` compiles the shaders to SPIR-V at build time and they are embedded in the binary). Users only
+need a GPU driver; the Vulkan SDK (validation layers) is optional, for development.
+
+**D-077 Shared shading code: C++ stays the reference, Slang mirrors it for the GPU.** Trial (Slang 2026.19): the
+shading math compiles to SPIR-V and to C++ alike, but Slang's C++ target refuses ray tracing ("TraceRayInline not
+available for cpp"), so a Slang CPU path would split every bounce between generated code and Embree glue and
+change the CPU golden image. The CPU renderer keeps its C++ code (`core/shading`, `core/render`, already written
+for CUDA too via PEN_HD, for M6); `shaders/*.slang` is a line-by-line port for Vulkan, and a GPU parity test
+evaluates every sampling, BSDF and light function on the same random inputs on both sides, so drift shows up per
+function instead of as a slightly wrong image.
+
+**D-078 One ray-tracing pipeline, path loop in the ray generation shader (megakernel).** `shaders/pathtrace.slang`
+runs the whole path (NEE, MIS, Russian roulette) per pixel and sample in raygen; one hit group (closest hit
+reports the hit, any-hit applies alpha cutouts) and one miss shader serve camera, bounce and shadow rays (shadow
+rays skip the closest hit and stop at the first hit). Geometry without alpha is marked opaque, so any-hit only
+runs where a material uses alpha. Each BLAS holds a mesh's primitives in order, so `GeometryIndex()` is the
+primitive and `InstanceID()` (custom index) the scene instance; meshes without triangles stay out of the TLAS.
+Backface culling is off, as in Embree. M9 compares this with a wavefront design.
+
+**D-079 GPU scene data in plain storage buffers (scalar layout).** Vertex attributes, materials, textures (RGBA8
+packed in a uint, or float4), alias tables, emissive triangles and the HDRI are buffers whose C++ structs
+(`backends/vulkan/gpu_types.h`) and Slang structs (`shaders/types.slang`) match byte for byte. Textures are
+filtered in shader code exactly like the CPU (same wrap modes, same sRGB table), not by the texture units, so the
+GPU reads the same texel values; M8's "textures in host memory" tier only has to move these buffers. The sheen
+albedo and sRGB tables are computed on the CPU and uploaded. Memory plan in M5: tier 0 (everything in VRAM) when
+the estimate fits in 90% of VRAM, otherwise the GPU is skipped with a message (tiers in M8).
+
+**D-080 Test setup for GPUs.** Render and network tests run on the CPU unless they name a backend
+(`--backend cpu` is added), so they mean the same on machines with GPUs. GPU tests carry the ctest label `gpu`; the
+build scripts skip it (`-LE "large|gpu"`), and `scripts/test-gpu.sh` / `.ps1` run them. `penumbra-gpu-parity`
+evaluates 13 shading functions on 65,536 hash-derived inputs on the GPU and in C++: integer paths must match bit
+for bit, floats within a relative 2e-3 in 99.5% of cases (the rest are ill-conditioned inputs).
+
+**D-081 CPU threads follow the container's CPU share.** `std::thread::hardware_concurrency()` reports every host
+CPU inside a container: on the vast.ai GPU container it said 192 while the rental grants 48, so a CPU render
+started 190 threads and crawled. `usableCpuThreads()` takes the minimum of the hardware count, the affinity mask
+and the cgroup CPU quota (v2 `cpu.max`, v1 `cfs_quota_us`); the CPU backend, the device manager, the OpenEXR
+writer threads and the Hello/Stats CPU count use it.
+
+**D-082 M5 gate results (2026-10-20).** Linux GPU (vast.ai container, Ubuntu 24.04, GCC 12.4, NVIDIA RTX 5060 Ti
+16 GB, driver 590.48): 155/155 tests and 10/10 GPU tests on commit 6963ec2, built from a fresh clone per the
+README. Vulkan vs CPU at 4,096 spp: golden Cornell relMSE 1.1e-8, spheres 7.9e-10 (gate: 1e-3); big texture
+2.2e-9 at 1,024 spp; mixed GPU + CPU render 1.1e-9; furnace uniform; Vulkan repeats bit for bit; parity of 13
+shading functions passes (integer paths exact). Speed: about 15x the 48-core Xeon (docs/BENCHMARKS.md).
+Windows (laptop, MSVC 19.51, Intel UHD without ray tracing): 154/154 with the GPU skipped, also from a fresh clone
+of `m5`. Not covered, by the user's decision: a Windows GPU run (scripts\test-gpu.ps1 on the gaming PC, later).

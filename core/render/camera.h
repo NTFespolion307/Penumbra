@@ -22,6 +22,11 @@ class RenderCamera {
   void generateRay(float px, float py, Vec2f lens, Vec3f& origin, Vec3f& dir) const;
 
   const Camera& camera() const { return camera_; }
+  // The values generateRay uses, for GPU backends that run their own copy of it.
+  float width() const { return width_; }
+  float height() const { return height_; }
+  float tanX() const { return tan_x_; }
+  float tanY() const { return tan_y_; }
 
  private:
   Camera camera_;

@@ -96,7 +96,7 @@ void embreeError(void*, RTCError code, const char* message) {
 class CpuBackend final : public IBackend {
  public:
   explicit CpuBackend(uint32_t threads) {
-    const uint32_t hw = std::max(1u, std::thread::hardware_concurrency());
+    const uint32_t hw = usableCpuThreads();
     threads_ = threads == 0 ? hw : threads;
     arena_ = std::make_unique<tbb::task_arena>(static_cast<int>(threads_));
     device_ = rtcNewDevice(fmt::format("threads={},set_affinity=0", threads_).c_str());

@@ -81,7 +81,7 @@ cmake --build --preset "$preset"
 
 if (( tests )); then
   step "Running tests"
-  ctest --preset "$preset" -LE large  # the 20K gate test runs with: ctest -L large
+  ctest --preset "$preset" -LE "large|gpu"  # 20K gate: ctest -L large; GPU: scripts/test-gpu.sh
 fi
 
 exe="$root/build/$preset/bin/penumbra"

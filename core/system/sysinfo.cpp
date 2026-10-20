@@ -1,11 +1,15 @@
 #include "core/system/sysinfo.h"
 
+#include <algorithm>
+#include <cstdlib>
 #include <fmt/format.h>
+#include <string>
 #include <thread>
 
 #if defined(_WIN32)
 #include <windows.h>
 #else
+#include <sched.h>
 #include <sys/utsname.h>
 #include <unistd.h>
 
@@ -88,10 +92,32 @@ std::string hostName() {
 #endif
 }
 
+uint32_t usableCpuThreads() {
+  uint32_t n = std::max(1u, std::thread::hardware_concurrency());
+#if !defined(_WIN32)
+  cpu_set_t set;
+  CPU_ZERO(&set);
+  if (sched_getaffinity(0, sizeof(set), &set) == 0) n = std::min<uint32_t>(n, std::max(1, CPU_COUNT(&set)));
+  // cgroup v2 "cpu.max": "<quota> <period>" or "max <period>"; v1: cpu.cfs_quota_us / cpu.cfs_period_us.
+  double quota = -1, period = 0;
+  {
+    std::ifstream f("/sys/fs/cgroup/cpu.max");
+    std::string q;
+    if (f >> q >> period && q != "max") quota = std::atof(q.c_str());
+  }
+  if (quota < 0) {
+    std::ifstream fq("/sys/fs/cgroup/cpu/cpu.cfs_quota_us"), fp("/sys/fs/cgroup/cpu/cpu.cfs_period_us");
+    if (fq >> quota && fp >> period && quota <= 0) quota = -1;
+  }
+  if (quota > 0 && period > 0) n = std::min<uint32_t>(n, std::max(1u, static_cast<uint32_t>(quota / period + 0.5)));
+#endif
+  return n;
+}
+
 SystemInfo querySystem() {
   SystemInfo info;
   info.host = hostName();
-  info.logical_cores = std::thread::hardware_concurrency();
+  info.logical_cores = usableCpuThreads();
 #if defined(_WIN32)
   info.os = windowsVersion();
   info.cpu = narrow(regString(HKEY_LOCAL_MACHINE, L"HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0",

@@ -35,8 +35,8 @@ namespace {
 // Checks that do not need the scene. Returns an exit code, or -1 to continue.
 int validate(const RenderSettings& s) {
   if (s.integrator == Integrator::DebugBvh) {
-    spdlog::error("--integrator debug:bvh needs a GPU backend (Vulkan RT M5, CUDA M6); Embree does not report "
-                  "traversal steps");
+    spdlog::error("--integrator debug:bvh needs traversal step counts, which neither Embree nor Vulkan ray tracing "
+                  "report; it arrives with the CUDA backend (M6)");
     return toInt(ExitCode::BadArguments);
   }
   if (s.denoise != Denoiser::None) spdlog::warn("--denoise {} is built in milestone M11; not applied", toString(s.denoise));

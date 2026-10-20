@@ -9,6 +9,9 @@
 #include "core/system/paths.h"
 #include "core/system/sysinfo.h"
 #include "core/version.h"
+#if defined(PEN_HAS_VULKAN)
+#include "backends/vulkan/vulkan_backend.h"
+#endif
 
 namespace pen::app {
 
@@ -41,9 +44,24 @@ int printVersion() {
 
 int listDevices() {
   const SystemInfo sys = querySystem();
-  print(fmt::format("Render devices on {}:\n", sys.host));
+  print(fmt::format("Render devices on {} (numbers are what --devices takes):\n", sys.host));
+#if defined(PEN_HAS_VULKAN)
+  const VulkanProbe& probe = probeVulkan();
+  uint32_t n = 0;
+  for (const VulkanGpu& g : probe.gpus) {
+    if (g.ray_tracing)
+      print(fmt::format("  {:<5} {}, {} VRAM   backend vulkan (hardware ray tracing)\n", n++, g.name,
+                        formatBytes(g.vram_bytes)));
+  }
+  for (const VulkanGpu& g : probe.gpus)
+    if (!g.ray_tracing)
+      print(fmt::format("  -     {} ({}): not used, no Vulkan ray tracing (missing {})\n", g.name, g.type, g.missing));
+  if (!probe.loader_found) print(fmt::format("  -     no GPU: {}\n", probe.error));
+#else
+  print("  -     GPUs: this build has no GPU backend (PEN_ENABLE_VULKAN=OFF)\n");
+#endif
   print(fmt::format("  cpu   {}, {} threads   backend cpu (Embree)\n", sys.cpu, sys.logical_cores));
-  print("GPU detection is built with the GPU backends: Vulkan RT in M5, CUDA in M6.\n");
+  print("CUDA (GPUs without ray tracing) arrives in M6.\n");
   return 0;
 }
 
@@ -64,7 +82,15 @@ int diagnose() {
   row("Scene cache", fmt::format("{} ({})", pathToUtf8(cache), freeSpace(cache)));
   row("User data", pathToUtf8(paths::userDataDir()));
   row("Film", fmt::format("output folder by default ({} in the current folder)", freeSpace(std::filesystem::current_path())));
-  row("Vulkan", "not probed yet (Vulkan RT backend arrives in M5)");
+#if defined(PEN_HAS_VULKAN)
+  const VulkanProbe& probe = probeVulkan();
+  if (!probe.loader_found) row("Vulkan", probe.error);
+  for (const VulkanGpu& g : probe.gpus)
+    row("Vulkan", fmt::format("{} ({}, {} VRAM, driver {}): {}", g.name, g.type, formatBytes(g.vram_bytes), g.driver,
+                              g.ray_tracing ? "ray tracing OK" : "no ray tracing, missing " + g.missing));
+#else
+  row("Vulkan", "not built (PEN_ENABLE_VULKAN=OFF)");
+#endif
   row("CUDA", "not probed yet (CUDA backend arrives in M6)");
   row("TCP 7420", "bind check arrives with networking in M4");
   return 0;

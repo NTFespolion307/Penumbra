@@ -55,6 +55,8 @@ const std::array<float, kSheenN * kSheenN>& sheenTable() {
 
 }  // namespace
 
+const float* sheenAlbedoTable() { return sheenTable().data(); }
+
 float sheenAlbedo(float cosTheta, float roughness) {
   const auto& t = sheenTable();
   const float x = clamp(cosTheta, 0.0f, 1.0f) * (kSheenN - 1), y = clamp(roughness, 0.0f, 1.0f) * (kSheenN - 1);

@@ -28,6 +28,10 @@
     },
     "nlohmann-json",
     "openexr",
+    {
+      "name": "shader-slang",
+      "host": true
+    },
     "spdlog",
     "stb",
     {
@@ -40,6 +44,9 @@
       "features": [ "zip" ]
     },
     "tinyobjloader",
+    "volk",
+    "vulkan-headers",
+    "vulkan-memory-allocator",
     "zstd"
   ],
   "features": {

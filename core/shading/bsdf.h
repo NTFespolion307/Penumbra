@@ -42,6 +42,9 @@ struct BsdfSample {
 
 // Directional albedo of the Charlie sheen lobe for a white sheen colour (precomputed table).
 float sheenAlbedo(float cosTheta, float roughness);
+// The 32 x 32 table behind sheenAlbedo (row = roughness), for GPU backends.
+const float* sheenAlbedoTable();
+inline constexpr int kSheenTableSize = 32;
 
 class PrincipledBsdf {
  public:
