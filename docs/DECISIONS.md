@@ -433,3 +433,31 @@ change the CPU golden image. The CPU renderer keeps its C++ code (`core/shading`
 for CUDA too via PEN_HD, for M6); `shaders/*.slang` is a line-by-line port for Vulkan, and a GPU parity test
 evaluates every sampling, BSDF and light function on the same random inputs on both sides, so drift shows up per
 function instead of as a slightly wrong image.
+
+**D-078 One ray-tracing pipeline, path loop in the ray generation shader (megakernel).** `shaders/pathtrace.slang`
+runs the whole path (NEE, MIS, Russian roulette) per pixel and sample in raygen; one hit group (closest hit
+reports the hit, any-hit applies alpha cutouts) and one miss shader serve camera, bounce and shadow rays (shadow
+rays skip the closest hit and stop at the first hit). Geometry without alpha is marked opaque, so any-hit only
+runs where a material uses alpha. Each BLAS holds a mesh's primitives in order, so `GeometryIndex()` is the
+primitive and `InstanceID()` (custom index) the scene instance; meshes without triangles stay out of the TLAS.
+Backface culling is off, as in Embree. M9 compares this with a wavefront design.
+
+**D-079 GPU scene data in plain storage buffers (scalar layout).** Vertex attributes, materials, textures (RGBA8
+packed in a uint, or float4), alias tables, emissive triangles and the HDRI are buffers whose C++ structs
+(`backends/vulkan/gpu_types.h`) and Slang structs (`shaders/types.slang`) match byte for byte. Textures are
+filtered in shader code exactly like the CPU (same wrap modes, same sRGB table), not by the texture units, so the
+GPU reads the same texel values; M8's "textures in host memory" tier only has to move these buffers. The sheen
+albedo and sRGB tables are computed on the CPU and uploaded. Memory plan in M5: tier 0 (everything in VRAM) when
+the estimate fits in 90% of VRAM, otherwise the GPU is skipped with a message (tiers in M8).
+
+**D-080 Test setup for GPUs.** Render and network tests run on the CPU unless they name a backend
+(`--backend cpu` is added), so they mean the same on machines with GPUs. GPU tests carry the ctest label `gpu`; the
+build scripts skip it (`-LE "large|gpu"`), and `scripts/test-gpu.sh` / `.ps1` run them. `penumbra-gpu-parity`
+evaluates 13 shading functions on 65,536 hash-derived inputs on the GPU and in C++: integer paths must match bit
+for bit, floats within a relative 2e-3 in 99.5% of cases (the rest are ill-conditioned inputs).
+
+**D-081 CPU threads follow the container's CPU share.** `std::thread::hardware_concurrency()` reports every host
+CPU inside a container: on the vast.ai GPU container it said 192 while the rental grants 48, so a CPU render
+started 190 threads and crawled. `usableCpuThreads()` takes the minimum of the hardware count, the affinity mask
+and the cgroup CPU quota (v2 `cpu.max`, v1 `cfs_quota_us`); the CPU backend, the device manager, the OpenEXR
+writer threads and the Hello/Stats CPU count use it.

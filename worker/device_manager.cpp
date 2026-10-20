@@ -7,6 +7,7 @@
 
 #include "backends/cpu/cpu_backend.h"
 #include "backends/null/null_backend.h"
+#include "core/system/sysinfo.h"
 #if defined(PEN_HAS_VULKAN)
 #include "backends/vulkan/vulkan_backend.h"
 #endif
@@ -119,7 +120,7 @@ DeviceSelection createDevices(const RenderSettings& s, bool controllerHost) {
     sel.notes.push_back(fmt::format("backend null (test only): {} device(s) returning noise instantly", cpuSlots));
     for (uint32_t i = 0; i < cpuSlots; ++i) sel.devices.push_back(createNullBackend(i));
   } else if (cpuSlots > 0) {
-    const uint32_t hw = std::max(1u, std::thread::hardware_concurrency());
+    const uint32_t hw = usableCpuThreads();
     uint32_t threads = s.threads;
     if (threads == 0) {
       threads = controllerHost && hw > 2 ? hw - 2 : hw;
