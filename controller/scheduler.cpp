@@ -2,12 +2,27 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <spdlog/spdlog.h>
 
 namespace pen {
 
-uint32_t chunkSamples(uint64_t tilePixels, uint32_t rangeSamples) {
-  constexpr uint64_t kTargetSamples = uint64_t(1) << 22;
-  uint64_t c = tilePixels > 0 ? kTargetSamples / tilePixels : kTargetSamples;
+uint64_t chunkBudget() {
+  static const uint64_t budget = [] {
+    if (const char* v = std::getenv("PENUMBRA_TEST_CHUNK_BUDGET")) {
+      const uint64_t b = std::strtoull(v, nullptr, 10);
+      if (b > 0) {
+        spdlog::warn("TEST HOOK ACTIVE (PENUMBRA_TEST_CHUNK_BUDGET): work items of {} pixel-samples", b);
+        return b;
+      }
+    }
+    return uint64_t(1) << 26;
+  }();
+  return budget;
+}
+
+uint32_t chunkSamples(uint64_t tilePixels, uint32_t rangeSamples, uint64_t budget) {
+  uint64_t c = tilePixels > 0 ? budget / tilePixels : budget;
   uint32_t p = 1;
   while (uint64_t(p) * 2 <= c && p < (1u << 30)) p *= 2;
   return std::max(1u, std::min(p, rangeSamples));

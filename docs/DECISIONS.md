@@ -469,3 +469,23 @@ README. Vulkan vs CPU at 4,096 spp: golden Cornell relMSE 1.1e-8, spheres 7.9e-1
 shading functions passes (integer paths exact). Speed: about 15x the 48-core Xeon (docs/BENCHMARKS.md).
 Windows (laptop, MSVC 19.51, Intel UHD without ray tracing): 154/154 with the GPU skipped, also from a fresh clone
 of `m5`. Not covered, by the user's decision: a Windows GPU run (scripts\test-gpu.ps1 on the gaming PC, later).
+
+## After M5: work items for fast GPUs on slow links
+
+User test 2026-10-20: laptop controller, RTX 5060 Ti worker joining over Tailscale (userspace mode, 141 ms round
+trip). The GPU sat at 5% and the render ran at well under half its speed: an item was 2^22 pixel-samples (17 ms on
+this GPU), each item sends a full tile back, and 3 items in flight cannot cover a 141 ms round trip. The user asked
+to keep results bit-identical, which rules out float16 tiles (D-053).
+
+**D-083 Work items of 2^26 pixel-samples (was 2^22).** Chunks stay fixed by the settings alone, so every
+distribution of work still gives the same bits (D-045); only the last bits of images compared with earlier
+versions change once (golden tests unaffected). One item is about 0.3 s on an RTX 5060 Ti and a few seconds on a
+many-core CPU (the guide's 2-10 s), and the bytes sent per sample drop 16x. A 256 x 256 tile now takes chunks of
+1,024 samples; frames below 1080p (one tile) get correspondingly more samples per chunk. Costs: coarser preview
+steps and more work lost when a render is cut. Test-only `PENUMBRA_TEST_CHUNK_BUDGET` restores small items for the
+tests that need many items per tile (slots, faults, resume, interrupt, all network tests, unit tests).
+
+**D-084 Items in flight follow the round trip.** A network worker keeps ceil(2 x round trip / item time) + 1 items
+per device in flight (2 to 64; the device's median of its last 16 items), so a fast device behind a long link is
+never idle waiting for its next lease. It measures the round trip as soon as it joins. The guide's "2, or 3 above
+50 ms" remains the rule until the first items have finished. Small changes are ignored to avoid fluttering.

@@ -19,9 +19,13 @@ enum class PassOrder { BreadthFirst, DepthFirst };
 
 inline constexpr uint32_t kUnboundedSamples = std::numeric_limits<uint32_t>::max();
 
-// Samples per chunk for a tile: the largest power of two with tilePixels x chunk <= 2^22 (a few seconds on a
-// CPU), at least 1 and at most the range. Depends only on the settings, never on the device (D-045).
-uint32_t chunkSamples(uint64_t tilePixels, uint32_t rangeSamples);
+// Pixel-samples per work item: 2^26 (about 0.3 s on a mid-range RTX GPU, a few seconds on a many-core CPU;
+// DECISIONS D-083). Tests that need many items set PENUMBRA_TEST_CHUNK_BUDGET (test only, logged when active).
+uint64_t chunkBudget();
+
+// Samples per chunk for a tile: the largest power of two with tilePixels x chunk <= budget, at least 1 and at
+// most the range. Depends only on the settings, never on the device (D-045).
+uint32_t chunkSamples(uint64_t tilePixels, uint32_t rangeSamples, uint64_t budget = chunkBudget());
 
 // Splits the frame into work items: film tiles (clipped to --region), spiral from the image centre, each cut
 // into fixed sample chunks. The controller tells it which chunks are merged; items lost to a failed or slow

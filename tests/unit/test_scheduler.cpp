@@ -8,11 +8,14 @@
 using namespace pen;
 
 TEST_CASE("chunk sizes depend only on tile size and sample range", "[scheduler]") {
-  CHECK(chunkSamples(256 * 256, 1024) == 64);    // 2^22 / 65536
-  CHECK(chunkSamples(256 * 256, 40) == 40);      // capped by the range
-  CHECK(chunkSamples(1280 * 720, 1024) == 4);    // a full-frame tile below 1080p
-  CHECK(chunkSamples(5000 * 5000, 1024) == 1);   // never below 1
-  CHECK(chunkSamples(1, kUnboundedSamples) == (1u << 22));
+  constexpr uint64_t k22 = uint64_t(1) << 22;
+  CHECK(chunkSamples(256 * 256, 1024, k22) == 64);    // 2^22 / 65536
+  CHECK(chunkSamples(256 * 256, 40, k22) == 40);      // capped by the range
+  CHECK(chunkSamples(1280 * 720, 1024, k22) == 4);    // a full-frame tile below 1080p
+  CHECK(chunkSamples(5000 * 5000, 1024, k22) == 1);   // never below 1
+  CHECK(chunkSamples(1, kUnboundedSamples, k22) == (1u << 22));
+  // The default budget (D-083): 1,024 samples for a 256 x 256 tile.
+  CHECK(chunkSamples(256 * 256, 4096, uint64_t(1) << 26) == 1024);
 }
 
 TEST_CASE("every pixel and sample is covered exactly once, centre first", "[scheduler]") {

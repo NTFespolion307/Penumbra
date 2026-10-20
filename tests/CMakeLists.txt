@@ -19,7 +19,8 @@ add_executable(penumbra_unit_tests
   unit/test_settings.cpp)
 target_link_libraries(penumbra_unit_tests PRIVATE penumbra_cli penumbra_controller penumbra_net Catch2::Catch2WithMain)
 target_compile_definitions(penumbra_unit_tests PRIVATE PEN_TEST_DATA_DIR="${PEN_TEST_DATA}")
-catch_discover_tests(penumbra_unit_tests PROPERTIES LABELS unit)
+# Unit tests count chunks of the M3 size (2^22 pixel-samples, DECISIONS D-083) unless they pass a budget.
+catch_discover_tests(penumbra_unit_tests PROPERTIES LABELS unit ENVIRONMENT "PENUMBRA_TEST_CHUNK_BUDGET=4194304")
 
 # ---- Smoke tests: run the real binary and check exit codes and messages ----
 set(PEN_SMOKE_COMMON "--config|${PEN_TEST_DATA}/empty-config.json|--log-file|${CMAKE_CURRENT_BINARY_DIR}/smoke.log")
@@ -97,27 +98,27 @@ pen_render_test(ao runs spheres.pen.json "--res|160x90|--spp|4|--integrator|ao")
 pen_render_test(debug_normal runs spheres.pen.json "--res|160x90|--spp|1|--integrator|debug:normal")
 # M2: kill + --resume gives the same image bit for bit; merging region and sample-range halves reproduces the
 # single render; a --region render equals that crop of the full render; every preset renders.
-pen_render_test(resume resume cornell.pen.json "--res|1080p|--spp|16" -DKILL_AFTER=13)
+pen_render_test(resume resume cornell.pen.json "--res|1080p|--spp|16" -DKILL_AFTER=13 -DSMALL_CHUNKS=1)
 pen_render_test(merge_regions merge_regions cornell.pen.json "--res|1080p|--spp|4")
 pen_render_test(merge_samples merge_samples cornell.pen.json "--res|1080p|--spp|8")
 pen_render_test(region_crop region_crop cornell.pen.json "--res|1080p|--spp|4")
 pen_render_test(presets presets cornell.pen.json "--spp|1|--scale|0.01")
 set_tests_properties(render.resume PROPERTIES LABELS "render;gate;slow")
 # M3: N local slots match 1 slot bit for bit; failed and hung devices are recovered without changing the image.
-pen_render_test(slots_cpu devices cornell.pen.json "--res|1080p|--scale|0.5|--spp|32" "-DDEVICE_SETS=cpu+cpu,cpu+cpu,cpu,cpu,cpu")
+pen_render_test(slots_cpu devices cornell.pen.json "--res|1080p|--scale|0.5|--spp|32" "-DDEVICE_SETS=cpu+cpu,cpu+cpu,cpu,cpu,cpu" -DSMALL_CHUNKS=1)
 pen_render_test(slots_null devices cornell.pen.json "--res|1080p|--spp|256|--backend|null"
-                "-DDEVICE_SETS=cpu+cpu,cpu,cpu,cpu+cpu,cpu,cpu,cpu,cpu,cpu,cpu,cpu")
+                "-DDEVICE_SETS=cpu+cpu,cpu,cpu,cpu+cpu,cpu,cpu,cpu,cpu,cpu,cpu,cpu" -DSMALL_CHUNKS=1)
 # 12 chunks for 3 slots (2 in flight each), so the faulty device surely gets work; it fails on its first item.
 pen_render_test(fault_throw faults cornell.pen.json "--res|1080p|--scale|0.5|--spp|96" -DREF_DEVICES=cpu
-                -DFAULT_DEVICES=cpu,cpu,cpu "-DFAULTS=device=1,after=0,mode=throw" "-DEXPECT_LOG=failed and is removed")
+                -DFAULT_DEVICES=cpu,cpu,cpu "-DFAULTS=device=1,after=0,mode=throw" "-DEXPECT_LOG=failed and is removed" -DSMALL_CHUNKS=1)
 pen_render_test(fault_hang faults cornell.pen.json "--res|1080p|--spp|256|--backend|null" -DREF_DEVICES=cpu
-                -DFAULT_DEVICES=cpu,cpu,cpu "-DFAULTS=device=1,after=2,mode=hang" "-DEXPECT_LOG=is late")
+                -DFAULT_DEVICES=cpu,cpu,cpu "-DFAULTS=device=1,after=2,mode=hang" "-DEXPECT_LOG=is late" -DSMALL_CHUNKS=1)
 pen_render_test(spp0_time_limit timelimit cornell.pen.json "--res|1080p|--scale|0.5|--spp|0|--time-limit|5s")
 # Killed mid-pass: the single tile holds some of its 8 chunks; resume continues from there, bit for bit.
-pen_render_test(resume_chunks resume cornell.pen.json "--res|1080p|--scale|0.5|--spp|64" -DKILL_AFTER=15 -DCUT_THREADS=4)
+pen_render_test(resume_chunks resume cornell.pen.json "--res|1080p|--scale|0.5|--spp|64" -DKILL_AFTER=15 -DCUT_THREADS=4 -DSMALL_CHUNKS=1)
 set_tests_properties(render.slots_cpu render.fault_throw render.resume_chunks PROPERTIES LABELS "render;gate;slow")
 if(UNIX)  # sends a real SIGINT with coreutils `timeout`
-  pen_render_test(interrupt interrupt cornell.pen.json "--res|1080p|--spp|16" -DKILL_AFTER=6)
+  pen_render_test(interrupt interrupt cornell.pen.json "--res|1080p|--spp|16" -DKILL_AFTER=6 -DSMALL_CHUNKS=1)
   set_tests_properties(render.interrupt PROPERTIES LABELS "render;gate;slow")
 endif()
 # The 20K gate (laptop, 1 spp, ~4 GB film): run with `ctest -L large`; the build scripts skip it.
@@ -202,7 +203,7 @@ pen_net_test(join_mid_render 7516 1 cornell.pen.json "--res|1080p|--scale|0.5|--
 pen_net_test(bad_network 7517 1 cornell.pen.json "--res|1080p|--scale|0.5|--spp|32" "-DREF_ARGS=--devices|cpu"
              "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|4"
              "-DNETEM_ARGS=--delay-ms|100|--loss|0.02|--up-kbps|10000"
-             "-DEXPECT_WORKER_LOG=round trip to the controller [0-9]+ ms: 3 items in flight")
+             "-DEXPECT_WORKER_LOG=device 0: [0-9]+ items in flight .round trip [0-9]+ ms.")
 set_tests_properties(net.worker_silent PROPERTIES LABELS "net;gate;slow")
 
 # M4 step 5: the controller is killed mid-render (power loss) and resumed from its session file; its --stay

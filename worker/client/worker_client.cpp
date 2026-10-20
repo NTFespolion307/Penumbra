@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <condition_variable>
 #include <deque>
@@ -43,7 +44,8 @@ constexpr auto kConnectRetry = std::chrono::seconds(15);
 constexpr auto kStatsPeriod = std::chrono::seconds(2);
 constexpr auto kHeartbeatPeriod = std::chrono::seconds(5);
 constexpr auto kPeerTimeout = std::chrono::seconds(30);
-constexpr double kLongRoundTripMs = 50;  // above this, 3 items in flight per device instead of 2
+constexpr double kLongRoundTripMs = 50;  // before item times are known: 3 items in flight above this, else 2
+constexpr int kMaxInFlight = 64;
 constexpr int kReconnect = -3;           // session(): the link dropped; a --stay worker connects again
 constexpr auto kMaxBackoff = std::chrono::seconds(30);
 
@@ -86,6 +88,8 @@ class Worker {
   };
   struct DeviceCounters {
     uint64_t tiles = 0, samples = 0;
+    std::deque<double> recent;  // render seconds of the last items, for the in-flight depth
+    int in_flight = 2;
     double last_busy = 0;
     uint64_t last_tiles = 0, last_samples = 0;
   };
@@ -105,6 +109,7 @@ class Worker {
   void startSlots();
   void stopSlots(bool cancel);
   void flushRequests();
+  void updateInFlight();
   void sendStats();
   bool uploadBound() const { return conn_ && conn_->queuedBytes() > kUploadBoundBytes; }
   int leave(const std::string& reason, int exitCode);
@@ -143,7 +148,8 @@ class Worker {
   CpuUsage cpu_;
   Clock::time_point last_stats_ = Clock::now();
   Clock::time_point last_heartbeat_ = Clock::now();
-  int in_flight_ = 2;
+  int in_flight_ = 2;   // depth for new slots, from the round trip alone
+  double rtt_ms_ = 0;   // last measured round trip to the controller
   bool frozen_logged_ = false;
   bool was_upload_bound_ = false;
 };
@@ -200,7 +206,7 @@ int Worker::connect() {
   }
   welcomed_ = false;
   completed_ = false;
-  last_heartbeat_ = Clock::now();
+  last_heartbeat_ = Clock::now() - kHeartbeatPeriod;  // measure the round trip right away
   conn_->start({
       [this](net::Message&& msg, uint16_t version) {
         if (version != kProtocolVersion && msg.type != MsgType::Reject) {
@@ -328,7 +334,10 @@ int Worker::session() {
     }
     flushRequests();
     const auto now = Clock::now();
-    if (welcomed_ && now - last_stats_ >= kStatsPeriod) sendStats();
+    if (welcomed_ && now - last_stats_ >= kStatsPeriod) {
+      sendStats();
+      updateInFlight();
+    }
     if (now - last_heartbeat_ >= kHeartbeatPeriod) {
       last_heartbeat_ = now;
       wire::HeartbeatT hb;
@@ -398,17 +407,12 @@ int Worker::handle(net::Message& msg) {
         return leave("render complete", -2);
       }
       case MsgType::Heartbeat: {
-        // The controller echoes our heartbeats: the round trip sets how many items each device keeps in flight
-        // (docs/GUIDE.md "Leases": 2, or 3 when the round trip exceeds 50 ms).
+        // The controller echoes our heartbeats; the round trip sets how many items each device keeps in flight.
         const auto m = net::decode<wire::HeartbeatT>(msg.payload);
         if (m.echo_us == 0) break;
-        const double rttMs = double(nowMicros() - m.echo_us) / 1000.0;
-        const int want = rttMs > kLongRoundTripMs ? 3 : 2;
-        if (want != in_flight_) {
-          in_flight_ = want;
-          spdlog::info("round trip to the controller {:.0f} ms: {} items in flight per device", rttMs, want);
-          for (auto& s : slots_) s->setInFlight(want);
-        }
+        rtt_ms_ = double(nowMicros() - m.echo_us) / 1000.0;
+        in_flight_ = rtt_ms_ > kLongRoundTripMs ? 3 : 2;
+        updateInFlight();
         break;
       }
       default:
@@ -638,6 +642,8 @@ void Worker::startSlots() {
         DeviceCounters& c = counters_[r.device];
         ++c.tiles;
         c.samples += r.rect.pixels() * (r.sample_end - r.sample_begin);
+        c.recent.push_back(r.render_seconds);
+        if (c.recent.size() > 16) c.recent.pop_front();
       }
       conn_->send(m, net::Priority::Bulk);
     };
@@ -658,6 +664,8 @@ void Worker::startSlots() {
       conn_->send(r);
     };
     slots_.push_back(std::make_unique<DeviceSlot>(d, *devices_[d], cb, in_flight_));
+    std::lock_guard lock(mutex_);
+    counters_[d].in_flight = in_flight_;
   }
   for (auto& s : slots_) s->start();
 }
@@ -698,6 +706,29 @@ void Worker::onLease(const wire::LeaseT& m) {
   item.sample_end = m.sample_end;
   item.lease = m.lease_id;
   slots_[m.device]->addLease(item);
+}
+
+// Items in flight per device (DECISIONS D-084): enough to cover two round trips at the device's measured item
+// time, so a fast GPU behind a slow link never waits for its next lease: ceil(2 x RTT / item time) + 1, between
+// 2 and 64. Before any item has finished: 3 above a 50 ms round trip, else 2 (docs/GUIDE.md "Leases").
+void Worker::updateInFlight() {
+  std::lock_guard lock(mutex_);
+  for (uint32_t d = 0; d < slots_.size(); ++d) {
+    DeviceCounters& c = counters_[d];
+    int want = in_flight_;
+    if (!c.recent.empty() && rtt_ms_ > 0) {
+      std::vector<double> v(c.recent.begin(), c.recent.end());
+      std::nth_element(v.begin(), v.begin() + v.size() / 2, v.end());
+      const double item = std::max(v[v.size() / 2], 1e-3);
+      want = std::clamp(static_cast<int>(std::ceil(2 * rtt_ms_ / 1000.0 / item)) + 1, 2, kMaxInFlight);
+      want = std::max(want, in_flight_);
+    }
+    // Small changes are ignored, so the depth does not flutter with every measurement.
+    if (want == c.in_flight || (std::abs(want - c.in_flight) < std::max(2, c.in_flight / 4) && want > 2)) continue;
+    spdlog::info("device {}: {} items in flight (round trip {:.0f} ms)", d, want, rtt_ms_);
+    c.in_flight = want;
+    slots_[d]->setInFlight(want);
+  }
 }
 
 void Worker::flushRequests() {
