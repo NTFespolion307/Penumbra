@@ -415,3 +415,21 @@ silent and corrupt workers, a worker joining late, a 200 ms / 2% loss / 10 Mbit/
 controller with --stay workers, and 64 workers x 8 devices. LAN: Windows controller with WSL workers and the
 reverse (D-073). Internet: the server over Tailscale, bit-identical to its own render of the package (D-074).
 Not covered: an internet join through a forwarded public port (UPnP mapping itself checked), the UI (M10).
+
+## M5: Vulkan RT backend
+
+User approved the M5 plan on 2026-10-20 and decided to close M5 without a Windows GPU run for now (Linux GPU on a
+rented vast.ai container plus the Windows build).
+
+**D-076 No Vulkan SDK needed.** vcpkg supplies the Vulkan headers, volk (runtime loading, so Penumbra starts on
+machines without a Vulkan driver), Vulkan Memory Allocator and a pinned Slang release (2026.19, used as a host
+build tool: `slangc` compiles the shaders to SPIR-V at build time and they are embedded in the binary). Users only
+need a GPU driver; the Vulkan SDK (validation layers) is optional, for development.
+
+**D-077 Shared shading code: C++ stays the reference, Slang mirrors it for the GPU.** Trial (Slang 2026.19): the
+shading math compiles to SPIR-V and to C++ alike, but Slang's C++ target refuses ray tracing ("TraceRayInline not
+available for cpp"), so a Slang CPU path would split every bounce between generated code and Embree glue and
+change the CPU golden image. The CPU renderer keeps its C++ code (`core/shading`, `core/render`, already written
+for CUDA too via PEN_HD, for M6); `shaders/*.slang` is a line-by-line port for Vulkan, and a GPU parity test
+evaluates every sampling, BSDF and light function on the same random inputs on both sides, so drift shows up per
+function instead of as a slightly wrong image.
