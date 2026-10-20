@@ -461,3 +461,11 @@ CPU inside a container: on the vast.ai GPU container it said 192 while the renta
 started 190 threads and crawled. `usableCpuThreads()` takes the minimum of the hardware count, the affinity mask
 and the cgroup CPU quota (v2 `cpu.max`, v1 `cfs_quota_us`); the CPU backend, the device manager, the OpenEXR
 writer threads and the Hello/Stats CPU count use it.
+
+**D-082 M5 gate results (2026-10-20).** Linux GPU (vast.ai container, Ubuntu 24.04, GCC 12.4, NVIDIA RTX 5060 Ti
+16 GB, driver 590.48): 155/155 tests and 10/10 GPU tests on commit 6963ec2, built from a fresh clone per the
+README. Vulkan vs CPU at 4,096 spp: golden Cornell relMSE 1.1e-8, spheres 7.9e-10 (gate: 1e-3); big texture
+2.2e-9 at 1,024 spp; mixed GPU + CPU render 1.1e-9; furnace uniform; Vulkan repeats bit for bit; parity of 13
+shading functions passes (integer paths exact). Speed: about 15x the 48-core Xeon (docs/BENCHMARKS.md).
+Windows (laptop, MSVC 19.51, Intel UHD without ray tracing): 154/154 with the GPU skipped, also from a fresh clone
+of `m5`. Not covered, by the user's decision: a Windows GPU run (scripts\test-gpu.ps1 on the gaming PC, later).
