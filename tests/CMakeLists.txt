@@ -62,7 +62,7 @@ pen_smoke(webp 0 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/scene.pen.json
 pen_smoke(resume_missing 1 "${PEN_SMOKE_COMMON}|--terminal|--resume|missing.session.json" "cannot open session")
 pen_smoke(merge_missing 1 "${PEN_SMOKE_COMMON}|merge|missing.penfilm|-o|m.exr" "cannot open")
 pen_smoke(optix_not_yet 3 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/empty.gltf|--backend|optix|-o|x.png" "M13")
-pen_smoke(debug_bvh_needs_cuda 2 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/empty.gltf|--integrator|debug:bvh|-o|x.png"
+pen_smoke(debug_bvh_needs_cuda 1 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/empty.gltf|--integrator|debug:bvh|-o|x.png"
           "add --backend cuda")
 pen_smoke(unknown_camera 2 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/empty.gltf|--camera|Nope|-o|x.png" "not in the scene")
 
