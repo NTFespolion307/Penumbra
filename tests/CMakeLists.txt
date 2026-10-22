@@ -300,8 +300,9 @@ if(PEN_ENABLE_VULKAN AND PEN_ENABLE_CUDA)
   pen_render_test(gpu_cuda_vs_vulkan pair cutout.pen.json "--res|320x180|--spp|1024" "-DARGS_A=--backend|vulkan"
                   "-DARGS_B=--backend|cuda" -DMAXRELMSE=1e-3)
   set_tests_properties(render.gpu_cuda_vs_vulkan PROPERTIES LABELS "gpu;vulkan;cuda")
-  # M7 (D-090): backends mixed on one host, also on one GPU listed twice; every device renders items.
-  pen_render_test(gpu_mixed_one_gpu pair cornell.pen.json "--res|1080p|--scale|0.25|--spp|1024" "-DARGS_A=--backend|cpu"
+  # M7 (D-090): backends mixed on one host, also on one GPU listed twice; every device renders items. Vulkan and
+  # CUDA time-slice a shared GPU, so the one-GPU test needs enough items for the CUDA slot to win some.
+  pen_render_test(gpu_mixed_one_gpu pair cornell.pen.json "--res|1080p|--scale|0.25|--spp|4096" "-DARGS_A=--backend|cpu"
                   "-DARGS_B=--devices|0:vulkan,0:cuda,cpu" -DMAXRELMSE=1e-3 -DSMALL_CHUNKS=1
                   "-DEXPECT_LOG=local/0 [^\n]*: [1-9][0-9]* items.*local/1 [^\n]*: [1-9][0-9]* items.*local/2 [^\n]*: [1-9][0-9]* items")
   pen_render_test(gpu_mixed_multi pair cornell.pen.json "--res|1080p|--scale|0.25|--spp|1024" "-DARGS_A=--backend|cpu"
