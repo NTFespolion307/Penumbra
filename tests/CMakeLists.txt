@@ -117,7 +117,8 @@ pen_render_test(fault_hang faults cornell.pen.json "--res|1080p|--spp|256|--back
                 -DFAULT_DEVICES=cpu,cpu,cpu "-DFAULTS=device=1,after=2,mode=hang" "-DEXPECT_LOG=is late" -DSMALL_CHUNKS=1)
 pen_render_test(spp0_time_limit timelimit cornell.pen.json "--res|1080p|--scale|0.5|--spp|0|--time-limit|5s")
 # Killed mid-pass: the single tile holds some of its 8 chunks; resume continues from there, bit for bit.
-pen_render_test(resume_chunks resume cornell.pen.json "--res|1080p|--scale|0.5|--spp|64" -DKILL_AFTER=15 -DCUT_THREADS=4 -DSMALL_CHUNKS=1)
+# One thread for the killed run, so it cannot finish within KILL_AFTER even on a fast machine.
+pen_render_test(resume_chunks resume cornell.pen.json "--res|1080p|--scale|0.5|--spp|128" -DKILL_AFTER=15 -DCUT_THREADS=1 -DSMALL_CHUNKS=1)
 set_tests_properties(render.slots_cpu render.fault_throw render.resume_chunks PROPERTIES LABELS "render;gate;slow")
 if(UNIX)  # sends a real SIGINT with coreutils `timeout`
   pen_render_test(interrupt interrupt cornell.pen.json "--res|1080p|--spp|16" -DKILL_AFTER=6 -DSMALL_CHUNKS=1)

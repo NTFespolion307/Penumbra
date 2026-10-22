@@ -489,3 +489,56 @@ tests that need many items per tile (slots, faults, resume, interrupt, all netwo
 per device in flight (2 to 64; the device's median of its last 16 items), so a fast device behind a long link is
 never idle waiting for its next lease. It measures the round trip as soon as it joins. The guide's "2, or 3 above
 50 ms" remains the rule until the first items have finished. Small changes are ignored to avoid fluttering.
+
+## M6: CUDA compute backend
+
+**D-085 One GPU path tracer, two ways to trace.** The path loop moved from `shaders/pathtrace.slang` into
+`shaders/integrator.slang`, written against two functions the entry file defines before including it:
+`intersect(o, d)` (closest hit) and `occluded(o, d, tmax)`. `pathtrace.slang` implements them with Vulkan ray
+tracing (`TraceRay`), `pathtrace_cuda.slang` with the software BVH (`bvh.slang`). slangc compiles the same shading
+code to SPIR-V and to CUDA C++ (the guide's plan); the C++ code stays the reference (D-077) and the parity test now
+runs on both GPU backends. A work item may be split into several CUDA launches of about 1M paths each (sample
+ranges summed in order, the running sum kept in the output buffer), so each launch is short and the result is the
+same bits as a single launch.
+
+**D-086 Software ray tracing: tinybvh CWBVH, one byte layout for both GPU backends.** tinybvh is kept in
+`third_party/tinybvh` (MIT; it has no vcpkg port), pinned to commit bfd3e819 (v1.9.0, 2026-09-29), compiled in one
+file with its warnings off; its fatal errors throw `BackendError` instead of ending the process. Each mesh gets a
+CWBVH (`BVH8_CWBVH`, Ylitie et al. 2017); a mesh of 1 to 3 triangles is a plain triangle list, because tinybvh
+cannot make a CWBVH whose root is a leaf. A binary BVH over the instances (median splits, 2 per leaf) sits on top;
+rays enter each mesh in object space with an unnormalized direction, so `t` stays the world ray parameter. The
+traversal is a port of tinybvh's `traverse_cwbvh.cl`, with these changes:
+- Alpha cutouts are tested inside the loop.
+- Shadow rays stop at the first hit.
+- Directions with zero components use a clamped reciprocal (orthographic cameras send exactly axis-parallel rays).
+- The triangle test cannot accept NaNs.
+- A full stack is counted and reported, not ignored.
+
+Slang's CUDA prelude (2026.19) gives `firstbithigh` on a uint with bit 31 set the signed meaning, which breaks the
+CWBVH hit masks; `highestBit()` avoids it. The GPU structs (`backends/gpu/gpu_types.h`, `shaders/types.slang`)
+are ordered so Vulkan's scalar layout and CUDA's natural alignment give the same bytes: float2 on 8 bytes, float4 on
+16, sizes padded by hand. Only `TextureRef` and `Material` were reordered. The build turns slangc's reflection JSON
+into a header (`cmake/CudaLayout.cmake`); the CUDA backend fills the kernel's parameter block by name from it and
+static_asserts the offset of every field of every struct.
+
+**D-087 CUDA kernels are built ahead of time; the driver is loaded at run time.** nvcc compiles the generated CUDA
+C++ into a fatbin embedded in the binary: machine code for every architecture in `PEN_CUDA_ARCHS` that the toolkit
+supports (the others are left out with a CMake warning), all produced from ONE PTX of the oldest architecture,
+which is embedded too. Every GPU generation therefore runs the same instructions, and the driver can compile the
+PTX for GPUs newer than the list. Nothing links against CUDA: `nvcuda.dll` / `libcuda.so.1` is opened at start,
+so a machine without NVIDIA still runs Penumbra, and `--diagnose` says why CUDA is missing. A GPU is usable when
+the build has machine code for its architecture (same major version, equal or lower minor) or it is at least the
+PTX architecture, and the driver supports the toolkit's major version (CUDA 13 kernels need a CUDA 13 driver).
+CUDA 13 dropped compute capability 6.x and 7.0 (GTX 10-series, V100): building for those takes a CUDA 12.x
+toolkit and `-DPEN_CUDA_ARCHS="61;75;..."`. `PEN_ENABLE_CUDA` is ON when CMake finds a CUDA toolkit
+(`find_package(CUDAToolkit)`). On Windows nvcc gets `-allow-unsupported-compiler`, because it only preprocesses
+with MSVC here (device code only).
+
+**D-088 One GPU list for both backends.** The `--devices` numbering lists GPUs with Vulkan ray tracing in Vulkan
+order, then NVIDIA GPUs only CUDA can use, in CUDA order. A GPU on both lists is matched by UUID and appears
+once. `--backend auto` picks Vulkan where the GPU has ray tracing, else CUDA, and logs the choice per GPU.
+`--backend cuda` forces CUDA (also on RT GPUs, for testing), and `--backend vulkan` skips GPUs without RT.
+`--integrator debug:bvh` (D-027) now works with `--backend cuda`: each pixel holds the number of BVH nodes visited
+plus triangles tested by the camera ray. Without `--backend cuda` the render is refused before it starts. The CPU
+and Vulkan backends refuse it in `prepare()`, so a worker that joins with another backend fails its devices
+instead of rendering zeros.

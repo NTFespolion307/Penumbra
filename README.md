@@ -9,20 +9,20 @@ code, render tiles and send them back. A render on one machine is the same thing
 combination of machines, GPUs and backends converges to the same image.
 
 > **Status: milestone M5 (Vulkan ray tracing on the GPU).** Penumbra renders glTF and OBJ scenes on GPUs with
-> hardware ray tracing (Vulkan RT) and on the CPU (Embree), alone or together, with a path tracer (next-event estimation, MIS), the glTF PBR material with its common extensions and
+> hardware ray tracing (Vulkan RT), on any NVIDIA GPU through CUDA, and on the CPU (Embree), alone or together, with a path tracer (next-event estimation, MIS), the glTF PBR material with its common extensions and
 > HDRI lighting, at any size up to 160K, with checkpoints, `--resume` and `merge`, writing EXR, PNG, JPEG, TIFF
 > or WebP. Work is split into tile and sample chunks that any number of local devices share, with recovery from
 > failed or hung devices. Several machines render together: a controller hosts, workers on the LAN or the
 > internet join with a code (encrypted), download the scene once, and any failure of a worker, its devices or the
-> network is recovered without changing the image. CUDA (GPUs without ray tracing) arrives in M6, several GPUs
-> per machine in M7, the UI in M10. Features marked
+> network is recovered without changing the image. Several GPUs per machine arrive in M7, the UI in M10. Features marked
 > *(planned, Mx)* below are not built yet. The roadmap is in [`docs/GUIDE.md`](docs/GUIDE.md).
 
 <!-- A screenshot goes here once the UI exists (M10). -->
 
 **Supported GPUs:** NVIDIA first: RTX 20 series and newer through Vulkan ray tracing (tested on an RTX 5060 Ti
-under Linux), and any NVIDIA GPU through CUDA *(planned, M6)*. AMD RDNA2+ and Intel Arc should work through Vulkan
-ray tracing but are untested. Integrated GPUs without ray tracing do not render in v1; the CPU renders instead.
+under Linux), and any NVIDIA GPU from the GTX 16 series (Turing, compute capability 7.5) through CUDA, with a
+software BVH (tested on a GTX 1660 SUPER); older NVIDIA GPUs need a build with CUDA 12 (see Build options). AMD RDNA2+ and Intel Arc should work through Vulkan
+ray tracing but are untested. Integrated Intel/AMD GPUs without ray tracing do not render in v1; the CPU renders instead.
 On the GPU, an image matches the CPU's within float rounding (relMSE about 1e-8 at 4,096 samples per pixel).
 
 ## Contents
@@ -57,7 +57,7 @@ Every machine that runs Penumbra (controller and workers) needs these. Versions 
 | CMake | 3.26+ | Bundled with Visual Studio; a separate install also works |
 | vcpkg | current | Package manager for the C++ libraries |
 | GPU driver | recent | Only to render on a GPU: NVIDIA 570+ (any GPU with Vulkan ray tracing). No Vulkan SDK is needed: the build gets the Vulkan headers and the shader compiler from vcpkg |
-| CUDA Toolkit | 12.8+ | *(planned, M6)* optional, NVIDIA only; not needed yet |
+| CUDA Toolkit | 13.0+ (or 12.8+) | Optional: builds the CUDA backend, for NVIDIA GPUs without ray tracing. Needs no NVIDIA GPU to build. `winget install Nvidia.CUDA` (about 3 GB); the build finds it through `CUDA_PATH` |
 
 Install from a PowerShell window:
 
@@ -92,7 +92,7 @@ Install from a PowerShell window:
 | Ninja, Git, curl, zip, unzip, tar, pkg-config | distro versions | |
 | vcpkg | current | |
 | GPU driver | recent | Only to render on a GPU: the NVIDIA proprietary driver 570+ (`sudo ubuntu-drivers install`), or Mesa 23.1+ for AMD. No Vulkan SDK is needed. In Docker, start the container with `-e NVIDIA_DRIVER_CAPABILITIES=all` (the default "compute,utility" hides Vulkan) |
-| CUDA Toolkit | 12.8+ | *(planned, M6)* optional, NVIDIA only; not needed yet |
+| CUDA Toolkit | 13.0+ (or 12.8+) | Optional: builds the CUDA backend, for NVIDIA GPUs without ray tracing. Install the toolkit only, never the `cuda` metapackage (it replaces the driver); commands below |
 
 Run these in a terminal:
 
@@ -129,6 +129,26 @@ Run these in a terminal:
    source ~/.bashrc
    ```
    `cmake --version` now prints `3.31.6` and `echo $VCPKG_ROOT` prints your vcpkg folder.
+
+Optional, the CUDA toolkit (for the CUDA backend; the toolkit only, it does not touch the driver):
+
+9. Download NVIDIA's repository key for this distribution (Ubuntu 22.04/24.04, Debian 12):
+   ```bash
+   . /etc/os-release && wget -O /tmp/cuda-keyring.deb "https://developer.download.nvidia.com/compute/cuda/repos/${ID}${VERSION_ID//./}/x86_64/cuda-keyring_1.1-1_all.deb"
+   ```
+10. Add the repository:
+    ```bash
+    sudo dpkg -i /tmp/cuda-keyring.deb
+    ```
+11. Install the toolkit:
+    ```bash
+    sudo apt update && sudo apt install -y cuda-toolkit-13-0
+    ```
+12. Put nvcc on the PATH:
+    ```bash
+    echo 'export PATH=/usr/local/cuda/bin:$PATH' >> ~/.bashrc && source ~/.bashrc
+    ```
+    `nvcc --version` now prints `release 13.0`.
 
 ## Build
 
@@ -197,11 +217,13 @@ Use this if you want to drive CMake yourself. On Windows, run these in an **x64*
    ```
    ctest --preset windows-msvc-release -LE "large|gpu"
    ```
-4. On a machine with a ray-tracing GPU, run the GPU tests (Vulkan against the CPU, and every shading function
-   compared with its CPU original); success ends with `100% tests passed`:
+4. On a machine with an NVIDIA GPU, run the GPU tests (each GPU backend against the CPU, and every shading
+   function compared with its CPU original); success ends with `100% tests passed`:
    ```
    .\scripts\test-gpu.ps1        # Linux: ./scripts/test-gpu.sh
    ```
+   On a GPU without ray tracing (GTX 16 series), run only the CUDA tests:
+   `.\scripts\test-gpu.ps1 -Label cuda` (Linux: `./scripts/test-gpu.sh release cuda`).
 
 The binary is `build/<preset>/bin/penumbra` (`penumbra.exe` on Windows).
 
@@ -210,10 +232,10 @@ The binary is `build/<preset>/bin/penumbra` (`penumbra.exe` on Windows).
 | CMake option | Default | Meaning |
 | --- | --- | --- |
 | `PEN_ENABLE_VULKAN` | `ON` | Vulkan RT backend (the UI swapchain from M10). `OFF` builds a CPU-only Penumbra |
-| `PEN_ENABLE_CUDA` | `ON` if the CUDA toolkit is found | CUDA backend *(planned, M6)* |
+| `PEN_ENABLE_CUDA` | `ON` if the CUDA toolkit is found | CUDA backend. Nothing links against CUDA: the driver is loaded when Penumbra starts, so the binary also runs on machines without NVIDIA |
 | `PEN_ENABLE_OPTIX` | `OFF` | OptiX backend and denoiser *(planned, M13, optional)* |
 | `PEN_ENABLE_UI` | `ON` | The user interface *(planned, M10)*; turn off for headless servers |
-| `PEN_CUDA_ARCHS` | `75;80;86;89;90;120` | CUDA architectures to compile for |
+| `PEN_CUDA_ARCHS` | `75;80;86;89;90;120` | CUDA architectures to compile for. Newer GPUs run the embedded PTX. CUDA 13 cannot build for GTX 10-series (61) or V100 (70); for those, build with CUDA 12.x and add the architecture, e.g. `-DPEN_CUDA_ARCHS="61;75;86"` |
 | `PEN_BUILD_TESTS` | `ON` | Unit, smoke and lint tests |
 
 Pass options at configure time, for example a headless server build without CUDA or UI:
@@ -489,12 +511,14 @@ Before a render starts Penumbra checks there is room for the film and the output
 | `--backend` | Runs on | Role |
 | --- | --- | --- |
 | `vulkan` | NVIDIA RTX 20+, AMD RDNA2+, Intel Arc | Default on GPUs with ray tracing; uses the RT cores |
-| `cuda` *(planned, M6)* | Any NVIDIA GPU | GPUs without RT cores; 2–5× slower than Vulkan RT |
+| `cuda` | NVIDIA GTX 16 series and newer | GPUs without RT cores (software BVH, tinybvh CWBVH); slower than Vulkan RT. Also on RTX GPUs with `--backend cuda`, and the only backend for `--integrator debug:bvh` |
 | `cpu` | Any x86-64 or ARM64 CPU | Fallback and reference; joins GPUs in hybrid mode |
 | `optix` *(planned, M13)* | NVIDIA RTX | Optional, only if it beats Vulkan RT |
 
 `--backend auto` (default) picks Vulkan RT on every GPU with ray-tracing support, CUDA on NVIDIA GPUs without it,
 and the CPU only when no GPU qualifies or `--devices` lists `cpu`. Every choice is printed in the log.
+`penumbra --list-devices` numbers the GPUs as `--devices` takes them: ray-tracing GPUs first, then NVIDIA GPUs
+that only CUDA can use; GPUs that cannot render are listed with the reason.
 
 ### Multi-GPU and memory tiers *(planned, M7/M8)*
 
@@ -565,8 +589,8 @@ Start with `penumbra --diagnose` and include its output in any bug report.
 | Windows: configure fails with `C1083 ... Invalid argument` or "Detecting CXX compiler ABI info - failed" | The folder path is too long for MSVC (260-character limit). Clone Penumbra to a short path such as `C:\dev\Penumbra`. |
 | Build fails with `Killed signal terminated program cc1plus`, or a dependency build crawls on one core | The machine ran out of memory: some library files need about 2 GB per compiler. The build scripts already limit parallel jobs to available RAM / 2 GB; if it still happens, close other programs or lower the limit, e.g. `VCPKG_MAX_CONCURRENCY=4 ./scripts/build.sh` (PowerShell: `$env:VCPKG_MAX_CONCURRENCY=4` first). |
 | Linux: "CMake 3.26 or newer is required" | Install the official CMake as in [Prerequisites](#prerequisites); check `which cmake` points to `/opt/cmake/bin/cmake`. |
-| No Vulkan ray tracing, or the GPU is not listed | Update the GPU driver; `penumbra --list-devices` and `--diagnose` show each GPU and what it is missing. In Docker, the container needs `-e NVIDIA_DRIVER_CAPABILITIES=all`. GPUs without ray tracing are skipped (CUDA covers NVIDIA ones from M6) and the CPU renders. |
-| CUDA not found *(M6)* | Install CUDA 12.8+ and rebuild; without it Penumbra still builds with Vulkan and CPU. |
+| No Vulkan ray tracing, or the GPU is not listed | Update the GPU driver; `penumbra --list-devices` and `--diagnose` show each GPU and what it is missing. In Docker, the container needs `-e NVIDIA_DRIVER_CAPABILITIES=all`. NVIDIA GPUs without ray tracing render through CUDA when the build has it (`--diagnose` shows "CUDA build"); other GPUs without it are skipped and the CPU renders. |
+| CUDA not found | At build time: install the CUDA toolkit and rebuild (CMake prints `CUDA=ON`); without it Penumbra still builds with Vulkan and CPU. At run time: `penumbra --diagnose` shows the driver and each GPU. "The driver supports CUDA 12.x, this build needs CUDA 13.x": update the NVIDIA driver (580+), or build with a CUDA 12 toolkit. "compute capability ... is older than this build's oldest target": see `PEN_CUDA_ARCHS`. |
 | Worker: "could not join: the controller did not accept the join code" (exit code 6) | The code differs from the one the controller printed; copy it again (case and dashes do not matter). After more than 5 wrong codes in a minute the controller ignores that address for 10 minutes: wait, or restart the controller. |
 | Worker: "the controller rejected this worker: ... runs Penumbra ... (git ...)" (exit code 6) | The two machines run different builds. Run `git pull` and rebuild on both ([Updating](#updating)); the git hashes must match. |
 | Worker: "cannot connect to ...: connection refused" or timed out (exit code 7) | Check, in order: the controller is running with `--host` and printed "hosting on port 7420"; the address is one the controller listed; the firewall allows TCP 7420 on the controller (Windows: allow Penumbra when asked, or `New-NetFirewallRule -DisplayName Penumbra -Direction Inbound -Protocol TCP -LocalPort 7420 -Action Allow` in an admin PowerShell; Linux: `sudo ufw allow 7420/tcp`); for internet workers, the router forwards TCP 7420 (the controller logs whether UPnP did it) or both machines are on the same VPN. |

@@ -16,19 +16,18 @@ set(common --terminal "${SCENE}" --config "${WORKDIR}/empty-config.json" --log-f
 file(WRITE "${WORKDIR}/empty-config.json" "{}\n")
 
 # SMALL_CHUNKS=1: work items of 2^22 pixel-samples instead of the default (tests that need many items per tile,
-# DECISIONS D-083). Network tests always use it.
-set(chunk_env "")
+# DECISIONS D-083). Network tests always use it. Set in this script's environment, which every process it starts
+# inherits: wrapping penumbra in `cmake -E env` would make a kill hit the wrapper and leave penumbra running.
 if(SMALL_CHUNKS OR MODE STREQUAL "network")
-  set(chunk_env "PENUMBRA_TEST_CHUNK_BUDGET=4194304")
-  set(ENV{PENUMBRA_TEST_CHUNK_BUDGET} 4194304)  # inherited by every process this script starts
+  set(ENV{PENUMBRA_TEST_CHUNK_BUDGET} 4194304)
 endif()
 
 # Renders `out`; extra arguments go to penumbra. RENDER_ENV (e.g. "PENUMBRA_TEST_FAULTS=...") is set for the
 # process when defined. The log text is left in `last_log` in the caller's scope.
 function(render out)
-  set(env_prefix "${CMAKE_COMMAND}" -E env ${chunk_env})
+  set(env_prefix "")
   if(DEFINED RENDER_ENV AND NOT RENDER_ENV STREQUAL "")
-    list(APPEND env_prefix "${RENDER_ENV}")
+    set(env_prefix "${CMAKE_COMMAND}" -E env "${RENDER_ENV}")
   endif()
   execute_process(COMMAND ${env_prefix} "${PENUMBRA}" ${common} -o "${out}" ${ARGN} WORKING_DIRECTORY "${WORKDIR}"
                   RESULT_VARIABLE rc OUTPUT_VARIABLE o ERROR_VARIABLE e)
@@ -235,11 +234,11 @@ elseif(MODE STREQUAL "network")
   file(REMOVE "${WORKDIR}/${NAME}.log")
   set(code K7QD-M2XR-9FHT-4WNB)
   # --no-upnp: tests never ask the router of the machine they run on to forward ports.
-  string(REPLACE ";" "|" ctl "${CMAKE_COMMAND};-E;env;${chunk_env};${PENUMBRA};${common};-o;${NAME}_net.exr;--host;--port;${PORT};--code;${code};--no-upnp")
+  string(REPLACE ";" "|" ctl "${PENUMBRA};${common};-o;${NAME}_net.exr;--host;--port;${PORT};--code;${code};--no-upnp")
   if(DEFINED CONTROLLER_KILL_MS)
     # Killed without warning (power loss), then resumed from its session file: same port and code.
     set(procs --proc "${NAME}_ctl" 0 killed ${CONTROLLER_KILL_MS} "${ctl}|${CONTROLLER_ARGS}")
-    string(REPLACE ";" "|" resume "${CMAKE_COMMAND};-E;env;${chunk_env};${PENUMBRA};--terminal;--resume;${WORKDIR}/${NAME}_net.session.json;--config;${WORKDIR}/empty-config.json;--log-file;${WORKDIR}/${NAME}.log;--progress;plain")
+    string(REPLACE ";" "|" resume "${PENUMBRA};--terminal;--resume;${WORKDIR}/${NAME}_net.session.json;--config;${WORKDIR}/empty-config.json;--log-file;${WORKDIR}/${NAME}.log;--progress;plain")
     list(APPEND procs --proc "${NAME}_resumed" "after:${NAME}_ctl" 0 0 "${resume}")
     file(REMOVE "${WORKDIR}/${NAME}_net.session.json" "${WORKDIR}/${NAME}_net.penfilm")
   else()
