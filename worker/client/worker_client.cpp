@@ -90,6 +90,7 @@ class Worker {
     uint64_t tiles = 0, samples = 0;
     std::deque<double> recent;  // render seconds of the last items, for the in-flight depth
     int in_flight = 2;
+    bool measured = false;  // the depth from item times has been logged once
     double last_busy = 0;
     uint64_t last_tiles = 0, last_samples = 0;
   };
@@ -716,6 +717,7 @@ void Worker::updateInFlight() {
   for (uint32_t d = 0; d < slots_.size(); ++d) {
     DeviceCounters& c = counters_[d];
     int want = in_flight_;
+    const bool first = !c.measured && !c.recent.empty() && rtt_ms_ > 0;
     if (!c.recent.empty() && rtt_ms_ > 0) {
       std::vector<double> v(c.recent.begin(), c.recent.end());
       std::nth_element(v.begin(), v.begin() + v.size() / 2, v.end());
@@ -723,8 +725,9 @@ void Worker::updateInFlight() {
       want = std::clamp(static_cast<int>(std::ceil(2 * rtt_ms_ / 1000.0 / item)) + 1, 2, kMaxInFlight);
       want = std::max(want, in_flight_);
     }
-    // Small changes are ignored, so the depth does not flutter with every measurement.
-    if (want == c.in_flight || (std::abs(want - c.in_flight) < std::max(2, c.in_flight / 4) && want > 2)) continue;
+    // Small changes are ignored, so the depth does not flutter; the first measured depth is always logged.
+    if (first) c.measured = true;
+    else if (want == c.in_flight || (std::abs(want - c.in_flight) < std::max(2, c.in_flight / 4) && want > 2)) continue;
     spdlog::info("device {}: {} items in flight (round trip {:.0f} ms)", d, want, rtt_ms_);
     c.in_flight = want;
     slots_[d]->setInFlight(want);

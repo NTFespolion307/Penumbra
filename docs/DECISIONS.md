@@ -514,6 +514,13 @@ traversal is a port of tinybvh's `traverse_cwbvh.cl`, with these changes:
 - The triangle test cannot accept NaNs.
 - A full stack is counted and reported, not ignored.
 
+The node array is tinybvh's, with one change: each node's leaf triangle base becomes a triangle number. The
+triangles are Penumbra's own (`v2 - v0`, `v1 - v0`, `v0` with a scene-wide triangle id), rebuilt from the mesh in
+tinybvh's order. The pinned header turns on `CWBVH_COMPRESSED_TRIS` (4 float4 per triangle, a precomputed transform),
+and the first CUDA renders read that array as 3 float4 per triangle and crashed with an illegal address. Our format
+is the same whichever layout a later tinybvh picks, and the Moller-Trumbore test matches what the reference kernel
+does without compression.
+
 Slang's CUDA prelude (2026.19) gives `firstbithigh` on a uint with bit 31 set the signed meaning, which breaks the
 CWBVH hit masks; `highestBit()` avoids it. The GPU structs (`backends/gpu/gpu_types.h`, `shaders/types.slang`)
 are ordered so Vulkan's scalar layout and CUDA's natural alignment give the same bytes: float2 on 8 bytes, float4 on
