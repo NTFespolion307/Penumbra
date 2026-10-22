@@ -309,9 +309,22 @@ do not wait on the slowest GPU or host.
   `--devices cpu,cpu,cpu,cpu` splits the CPU into four devices (mainly for testing). With GPUs, the CPU device
   leaves one thread per GPU free to feed it.
 
+**Quick test right after cloning.** The repository ships three small scenes in `scenes/`: a Cornell box,
+material spheres on an HDRI, and an alpha-cutout scene. From the repository folder, with the binary path the build
+script printed:
+
+1. Render the Cornell box (a few seconds on a GPU, under a minute on most CPUs):
+   ```
+   build/windows-msvc-release/bin/penumbra.exe --terminal scenes/cornell.pen.json --spp 256 -o cornell.png
+   ```
+   On Linux: `build/linux-gcc-release/bin/penumbra --terminal scenes/cornell.pen.json --spp 256 -o cornell.png`
+2. The spheres on an HDRI (720p): `penumbra --terminal scenes/spheres.pen.json --spp 256 -o spheres.png`
+3. Several machines: host `scenes/cornell.pen.json` with `--terminal --host`, and join from another machine as in
+   [Rendering with several machines](#rendering-with-several-machines).
+
 **Test scenes and image comparison.** The build also makes two tools next to `penumbra`:
 
-1. Write the test scenes (Cornell box, furnace spheres, material spheres on an HDRI) into a folder:
+1. Write all test scenes (the three above plus the furnace spheres and a big-texture scene) into a folder:
    ```
    penumbra-scenegen scenes
    ```
@@ -603,6 +616,7 @@ Start with `penumbra --diagnose` and include its output in any bug report.
 | Linux: "CMake 3.26 or newer is required" | Install the official CMake as in [Prerequisites](#prerequisites); check `which cmake` points to `/opt/cmake/bin/cmake`. |
 | No Vulkan ray tracing, or the GPU is not listed | Update the GPU driver; `penumbra --list-devices` and `--diagnose` show each GPU and what it is missing. In Docker, the container needs `-e NVIDIA_DRIVER_CAPABILITIES=all`. NVIDIA GPUs without ray tracing render through CUDA when the build has it (`--diagnose` shows "CUDA build"); other GPUs without it are skipped and the CPU renders. |
 | CUDA not found | At build time: install the CUDA toolkit and rebuild (CMake prints `CUDA=ON`); without it Penumbra still builds with Vulkan and CPU. At run time: `penumbra --diagnose` shows the driver and each GPU. "The driver supports CUDA 12.x, this build needs CUDA 13.x": update the NVIDIA driver (580+), or build with a CUDA 12 toolkit. "compute capability ... is older than this build's oldest target": see `PEN_CUDA_ARCHS`. |
+| Worker: "could not join: the connection closed before the controller answered" (exit code 6) | Something closed the connection before the controller said anything: the address or port is not the controller's, a firewall, proxy or relay on the way drops it (a SOCKS relay such as `socat` must be set up to pass TCP), or the controller is ignoring this address after more than 5 wrong codes (wait 10 minutes or restart the controller). |
 | Worker: "could not join: the controller did not accept the join code" (exit code 6) | The code differs from the one the controller printed; copy it again (case and dashes do not matter). After more than 5 wrong codes in a minute the controller ignores that address for 10 minutes: wait, or restart the controller. |
 | Worker: "the controller rejected this worker: ... runs Penumbra ... (git ...)" (exit code 6) | The two machines run different builds. Run `git pull` and rebuild on both ([Updating](#updating)); the git hashes must match. |
 | Worker: "cannot connect to ...: connection refused" or timed out (exit code 7) | Check, in order: the controller is running with `--host` and printed "hosting on port 7420"; the address is one the controller listed; the firewall allows TCP 7420 on the controller (Windows: allow Penumbra when asked, or `New-NetFirewallRule -DisplayName Penumbra -Direction Inbound -Protocol TCP -LocalPort 7420 -Action Allow` in an admin PowerShell; Linux: `sudo ufw allow 7420/tcp`); for internet workers, the router forwards TCP 7420 (the controller logs whether UPnP did it) or both machines are on the same VPN. |

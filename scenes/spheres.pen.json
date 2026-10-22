@@ -1,0 +1,11 @@
+{
+  "environment": {
+    "hdri": "sky.hdr",
+    "rotation_deg": 0,
+    "strength": 1.0
+  },
+  "render": {
+    "res": "720p"
+  },
+  "scene": "spheres.gltf"
+}

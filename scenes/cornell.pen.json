@@ -1,0 +1,6 @@
+{
+  "render": {
+    "res": "512x512"
+  },
+  "scene": "cornell.gltf"
+}

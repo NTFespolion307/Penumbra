@@ -12,3 +12,6 @@
 *.hdr binary
 *.penfilm binary
 *.penpkg binary
+
+# Sample scenes: byte-exact on every OS (they must equal penumbra-scenegen output; tests check it)
+scenes/** -text

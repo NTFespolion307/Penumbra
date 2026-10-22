@@ -301,6 +301,12 @@ int Worker::session() {
     if (closed) {
       stopSlots(true);
       if (completed_) return toInt(ExitCode::Success);
+      if (!welcomed_ && conn_->closedBeforeReply()) {
+        spdlog::error("could not join: the connection closed before the controller answered. Check that the address "
+                      "and port are the controller's, that a firewall, proxy or relay on the way passes TCP, and that "
+                      "this address has not tried more than 5 wrong codes in the last 10 minutes.");
+        return toInt(ExitCode::RejectedByController);  // a blocked address looks the same, so the same code
+      }
       if (!welcomed_ && conn_->handshakeFailed()) {
         spdlog::debug("handshake: {}", reason);
         spdlog::error("could not join: the controller did not accept the join code. Check --code (the controller "

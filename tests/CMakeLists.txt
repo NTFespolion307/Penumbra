@@ -335,3 +335,10 @@ add_test(NAME docs.cli_reference
 add_test(NAME lint.layering
          COMMAND "${CMAKE_COMMAND}" -DSOURCE_DIR=${PROJECT_SOURCE_DIR} -P "${PROJECT_SOURCE_DIR}/cmake/CheckLayering.cmake")
 set_tests_properties(docs.cli_reference lint.layering PROPERTIES LABELS lint)
+# The sample scenes in scenes/ (for a quick render after cloning) must stay what penumbra-scenegen writes.
+foreach(_f cornell.gltf cornell.pen.json spheres.gltf spheres.pen.json sky.hdr cutout.gltf cutout.pen.json
+           cutout_checker.png)
+  add_test(NAME docs.sample_scene_${_f}
+           COMMAND "${CMAKE_COMMAND}" -E compare_files "${PROJECT_SOURCE_DIR}/scenes/${_f}" "${PEN_SCENES}/${_f}")
+  set_tests_properties(docs.sample_scene_${_f} PROPERTIES LABELS lint)
+endforeach()

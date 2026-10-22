@@ -88,10 +88,13 @@ void Connection::readSome() {
     if (ec) {
       if (!self->established_) {
         self->handshake_failed_ = true;
+        if (!self->received_)
+          return self->fail("the other side closed the connection before sending anything");
         return self->fail("the other side closed the connection during the encrypted handshake (wrong join code?)");
       }
       return self->fail(ec == asio::error::eof ? "the other side closed the connection" : ec.message());
     }
+    if (n > 0) self->received_ = true;
     self->onCipher(n);
   });
 }

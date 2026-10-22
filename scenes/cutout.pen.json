@@ -1,0 +1,13 @@
+{
+  "environment": {
+    "color": [
+      1.0,
+      1.0,
+      1.0
+    ]
+  },
+  "render": {
+    "res": "320x180"
+  },
+  "scene": "cutout.gltf"
+}

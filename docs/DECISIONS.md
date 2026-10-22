@@ -638,3 +638,9 @@ pixel-samples) in one dispatch, 4-7 s on that host, so two healthy GPUs still bu
 the render passed the 10 s grace and were removed as hung, and the render ended 11 s late. Vulkan now splits an item
 into dispatches of at most 2^22 paths (one submit each, cancel checked between them), the same scheme as CUDA's
 launches (`kItemAccumulate`; the same bits as one dispatch), so a cancel takes effect within one short dispatch.
+
+**D-096 Sample scenes in the repository (M7, user request).** `scenes/` holds the `cornell`, `spheres` (with
+`sky.hdr`) and `cutout` scenes, about 2.2 MB, so a fresh clone can render right after building (README "Quick test
+right after cloning"). They are exactly what `penumbra-scenegen` writes: `.gitattributes` keeps them byte-exact on
+every OS (no CRLF conversion, so the scene package hash is the same everywhere), and the `docs.sample_scene_*`
+tests compare them with the generated copies. The furnace and big-texture scenes (8-12 MB, test-only) stay generated.
