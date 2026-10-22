@@ -6,7 +6,7 @@
 #pragma once
 #include "scene.slang"
 
-StructuredBuffer<float4> g_bvh_nodes;    // every mesh's CWBVH nodes, 5 float4 per node
+StructuredBuffer<float4> g_bvh_nodes;    // every mesh's CWBVH nodes, 5 float4 per node (n1.y: first triangle)
 StructuredBuffer<float4> g_bvh_tris;     // every mesh's triangles, 3 float4 each: v2 - v0, v1 - v0, v0 (w: triangle id)
 StructuredBuffer<Blas> g_blas;           // per mesh
 StructuredBuffer<TlasNode> g_tlas_nodes; // node 0 is the root
@@ -168,7 +168,7 @@ void traverseBlas(Blas blas, uint instance, float3 O, float3 D, bool anyHit, ino
       uint ti = highestBit(tgroup.y);
       tgroup.y -= 1u << ti;
       ++steps;
-      if (testTriangle(blas.tri_base + tgroup.x + ti * 3, instance, alpha, O, D, h) && anyHit) return;
+      if (testTriangle(blas.tri_base + (tgroup.x + ti) * 3, instance, alpha, O, D, h) && anyHit) return;
     }
     if (ngroup.y <= 0x00FFFFFFu) {
       if (sp == 0) return;

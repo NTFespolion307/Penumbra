@@ -36,18 +36,24 @@ struct Box {
   bool empty() const { return lo.x > hi.x; }
 };
 
-// Copies triangles in the CWBVH triangle format (v2 - v0, v1 - v0, v0 with the triangle id in w).
-void appendListTriangles(const std::vector<tinybvh::bvhvec4>& verts, const std::vector<uint32_t>& idx,
-                         uint32_t idBase, std::vector<Vec4f>& out) {
-  for (uint32_t t = 0; t * 3 < idx.size(); ++t) {
-    const tinybvh::bvhvec4 v0 = verts[idx[t * 3]], v1 = verts[idx[t * 3 + 1]], v2 = verts[idx[t * 3 + 2]];
-    const uint32_t id = idBase + t;
-    float w;
-    std::memcpy(&w, &id, 4);
-    out.push_back({v2.x - v0.x, v2.y - v0.y, v2.z - v0.z, 0});
-    out.push_back({v1.x - v0.x, v1.y - v0.y, v1.z - v0.z, 0});
-    out.push_back({v0.x, v0.y, v0.z, w});
-  }
+// float4 blocks per triangle in tinybvh's CWBVH triangle array at the pinned version: its header turns on
+// CWBVH_COMPRESSED_TRIS (4 blocks, a precomputed transform, triangle index in block 3's w); without it, 3 blocks
+// (v2 - v0, v1 - v0, v0 with the index in w).
+#if defined(CWBVH_COMPRESSED_TRIS)
+constexpr uint32_t kTinyTriBlocks = 4, kTinyIdBlock = 3;
+#else
+constexpr uint32_t kTinyTriBlocks = 3, kTinyIdBlock = 2;
+#endif
+
+// Appends mesh triangle t in our format (shaders/bvh.slang): v2 - v0, v1 - v0, v0 with the triangle id in w.
+void appendTriangle(const std::vector<tinybvh::bvhvec4>& verts, const std::vector<uint32_t>& idx, uint32_t t,
+                    uint32_t id, std::vector<Vec4f>& out) {
+  const tinybvh::bvhvec4 v0 = verts[idx[t * 3]], v1 = verts[idx[t * 3 + 1]], v2 = verts[idx[t * 3 + 2]];
+  float w;
+  std::memcpy(&w, &id, 4);
+  out.push_back({v2.x - v0.x, v2.y - v0.y, v2.z - v0.z, 0});
+  out.push_back({v1.x - v0.x, v1.y - v0.y, v1.z - v0.z, 0});
+  out.push_back({v0.x, v0.y, v0.z, w});
 }
 
 }  // namespace
@@ -89,22 +95,28 @@ GpuBvh buildGpuBvh(const Scene& scene) {
       b.kind = 0;
     } else if (triCount <= kListMaxTriangles) {
       b.kind = 2;
-      appendListTriangles(verts, idx, idBase, out.tris);
+      for (uint32_t t = 0; t < triCount; ++t) appendTriangle(verts, idx, t, idBase + t, out.tris);
     } else {
       tinybvh::BVH8_CWBVH bvh;
       bvh.Build(tinybvh::bvhvec4slice(verts.data(), static_cast<uint32_t>(verts.size())), idx.data(), triCount);
       b.kind = 1;
+      // Nodes as they are, except each node's leaf triangle base (n1.y), which becomes a triangle number: our
+      // triangles are 3 float4 each whatever tinybvh's own triangle format is.
+      const size_t firstNode = out.nodes.size();
       out.nodes.insert(out.nodes.end(), reinterpret_cast<const Vec4f*>(bvh.bvh8Data),
                        reinterpret_cast<const Vec4f*>(bvh.bvh8Data) + bvh.usedBlocks);
-      const size_t first = out.tris.size();
-      out.tris.insert(out.tris.end(), reinterpret_cast<const Vec4f*>(bvh.bvh8Tris),
-                      reinterpret_cast<const Vec4f*>(bvh.bvh8Tris) + bvh.usedTriBlocks);
-      // tinybvh stores the mesh-local triangle index in v0.w; make it a scene-wide id.
-      for (size_t i = first + 2; i < out.tris.size(); i += 3) {
-        uint32_t id;
-        std::memcpy(&id, &out.tris[i].w, 4);
-        id += idBase;
-        std::memcpy(&out.tris[i].w, &id, 4);
+      for (size_t n = firstNode + 1; n < out.nodes.size(); n += 5) {
+        uint32_t base;
+        std::memcpy(&base, &out.nodes[n].y, 4);
+        base /= kTinyTriBlocks;
+        std::memcpy(&out.nodes[n].y, &base, 4);
+      }
+      // Triangles in tinybvh's order, rebuilt from the mesh (tinybvh keeps the mesh triangle index).
+      for (uint32_t j = 0; j * kTinyTriBlocks < bvh.usedTriBlocks; ++j) {
+        uint32_t t;
+        std::memcpy(&t, &bvh.bvh8Tris[j * kTinyTriBlocks + kTinyIdBlock].w, 4);
+        if (t >= triCount) throw BackendError("tinybvh: CWBVH triangle index out of range");
+        appendTriangle(verts, idx, t, idBase + t, out.tris);
       }
     }
     if (alpha) b.kind |= 0x100;
