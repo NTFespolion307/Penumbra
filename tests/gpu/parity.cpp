@@ -1,5 +1,5 @@
-// penumbra-gpu-parity: runs shaders/parity.slang on the first ray-tracing GPU and compares every value with the C++
-// reference (DECISIONS D-077). Exit code 0 when every function agrees: integer paths bit for bit, discrete
+// penumbra-gpu-parity [--backend vulkan|cuda]: runs shaders/parity.slang on the first GPU of that backend (Vulkan:
+// with ray tracing) and compares every value with the C++ reference (DECISIONS D-077). Exit code 0 when every function agrees: integer paths bit for bit, discrete
 // choices (sample succeeded, delta, lobe) in at least 99.5% of cases, floats within a relative 2e-3 in at least
 // 99.5% of cases (the rest are ill-conditioned inputs: grazing angles, total internal reflection edges).
 
@@ -9,7 +9,12 @@
 #include <string>
 #include <vector>
 
+#if defined(PEN_HAS_VULKAN)
 #include "backends/vulkan/vulkan_backend.h"
+#endif
+#if defined(PEN_HAS_CUDA)
+#include "backends/cuda/cuda_backend.h"
+#endif
 #include "core/sampling/sampler.h"
 #include "core/sampling/warp.h"
 #include "core/shading/bsdf.h"
@@ -125,22 +130,53 @@ const Group kGroups[] = {
 
 }  // namespace
 
-int main() {
-  const VulkanProbe& probe = probeVulkan();
-  int gpu = -1;
-  for (const VulkanGpu& g : probe.gpus)
-    if (g.ray_tracing) {
-      gpu = static_cast<int>(g.physical_index);
-      std::printf("GPU: %s (%s)\n", g.name.c_str(), g.driver.c_str());
-      break;
-    }
-  if (gpu < 0) {
-    std::printf("no GPU with Vulkan ray tracing: %s\n", probe.error.empty() ? "none found" : probe.error.c_str());
-    return 1;
-  }
+int main(int argc, char** argv) {
+  const std::string backend = argc >= 3 && std::string(argv[1]) == "--backend" ? argv[2] : "vulkan";
   std::vector<float> got;
   try {
-    got = runVulkanParity(static_cast<uint32_t>(gpu), kCases);
+    if (backend == "vulkan") {
+#if defined(PEN_HAS_VULKAN)
+      const VulkanProbe& probe = probeVulkan();
+      int gpu = -1;
+      for (const VulkanGpu& g : probe.gpus)
+        if (g.ray_tracing) {
+          gpu = static_cast<int>(g.physical_index);
+          std::printf("GPU: %s (%s), backend vulkan\n", g.name.c_str(), g.driver.c_str());
+          break;
+        }
+      if (gpu < 0) {
+        std::printf("no GPU with Vulkan ray tracing: %s\n", probe.error.empty() ? "none found" : probe.error.c_str());
+        return 1;
+      }
+      got = runVulkanParity(static_cast<uint32_t>(gpu), kCases);
+#else
+      std::printf("this build has no Vulkan backend\n");
+      return 1;
+#endif
+    } else if (backend == "cuda") {
+#if defined(PEN_HAS_CUDA)
+      const CudaProbe& probe = probeCuda();
+      int gpu = -1;
+      for (const CudaGpu& g : probe.gpus)
+        if (g.usable) {
+          gpu = static_cast<int>(g.ordinal);
+          std::printf("GPU: %s (compute %d.%d), backend cuda, %s\n", g.name.c_str(), g.cc_major, g.cc_minor,
+                      cudaBuildSummary().c_str());
+          break;
+        }
+      if (gpu < 0) {
+        std::printf("no usable CUDA GPU: %s\n", probe.error.empty() ? "none found" : probe.error.c_str());
+        return 1;
+      }
+      got = runCudaParity(static_cast<uint32_t>(gpu), kCases);
+#else
+      std::printf("this build has no CUDA backend\n");
+      return 1;
+#endif
+    } else {
+      std::printf("usage: penumbra-gpu-parity [--backend vulkan|cuda]\n");
+      return 2;
+    }
   } catch (const std::exception& e) {
     std::printf("GPU run failed: %s\n", e.what());
     return 1;

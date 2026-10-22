@@ -92,12 +92,15 @@ InstanceState& instanceState() {
     for (uint32_t i = 0; i < n; ++i) {
       VkPhysicalDevice pd = s.physical[i];
       VkPhysicalDeviceDriverProperties driver{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES};
+      VkPhysicalDeviceIDProperties ids{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES};
+      driver.pNext = &ids;
       VkPhysicalDeviceProperties2 props{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
       props.pNext = &driver;
       vkGetPhysicalDeviceProperties2(pd, &props);
       VulkanGpu g;
       g.physical_index = i;
       g.name = props.properties.deviceName;
+      std::memcpy(g.uuid.data(), ids.deviceUUID, VK_UUID_SIZE);
       g.driver = fmt::format("{} {}", driver.driverName, driver.driverInfo);
       switch (props.properties.deviceType) {
         case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU: g.type = "discrete"; break;
