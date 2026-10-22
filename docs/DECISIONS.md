@@ -583,7 +583,9 @@ build, D-087), and a Windows GPU run (gaming PC, later).
 **D-090 `--devices` items name their backend (M7, 2026-10-22).** A GPU item in `--devices` may carry `:vulkan` or
 `:cuda` (`0:vulkan,1:cuda,cpu`), so one host mixes backends; without a suffix the GPU follows `--backend`, and
 `auto` picks Vulkan RT, else CUDA (D-088). The same GPU may be listed twice (`0:vulkan,0:cuda`), as two
-independent slots; this is for tests, not speed. A suffix that contradicts a non-auto `--backend` is refused before
+independent slots; this is for tests, not speed. Measured on an RTX 3060 (2026-10-22): CUDA alone 12.2 M
+samples/s; Vulkan + CUDA on the same GPU 13.1 M samples/s together, with the driver time-slicing the two contexts so
+unevenly that the CUDA slot finished 1 item while Vulkan did 31. The image is right; nothing is gained. A suffix that contradicts a non-auto `--backend` is refused before
 the render. Hybrid CPU: when GPUs render too and `--threads` is not set, the CPU device leaves one thread per GPU
 slot (plus 2 on the controller host) so the GPU feeder threads are not starved; the log says how many it took.
 
