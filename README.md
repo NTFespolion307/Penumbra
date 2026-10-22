@@ -20,8 +20,9 @@ combination of machines, GPUs and backends converges to the same image.
 <!-- A screenshot goes here once the UI exists (M10). -->
 
 **Supported GPUs:** NVIDIA first: RTX 20 series and newer through Vulkan ray tracing (tested on an RTX 5060 Ti
-under Linux), and any NVIDIA GPU from the GTX 16 series (Turing, compute capability 7.5) through CUDA, with a
-software BVH (tested on a GTX 1660 SUPER); older NVIDIA GPUs need a build with CUDA 12 (see Build options). AMD RDNA2+ and Intel Arc should work through Vulkan
+under Linux), and any NVIDIA GPU from compute capability 7.5 (Turing) through CUDA with a software BVH (tested on an RTX 5070
+Ti and a GTX 1660 SUPER). The NVIDIA driver also offers Vulkan ray tracing on GTX 16-series cards (emulated on the
+shader cores), so those use Vulkan by default. Older NVIDIA GPUs need a build with CUDA 12 (see Build options). AMD RDNA2+ and Intel Arc should work through Vulkan
 ray tracing but are untested. Integrated Intel/AMD GPUs without ray tracing do not render in v1; the CPU renders instead.
 On the GPU, an image matches the CPU's within float rounding (relMSE about 1e-8 at 4,096 samples per pixel).
 
@@ -222,7 +223,7 @@ Use this if you want to drive CMake yourself. On Windows, run these in an **x64*
    ```
    .\scripts\test-gpu.ps1        # Linux: ./scripts/test-gpu.sh
    ```
-   On a GPU without ray tracing (GTX 16 series), run only the CUDA tests:
+   On a GPU without Vulkan ray tracing, run only the CUDA tests:
    `.\scripts\test-gpu.ps1 -Label cuda` (Linux: `./scripts/test-gpu.sh release cuda`).
 
 The binary is `build/<preset>/bin/penumbra` (`penumbra.exe` on Windows).
@@ -511,7 +512,7 @@ Before a render starts Penumbra checks there is room for the film and the output
 | `--backend` | Runs on | Role |
 | --- | --- | --- |
 | `vulkan` | NVIDIA RTX 20+, AMD RDNA2+, Intel Arc | Default on GPUs with ray tracing; uses the RT cores |
-| `cuda` | NVIDIA GTX 16 series and newer | GPUs without RT cores (software BVH, tinybvh CWBVH); slower than Vulkan RT. Also on RTX GPUs with `--backend cuda`, and the only backend for `--integrator debug:bvh` |
+| `cuda` | NVIDIA, compute capability 7.5+ (older with a CUDA 12 build) | Default on NVIDIA GPUs without Vulkan ray tracing (software BVH, tinybvh CWBVH); slower than Vulkan RT. Also on RTX GPUs with `--backend cuda`, and the only backend for `--integrator debug:bvh` |
 | `cpu` | Any x86-64 or ARM64 CPU | Fallback and reference; joins GPUs in hybrid mode |
 | `optix` *(planned, M13)* | NVIDIA RTX | Optional, only if it beats Vulkan RT |
 

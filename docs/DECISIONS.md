@@ -544,7 +544,10 @@ with MSVC here (device code only).
 **D-088 One GPU list for both backends.** The `--devices` numbering lists GPUs with Vulkan ray tracing in Vulkan
 order, then NVIDIA GPUs only CUDA can use, in CUDA order. A GPU on both lists is matched by UUID and appears
 once. `--backend auto` picks Vulkan where the GPU has ray tracing, else CUDA, and logs the choice per GPU.
-`--backend cuda` forces CUDA (also on RT GPUs, for testing), and `--backend vulkan` skips GPUs without RT.
+`--backend cuda` forces CUDA (also on RT GPUs, for testing), and `--backend vulkan` skips GPUs without RT. Tested
+on a GTX 1660 SUPER (2026-10-22): its driver (610) offers Vulkan ray tracing on the GTX 16 series, emulated on the
+shader cores, so `auto` uses Vulkan there too. CUDA is the default only where the driver offers no Vulkan RT
+(GTX 10 series and older, which need a CUDA 12 build, D-087), or where Vulkan itself is missing.
 `--integrator debug:bvh` (D-027) now works with `--backend cuda`: each pixel holds the number of BVH nodes visited
 plus triangles tested by the camera ray. Without `--backend cuda` the render is refused before it starts. The CPU
 and Vulkan backends refuse it in `prepare()`, so a worker that joins with another backend fails its devices
