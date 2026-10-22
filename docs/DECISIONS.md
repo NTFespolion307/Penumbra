@@ -531,8 +531,10 @@ static_asserts the offset of every field of every struct.
 **D-087 CUDA kernels are built ahead of time; the driver is loaded at run time.** nvcc compiles the generated CUDA
 C++ into a fatbin embedded in the binary: machine code for every architecture in `PEN_CUDA_ARCHS` that the toolkit
 supports (the others are left out with a CMake warning), all produced from ONE PTX of the oldest architecture,
-which is embedded too. Every GPU generation therefore runs the same instructions, and the driver can compile the
-PTX for GPUs newer than the list. Nothing links against CUDA: `nvcuda.dll` / `libcuda.so.1` is opened at start,
+which is embedded too. Every GPU generation therefore starts from the same program, and the driver can compile
+the PTX for GPUs newer than the list. Results agree very closely across generations but are not guaranteed bit for
+bit. On the RTX 5070 Ti and the GTX 1660 SUPER the Cornell box gave identical bits, while the spheres scene
+differed in the last bits, because ptxas schedules each architecture differently. Nothing links against CUDA: `nvcuda.dll` / `libcuda.so.1` is opened at start,
 so a machine without NVIDIA still runs Penumbra, and `--diagnose` says why CUDA is missing. A GPU is usable when
 the build has machine code for its architecture (same major version, equal or lower minor) or it is at least the
 PTX architecture, and the driver supports the toolkit's major version (CUDA 13 kernels need a CUDA 13 driver).
@@ -552,3 +554,28 @@ shader cores, so `auto` uses Vulkan there too. CUDA is the default only where th
 plus triangles tested by the camera ray. Without `--backend cuda` the render is refused before it starts. The CPU
 and Vulkan backends refuse it in `prepare()`, so a worker that joins with another backend fails its devices
 instead of rendering zeros.
+
+**D-089 M6 gate results (2026-10-22).** Linux, vast.ai containers, Ubuntu 24.04, GCC 12.4, CUDA 13.3, driver 610,
+each built from a fresh clone per the README:
+- **RTX 5070 Ti 16 GB** (Blackwell, sm_120, 30 CPUs): full suite passes; 24/24 GPU tests (Vulkan and CUDA).
+  CUDA vs CPU at 4,096 spp: golden Cornell relMSE 1.1e-8, spheres 1.4e-9 (gate: 1e-3). Big texture 8e-10; cutout
+  (alpha, instancing, orthographic) 5.8e-10. CUDA vs Vulkan 2.2e-9. Parity of every shading function passes.
+- **GTX 1660 SUPER 6 GB** (Turing, sm_75, the oldest default target, no RT cores; 14 CPUs): full suite 157/157;
+  13/13 CUDA tests, with the same Cornell relMSE (1.082e-8) and spheres 1.4e-9.
+
+Both GPUs: CUDA repeats bit for bit; a mixed CUDA + CPU render stays within the tolerance, with both devices
+rendering items; `debug:bvh` renders.
+
+Windows (laptop, MSVC 19.51, no CUDA toolkit, so CUDA is not built): full suite passes. The `chunks` change
+(D-083, D-084) is tested in the same runs. They found two test harness bugs and one logging gap, all fixed:
+- `cmake -E env` wrappers orphaned killed processes.
+- One resume test was too fast on fast machines.
+- The first in-flight depth was not logged.
+
+Also from these runs:
+- The hybrid GPU tests had silently become CPU-only once items grew to 2^26 pixel-samples; they now use small
+  chunks and check that both devices rendered.
+- CUDA is about 9x slower than Vulkan RT on an RTX GPU (docs/BENCHMARKS.md), which is for M9 to tune.
+
+Not covered: CUDA on Windows (no toolkit on the laptop; the user's call), a GTX 10-series GPU (needs a CUDA 12
+build, D-087), and a Windows GPU run (gaming PC, later).
