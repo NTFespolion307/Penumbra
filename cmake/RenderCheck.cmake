@@ -16,11 +16,27 @@ set(common --terminal "${SCENE}" --config "${WORKDIR}/empty-config.json" --log-f
            --progress plain --bit-depth 32 ${extra})
 file(WRITE "${WORKDIR}/empty-config.json" "{}\n")
 
+# MIN_GPUS=N: a multi-GPU test prints "SKIPPED:" (the test's SKIP_REGULAR_EXPRESSION) on a machine with fewer
+# GPUs that can render, as `penumbra --list-devices` numbers them.
+if(DEFINED MIN_GPUS)
+  execute_process(COMMAND "${PENUMBRA}" --list-devices OUTPUT_VARIABLE o ERROR_VARIABLE e)
+  string(REGEX MATCHALL "\n  [0-9]+ +[^\n]*" gpus "\n${o}")
+  list(LENGTH gpus gpu_count)
+  if(gpu_count LESS MIN_GPUS)
+    message(STATUS "SKIPPED: this machine has ${gpu_count} GPU(s) that can render; the test needs ${MIN_GPUS}")
+    return()
+  endif()
+endif()
+
 # SMALL_CHUNKS=1: work items of 2^22 pixel-samples instead of the default (tests that need many items per tile,
 # DECISIONS D-083). Network tests always use it. Set in this script's environment, which every process it starts
 # inherits: wrapping penumbra in `cmake -E env` would make a kill hit the wrapper and leave penumbra running.
 if(SMALL_CHUNKS OR MODE STREQUAL "network")
   set(ENV{PENUMBRA_TEST_CHUNK_BUDGET} 4194304)
+endif()
+# NO_TAIL=1: no tail duplication (D-091), so a hung device is caught by the late-lease check instead.
+if(NO_TAIL)
+  set(ENV{PENUMBRA_TEST_NO_TAIL_DUPLICATION} 1)
 endif()
 
 # Renders `out`; extra arguments go to penumbra. RENDER_ENV (e.g. "PENUMBRA_TEST_FAULTS=...") is set for the

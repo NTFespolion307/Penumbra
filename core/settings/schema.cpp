@@ -60,23 +60,44 @@ std::optional<ImageFormat> formatFromName(std::string_view name) {
   return enumFromString<ImageFormat>(n);
 }
 
+}  // namespace
+
+std::vector<DeviceItem> parseDeviceList(std::string_view list) {
+  std::vector<DeviceItem> items;
+  size_t start = 0;
+  for (;;) {
+    const size_t comma = list.find(',', start);
+    const std::string item = toLower(trim(list.substr(start, comma == std::string_view::npos ? comma : comma - start)));
+    DeviceItem d;
+    if (item == "cpu") {
+      d.cpu = true;
+    } else {
+      const size_t colon = item.find(':');
+      d.gpu = static_cast<uint32_t>(parseUint(std::string_view(item).substr(0, colon), 0, 255));
+      if (colon != std::string::npos) {
+        const std::string_view b = std::string_view(item).substr(colon + 1);
+        if (b == "vulkan") d.backend = BackendKind::Vulkan;
+        else if (b == "cuda") d.backend = BackendKind::Cuda;
+        else throw ValueError(fmt::format("'{}': a GPU's backend is vulkan or cuda", item));
+      }
+    }
+    items.push_back(d);
+    if (comma == std::string_view::npos) break;
+    start = comma + 1;
+  }
+  return items;
+}
+
+namespace {
+
 std::string normalizeDevices(const json& v) {
   std::string t = toLower(text(v));
   std::erase_if(t, [](char c) { return c == ' '; });
   if (t == "all" || t == "gpu") return t;
-  size_t start = 0;
-  for (;;) {
-    const size_t comma = t.find(',', start);
-    const std::string_view item = std::string_view(t).substr(start, comma - start);
-    if (item != "cpu") {
-      try {
-        parseUint(item, 0, 255);
-      } catch (const ValueError&) {
-        throw ValueError(fmt::format("'{}' is not 'all', 'gpu' or a list like '0,1,cpu'", text(v)));
-      }
-    }
-    if (comma == std::string::npos) break;
-    start = comma + 1;
+  try {
+    parseDeviceList(t);
+  } catch (const ValueError&) {
+    throw ValueError(fmt::format("'{}' is not 'all', 'gpu' or a list like '0,1:cuda,cpu'", text(v)));
   }
   return t;
 }
@@ -171,7 +192,9 @@ const std::array kSchema = {
                 "--backend cuda", "Ray tracing backend",
                 [](S& s, const json& v) { s.backend = asEnum<BackendKind>(v); }},
     SettingSpec{"devices", "--devices", "Devices", K::Value,
-                "all, gpu, or a list like 0,1,cpu (repeat cpu for several CPU slots)", "all", true,
+                "all, gpu, or a list like 0,1:cuda,cpu (GPU numbers from --list-devices, optionally :vulkan or :cuda; "
+                "repeat cpu for several CPU slots)",
+                "all", true,
                 "--devices 0,cpu", "Which local devices render (controller or worker)",
                 [](S& s, const json& v) { s.devices = normalizeDevices(v); }},
     SettingSpec{"threads", "--threads", "Devices", K::Value, "0-4096, 0 = all cores", "0", true, "--threads 8",

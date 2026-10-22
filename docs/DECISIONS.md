@@ -579,3 +579,48 @@ Also from these runs:
 
 Not covered: CUDA on Windows (no toolkit on the laptop; the user's call), a GTX 10-series GPU (needs a CUDA 12
 build, D-087), and a Windows GPU run (gaming PC, later).
+
+**D-090 `--devices` items name their backend (M7, 2026-10-22).** A GPU item in `--devices` may carry `:vulkan` or
+`:cuda` (`0:vulkan,1:cuda,cpu`), so one host mixes backends; without a suffix the GPU follows `--backend`, and
+`auto` picks Vulkan RT, else CUDA (D-088). The same GPU may be listed twice (`0:vulkan,0:cuda`), as two
+independent slots; this is for tests, not speed. A suffix that contradicts a non-auto `--backend` is refused before
+the render. Hybrid CPU: when GPUs render too and `--threads` is not set, the CPU device leaves one thread per GPU
+slot (plus 2 on the controller host) so the GPU feeder threads are not starved; the log says how many it took.
+
+**D-091 Tail duplication (M7).** When the scheduler has nothing left to hand out and a device that wants work has
+no lease at all, the controller gives it a copy of the oldest outstanding lease of another device, if that device
+should finish sooner: the lease is older than the owner's mean item time, or the idle device's mean item time is
+below what the owner has left (its mean minus the lease's age); devices without a finished item yet always qualify.
+The check runs on every event and every 200 ms, as leases age. Each item gets one copy at most; late-reissued leases and copies are not
+copied again. The first valid result is merged; the other is acknowledged as `duplicate` and dropped. The loser is
+not cancelled (workers only cancel everything, protocol 1-3): it finishes or is cancelled at the end of the render,
+which comes when every chunk is merged, so it never delays the image. A lost lease (device failed, released,
+worker gone, invalid result) is only requeued when no other lease still holds its item. Same backend means the
+same bits, so the image does not depend on which copy wins; a copy on another backend stays within the usual
+cross-backend tolerance. The 10x-median late-lease check (D-049) stays for hangs while the queue still has work;
+its tests turn duplication off with the test hook `PENUMBRA_TEST_NO_TAIL_DUPLICATION=1` (D-047, logged when active).
+The summary logs how many items were copied and how many copies won.
+
+**D-092 Devices prepare in parallel; a device that cannot take the scene is skipped (M7, protocol 3).** Every
+device plans memory, uploads the scene and prepares the frame on its own thread. A device that throws is reported
+in `WorkerReady` as `skipped` with the reason (new fields in `DeviceReadyDesc`, protocol version 3) and keeps its
+slot number, but never starts and gets no lease; the controller logs a warning and counts only the others. Only
+when every device fails does the worker answer `scene_rejected` (the local worker throws `BackendError` with all
+reasons).
+
+**D-093 NVML readings, loaded at run time (M7).** Worker `Stats` report per-GPU usage, VRAM used/total and
+temperature from NVML (`nvml.dll` / `libnvidia-ml.so.1`, part of the NVIDIA driver), opened with
+LoadLibrary/dlopen like the CUDA driver (D-087), so no SDK or header is needed and machines without it run the
+same. The few entry points are declared in `backends/gpu/nvml.cpp`. A GPU is found by its UUID
+(`nvmlDeviceGetHandleByUUID`, the same UUID Vulkan and CUDA report, now in `DeviceInfo`). Without NVML, or on
+another vendor's GPU, usage falls back to Penumbra's busy % and temperature is "unknown" (< -273), as the
+schema already allowed: no protocol change. `--list-devices` shows the live VRAM use, usage and temperature too.
+
+**D-094 A hung GPU cannot stop the render (M7).** The Vulkan fence wait (in 100 ms slices) and the CUDA wait
+(`cuStreamQuery` polling instead of `cuCtxSynchronize`) watch the cancel flag. A job that still runs 10 s after a
+cancel marks the device lost: the slot fails with a `BackendError` and the backend's destructor skips waiting and
+freeing (it leaks rather than hang or free memory the GPU may still use). Errors that already end in an error code
+(Vulkan `VK_ERROR_DEVICE_LOST`, CUDA sticky errors such as an illegal address) fail the item, the device is
+removed (`DeviceFailed`) and its leases go to the others, as for any device failure (D-047 fault tests). While the
+render runs, a hung device's leases are caught by tail duplication (D-091) or the late-lease check (D-049); the
+cancel at the end of the render then frees its slot within 10 s.

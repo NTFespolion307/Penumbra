@@ -315,6 +315,9 @@ int renderAndFinish(const RenderSettings& s, std::shared_ptr<Scene> scene, std::
     spdlog::info("  {}: {} items, {:.2f} M samples, {:.2f}s{}", d.name, d.items, d.samples / 1e6, d.seconds,
                  d.failed ? " (failed)" : "");
   if (outcome.reissued) spdlog::info("{} lease(s) were handed out again (late or from a failed device)", outcome.reissued);
+  if (outcome.duplicated)
+    spdlog::info("tail duplication: {} item(s) copied to idle devices, {} copy(ies) finished first", outcome.duplicated,
+                 outcome.duplicate_wins);
   if (outcome.nan_count) spdlog::warn("{} non-finite samples were replaced by 0", outcome.nan_count);
 
   const std::filesystem::path filmPath = film.path();

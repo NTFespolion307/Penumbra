@@ -13,6 +13,7 @@
 #include <map>
 #include <mutex>
 #include <string_view>
+#include <thread>
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -210,7 +211,7 @@ PEN_CUDA_FIELD(TlasNode, "TlasNode", count);
   X(cuDeviceTotalMem) X(cuDeviceGetUuid) X(cuDevicePrimaryCtxRetain) X(cuDevicePrimaryCtxRelease)             \
   X(cuCtxPushCurrent) X(cuCtxPopCurrent) X(cuCtxSynchronize) X(cuModuleLoadDataEx) X(cuModuleUnload)          \
   X(cuModuleGetFunction) X(cuModuleGetGlobal) X(cuMemAlloc) X(cuMemFree) X(cuMemcpyHtoD) X(cuMemcpyDtoH)      \
-  X(cuMemsetD8) X(cuLaunchKernel) X(cuGetErrorName) X(cuGetErrorString) X(cuMemGetInfo)
+  X(cuMemsetD8) X(cuLaunchKernel) X(cuGetErrorName) X(cuGetErrorString) X(cuMemGetInfo) X(cuStreamQuery)
 
 struct Driver {
 #define PEN_CU_MEMBER(name) decltype(&::name) name = nullptr;
@@ -364,6 +365,7 @@ class CudaBackend final : public IBackend {
   void check(CUresult r, const char* what) const {
     if (r != CUDA_SUCCESS) throw BackendError(fmt::format("CUDA on {}: {} failed: {}", info_.name, what, errorText(cu_, r)));
   }
+  void synchronize(const char* what);
   Module loadModule(const unsigned char* image, const char* kernel, uint32_t globalsSize);
   void unloadModule(Module& m);
   DeviceBuffer allocate(size_t bytes);
@@ -394,6 +396,7 @@ class CudaBackend final : public IBackend {
   bool scene_ready_ = false;
   const Scene* scene_ = nullptr;
   std::atomic<bool> cancel_{false};
+  bool lost_ = false;  // the GPU stopped answering: nothing is waited for or freed any more (D-094)
   bool stack_warned_ = false;
 };
 
@@ -416,6 +419,7 @@ CudaBackend::CudaBackend(uint32_t ordinal) : cu_(driverState().cu) {
   info_.threads = 0;
   info_.memory_bytes = gpu.vram_bytes;
   info_.hardware_rt = false;
+  info_.uuid = gpu.uuid;
   vram_budget_ = gpu.vram_bytes / 10 * 9;  // as the Vulkan backend until M8 reads the live budget
   CtxScope scope(cu_, ctx_);
   render_ = loadModule(kPathtraceFatbin, "render", L::kGlobalsSize);
@@ -426,6 +430,7 @@ CudaBackend::CudaBackend(uint32_t ordinal) : cu_(driverState().cu) {
 }
 
 CudaBackend::~CudaBackend() {
+  if (lost_) return;  // its kernels may still be running: leak them rather than hang or free memory in use
   {
     CtxScope scope(cu_, ctx_);
     cu_.cuCtxSynchronize();
@@ -641,11 +646,11 @@ void CudaBackend::render(const WorkItem& item, TileResult& out) {
     s = e;
     if (s < item.sample_end && cancel_) {
       out.cancelled = true;
-      check(cu_.cuCtxSynchronize(), "rendering");
+      synchronize("rendering");
       return;
     }
   }
-  check(cu_.cuCtxSynchronize(), "rendering");
+  synchronize("rendering");
   check(cu_.cuMemcpyDtoH(out.mean.data(), out_buffer_.ptr, r.pixels() * sizeof(Vec3f)), "cuMemcpyDtoH");
   uint32_t counters[4] = {};
   check(cu_.cuMemcpyDtoH(counters, counter_buffer_.ptr, sizeof(counters)), "cuMemcpyDtoH");
@@ -657,6 +662,28 @@ void CudaBackend::render(const WorkItem& item, TileResult& out) {
   }
   out.cancelled = cancel_.load();
   out.render_seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+}
+
+// Waits for the launches so far by polling, so a GPU that stops answering cannot hold its slot (and the end of the
+// render) forever: once cancelled, the kernels get 10 s to finish, then the device counts as lost (D-094). A
+// launch error (illegal address and other sticky errors) throws here; every later call fails the same way.
+void CudaBackend::synchronize(const char* what) {
+  constexpr auto kHungGrace = std::chrono::seconds(10);
+  std::chrono::steady_clock::time_point cancelledAt{};
+  for (;;) {
+    const CUresult r = cu_.cuStreamQuery(nullptr);
+    if (r == CUDA_SUCCESS) return;
+    if (r != CUDA_ERROR_NOT_READY) check(r, what);
+    std::this_thread::sleep_for(std::chrono::microseconds(200));
+    if (!cancel_) continue;
+    const auto now = std::chrono::steady_clock::now();
+    if (cancelledAt == std::chrono::steady_clock::time_point{}) cancelledAt = now;
+    if (now - cancelledAt > kHungGrace) {
+      lost_ = true;
+      throw BackendError(fmt::format("CUDA: {} does not answer: its kernels still run 10 s after the cancel",
+                                     info_.name));
+    }
+  }
 }
 
 // ---------------------------------------------------------------- parity test

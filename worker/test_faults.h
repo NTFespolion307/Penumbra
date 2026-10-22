@@ -16,8 +16,9 @@ namespace pen {
 //   exit     the whole process exits at once with code 137 (a crashed worker)
 //   freeze   the device hangs and a network worker stops sending anything, heartbeats included (a dead link)
 //   corrupt  a network worker damages the device's tiles after computing their checksums
+//   upload   the device fails while taking the scene (before any item; `after` is ignored), so it is skipped
 // Unset: nothing happens.
-enum class FaultMode { Throw, Hang, Exit, Freeze, Corrupt };
+enum class FaultMode { Throw, Hang, Exit, Freeze, Corrupt, Upload };
 
 struct FaultSpec {
   uint32_t device = 0;

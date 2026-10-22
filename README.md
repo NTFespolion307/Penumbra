@@ -298,12 +298,16 @@ device pulls chunks as it finishes them, two at a time. Films kept in RAM refine
 an early look shows the full frame; disk films finish one tile after another. Chunks of a tile are always
 combined in the same order, so the image is identical to the bit whatever the number of devices, failures or
 resumes. A device that fails hands its chunks back to the others; a chunk that takes more than 10 times the
-usual time is handed out again, and the first result wins.
+usual time is handed out again, and the first result wins. Near the end, when nothing is left to hand out, an idle
+device also takes a copy of the oldest chunk still out on a slower device (tail duplication), so the last minutes
+do not wait on the slowest GPU or host.
 
 - **Render for a fixed time:** `--spp 0 --time-limit 2h` adds passes until the deadline (needs the film in RAM).
 - **Pick devices:** `--devices 0` renders on GPU 0 only, `--devices 0,cpu` on GPU 0 and the CPU together,
-  `--devices cpu` on the CPU only (numbers as `penumbra --list-devices` prints them). `--devices cpu,cpu,cpu,cpu`
-  splits the CPU into four devices (mainly for testing).
+  `--devices cpu` on the CPU only (numbers as `penumbra --list-devices` prints them). A GPU number may name its
+  backend: `--devices 0:vulkan,1:cuda` (the same GPU may be listed twice, `0:vulkan,0:cuda`, mainly for testing).
+  `--devices cpu,cpu,cpu,cpu` splits the CPU into four devices (mainly for testing). With GPUs, the CPU device
+  leaves one thread per GPU free to feed it.
 
 **Test scenes and image comparison.** The build also makes two tools next to `penumbra`:
 
@@ -431,7 +435,7 @@ full text on your machine.
 | Render | `--camera` | camera name | first in scene | `penumbra --camera Camera.001` | `camera` | Camera to render from |
 | Render | `--time-limit` | duration (2h30m, 45m, 90s) or none | none | `penumbra --time-limit 2h30m` | `time_limit` | Stop and write the output at the deadline |
 | Devices | `--backend` | auto, vulkan, cuda, cpu, optix | auto | `penumbra --backend cuda` | `backend` | Ray tracing backend |
-| Devices | `--devices` | all, gpu, or a list like 0,1,cpu (repeat cpu for several CPU slots) | all | `penumbra --devices 0,cpu` | `devices` | Which local devices render (controller or worker) |
+| Devices | `--devices` | all, gpu, or a list like 0,1:cuda,cpu (GPU numbers from --list-devices, optionally :vulkan or :cuda; repeat cpu for several CPU slots) | all | `penumbra --devices 0,cpu` | `devices` | Which local devices render (controller or worker) |
 | Devices | `--threads` | 0-4096, 0 = all cores | 0 | `penumbra --threads 8` | `threads` | CPU worker threads |
 | Devices | `--tile-size` | 16-4096 | 256 | `penumbra --tile-size 128` | `tile_size` | Work item tile size in pixels |
 | Devices | `--vram-limit` | size (6G, 512M) or auto | auto | `penumbra --vram-limit 6G` | `vram_limit` | VRAM budget per GPU (default: free VRAM minus 10%) |
@@ -521,12 +525,19 @@ and the CPU only when no GPU qualifies or `--devices` lists `cpu`. Every choice 
 `penumbra --list-devices` numbers the GPUs as `--devices` takes them: ray-tracing GPUs first, then NVIDIA GPUs
 that only CUDA can use; GPUs that cannot render are listed with the reason.
 
-### Multi-GPU and memory tiers *(planned, M7/M8)*
+### Multi-GPU and memory tiers *(memory tiers planned, M8)*
 
-A worker uses all its GPUs at once; each GPU pulls its own work, so fast GPUs do more of the frame. Each GPU
-picks a memory tier for the scene: **0** everything in VRAM; **1** textures in RAM (1.2–2× slower); **2**
-textures downsized (disable with `--no-texture-downsize`); **3** GPU skipped. Override the budget with
-`--vram-limit` and `--ram-limit`. A GPU that runs out of memory never crashes the render.
+A worker (and the controller's own machine) uses all its GPUs at once, one slot per GPU; each GPU pulls its own
+work, so fast GPUs do more of the frame. Backends mix freely on one host (`--devices 0:vulkan,1:cuda,cpu`), and
+with the CPU in the list it renders alongside, leaving one thread per GPU to feed it. Every GPU loads the scene at
+the same time; a GPU that cannot take the scene is skipped with the reason in the log and the others render. A GPU
+that fails or stops answering mid-render is removed and its work goes to the others: a removed GPU never stops
+the render, and the image is the same. On NVIDIA GPUs the worker reports usage, VRAM and temperature from the
+driver (NVML); `penumbra --list-devices` shows them too.
+
+Each GPU picks a memory tier for the scene *(M8)*: **0** everything in VRAM; **1** textures in RAM (1.2–2×
+slower); **2** textures downsized (disable with `--no-texture-downsize`); **3** GPU skipped. Override the budget
+with `--vram-limit` and `--ram-limit`. A GPU that runs out of memory never crashes the render.
 
 ### Output formats and limits
 

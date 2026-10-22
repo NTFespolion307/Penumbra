@@ -4,7 +4,9 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <stdexcept>
+#include <string_view>
 
 #include "core/system/file.h"
 
@@ -20,6 +22,19 @@ uint32_t sampleEnd(const RenderSettings& s) {
 constexpr double kMinLateSeconds = 2.0;  // never call a lease late before this
 constexpr size_t kDurationWindow = 256;
 constexpr uint32_t kMaxRejects = 3;
+
+// Test only: turns tail duplication off so the tests of late leases see a hung device being caught (D-091).
+bool tailDuplicationEnabled() {
+  static const bool enabled = [] {
+    const char* v = std::getenv("PENUMBRA_TEST_NO_TAIL_DUPLICATION");
+    if (v && *v && std::string_view(v) != "0") {
+      spdlog::warn("TEST HOOK ACTIVE (PENUMBRA_TEST_NO_TAIL_DUPLICATION): no tail duplication");
+      return false;
+    }
+    return true;
+  }();
+  return enabled;
+}
 }  // namespace
 
 RenderController::RenderController(const RenderSettings& settings, std::shared_ptr<const Scene> scene,
@@ -64,6 +79,11 @@ void RenderController::onReady(WorkerId worker, const std::vector<DeviceReady>& 
   const WorkerInfo info = workers_[worker]->info();
   for (const DeviceReady& d : devices) {
     const std::string name = d.device < info.devices.size() ? info.devices[d.device].name : "?";
+    if (d.skipped) {
+      spdlog::warn("{} device {} ({}, {}) is skipped for this render: {}", info.name, d.device, name,
+                   toString(d.backend), d.reason);
+      continue;
+    }
     spdlog::info("{} device {} ({}, {}): ready in {:.2f}s, {}", info.name, d.device, name, toString(d.backend),
                  d.build_seconds, d.summary);
     tallies_[{worker, d.device}].name = fmt::format("{}/{} {}", info.name, d.device, name);
@@ -84,14 +104,59 @@ void RenderController::serveLocked() {
     auto& [key, want] = *it;
     while (want > 0) {
       std::optional<WorkItem> item = scheduler_.next();
-      if (!item) return;  // nothing to hand out now; devices keep waiting
+      const bool duplicate = !item;
+      if (!item) item = tailDuplicateLocked(key);
+      if (!item) break;  // nothing for this device now; it keeps waiting
       item->lease = next_lease_++;
-      leases_[item->lease] = {*item, key.first, key.second, Clock::now(), false};
+      leases_[item->lease] = {*item, key.first, key.second, Clock::now(), false, duplicate};
       --want;
       workers_[key.first]->sendLease({item->lease, key.second, *item});
     }
-    it = wanted_.erase(it);
+    it = want > 0 ? std::next(it) : wanted_.erase(it);
   }
+}
+
+// docs/GUIDE.md "End of render": the queue is empty, so an idle device takes a copy of the oldest outstanding item
+// of another device, if by the devices' mean item times it should finish first. Each item gets one copy at most.
+std::optional<WorkItem> RenderController::tailDuplicateLocked(const DeviceKey& device) {
+  if (!tailDuplicationEnabled() || finished_) return std::nullopt;
+  for (const auto& [id, l] : leases_)
+    if (l.worker == device.first && l.device == device.second) return std::nullopt;  // not idle
+  const auto meanSeconds = [&](const DeviceKey& k) {
+    auto t = tallies_.find(k);
+    return t != tallies_.end() && t->second.items > 0 ? t->second.seconds / t->second.items : -1.0;
+  };
+  const double mine = meanSeconds(device);
+  const auto now = Clock::now();
+  LeaseId best = 0;
+  for (const auto& [id, l] : leases_) {
+    if (l.duplicate || l.duplicated || l.reissued) continue;
+    const double theirs = meanSeconds({l.worker, l.device});
+    const double age = std::chrono::duration<double>(now - l.issued).count();
+    // The owner should finish first: it is not overdue yet and what it has left is less than a whole item here.
+    if (mine >= 0 && theirs >= 0 && age < theirs && mine >= theirs - age) continue;
+    if (best == 0 || l.issued < leases_[best].issued) best = id;
+  }
+  if (best == 0) return std::nullopt;
+  LeaseInfo& orig = leases_[best];
+  orig.duplicated = true;
+  ++duplicated_;
+  spdlog::info("tail: lease {} (tile {} chunk {}) of device {} of worker {} duplicated to device {} of worker {}; "
+               "the first valid result wins",
+               best, orig.item.tile, orig.item.chunk, orig.device, orig.worker, device.second, device.first);
+  return orig.item;
+}
+
+bool RenderController::otherLeaseHoldsLocked(uint64_t item, LeaseId except) const {
+  for (const auto& [id, l] : leases_)
+    if (id != except && l.item.id == item) return true;
+  return false;
+}
+
+// A lease that will bring no result: its item goes back to the queue unless a copy is queued (late) or another
+// lease still holds it (tail duplicate).
+void RenderController::requeueLostLocked(LeaseId id, const LeaseInfo& lease) {
+  if (!lease.reissued && !otherLeaseHoldsLocked(lease.item.id, id)) scheduler_.requeue(lease.item);
 }
 
 bool RenderController::mergeLocked(const TileResult& r) {
@@ -146,7 +211,7 @@ void RenderController::onTileResult(WorkerId worker, TileResult&& r) {
   }
   const WorkItem item = lease->second.item;
   const double seconds = std::chrono::duration<double>(Clock::now() - lease->second.issued).count();
-  const bool wasReissued = lease->second.reissued;  // a copy of the item is queued already
+  const LeaseInfo info = lease->second;
   leases_.erase(lease);
 
   const bool valid = item.id == r.item_id && item.rect == r.rect && item.sample_begin == r.sample_begin &&
@@ -154,7 +219,7 @@ void RenderController::onTileResult(WorkerId worker, TileResult&& r) {
   if (!valid) {
     spdlog::warn("rejected an invalid result for lease {} from worker {}; item requeued", r.lease, worker);
     workers_[worker]->ackTile(r.lease, AckStatus::Rejected);
-    if (!wasReissued) scheduler_.requeue(item);
+    requeueLostLocked(r.lease, info);
     if (++rejects_[worker] == kMaxRejects)  // docs/GUIDE.md "Results": 3 rejected results get a worker kicked
       workers_[worker]->kick(fmt::format("{} invalid tile results (corrupt or not matching their lease)", kMaxRejects));
     serveLocked();
@@ -170,6 +235,11 @@ void RenderController::onTileResult(WorkerId worker, TileResult&& r) {
     return;
   }
   workers_[worker]->ackTile(r.lease, AckStatus::Accepted);
+  if (info.duplicate) {
+    ++duplicate_wins_;
+    spdlog::info("tail: the copy of tile {} chunk {} on device {} of worker {} won", item.tile, item.chunk, r.device,
+                 worker);
+  }
   if (r.nan_count) {
     nan_count_ += r.nan_count;
     spdlog::warn("tile {} chunk {}: {} non-finite samples replaced by 0", item.tile, item.chunk, r.nan_count);
@@ -199,7 +269,7 @@ void RenderController::onRelease(WorkerId worker, std::span<const LeaseId> relea
     if (it == leases_.end()) continue;
     spdlog::info("lease {} (tile {} chunk {}) released by worker {}; requeued", id, it->second.item.tile,
                  it->second.item.chunk, worker);
-    if (!it->second.reissued) scheduler_.requeue(it->second.item);
+    requeueLostLocked(id, it->second);
     ++reissued_;
     leases_.erase(it);
   }
@@ -229,7 +299,7 @@ void RenderController::requeueWorkerLocked(WorkerId worker) {
       ++it;
       continue;
     }
-    if (!it->second.reissued) scheduler_.requeue(it->second.item);
+    requeueLostLocked(it->first, it->second);
     ++reissued_;
     it = leases_.erase(it);
   }
@@ -354,6 +424,7 @@ RenderOutcome RenderController::run(const RenderRunOptions& options) {
         if (finished_) break;
       }
       reissueLateLocked();
+      if (!wanted_.empty()) serveLocked();  // tail duplicates become worth it as leases age (D-091)
       if (std::chrono::duration<double>(now - lastCheckpoint).count() >= settings_.checkpoint_s) {
         lastCheckpoint = now;
         try {
@@ -398,6 +469,8 @@ RenderOutcome RenderController::run(const RenderRunOptions& options) {
   outcome.error = film_error_;
   outcome.nan_count = nan_count_;
   outcome.reissued = reissued_;
+  outcome.duplicated = duplicated_;
+  outcome.duplicate_wins = duplicate_wins_;
   outcome.seconds = progressLocked().elapsed_seconds;
   for (const auto& [key, tally] : tallies_) outcome.devices.push_back(tally);
   return outcome;

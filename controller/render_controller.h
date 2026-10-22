@@ -42,6 +42,8 @@ struct RenderOutcome {
   std::string error;          // film write error text, if any
   uint64_t nan_count = 0;
   uint32_t reissued = 0;      // leases handed out again (late or lost)
+  uint32_t duplicated = 0;    // tail duplicates handed out (DECISIONS D-091)
+  uint32_t duplicate_wins = 0;  // ... whose result arrived first
   double seconds = 0;
   std::vector<DeviceTally> devices;
 };
@@ -55,7 +57,9 @@ struct RenderRunOptions {
 // Runs one render (docs/GUIDE.md "Render lifecycle", steps 3-8; "Scheduling, leases and tiles"): hands work
 // items to device slots as leases, merges each tile's chunks into the film strictly in chunk order (so any
 // distribution of work gives the same bits, D-045), re-issues leases that take more than 10x the median item
-// time, requeues the leases of failed devices, and checkpoints the film every --checkpoint.
+// time, requeues the leases of failed devices, and checkpoints the film every --checkpoint. When the queue is
+// empty, an idle device gets a copy of the oldest outstanding item it can finish sooner (tail duplication,
+// D-091); the first valid result wins.
 class RenderController final : public WorkerEvents {
  public:
   RenderController(const RenderSettings& settings, std::shared_ptr<const Scene> scene,
@@ -89,6 +93,8 @@ class RenderController final : public WorkerEvents {
     DeviceId device = 0;
     std::chrono::steady_clock::time_point issued;
     bool reissued = false;
+    bool duplicate = false;   // a tail copy of an item another lease holds
+    bool duplicated = false;  // this lease's item has a tail copy out
   };
   using DeviceKey = std::pair<WorkerId, DeviceId>;
 
@@ -99,6 +105,9 @@ class RenderController final : public WorkerEvents {
   bool mergeLocked(const TileResult& r);
   void checkFinishedLocked();
   void reissueLateLocked();
+  std::optional<WorkItem> tailDuplicateLocked(const std::pair<WorkerId, DeviceId>& device);
+  bool otherLeaseHoldsLocked(uint64_t item, LeaseId except) const;
+  void requeueLostLocked(LeaseId id, const LeaseInfo& lease);
   void requeueWorkerLocked(WorkerId worker);
   std::vector<WorkerLink*> workerSnapshotLocked() const;
   double medianItemSecondsLocked() const;
@@ -123,6 +132,7 @@ class RenderController final : public WorkerEvents {
   bool hosting_ = false;
   bool running_ = false;  // run() has offered the scene; later workers get it from addWorker
   uint32_t reissued_ = 0;
+  uint32_t duplicated_ = 0, duplicate_wins_ = 0;
   bool finished_ = false;
   bool out_of_disk_ = false;
   std::string failure_;     // every device failed

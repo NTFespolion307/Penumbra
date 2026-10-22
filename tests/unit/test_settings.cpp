@@ -66,6 +66,16 @@ TEST_CASE("values from JSON files accept native types", "[settings]") {
   CHECK_THROWS_AS(set(s, "max_bounces", 1025), SettingsError);
   CHECK_THROWS_AS(set(s, "tonemap", "reinhard"), SettingsError);
   CHECK_THROWS_AS(set(s, "devices", "0,gpu1"), SettingsError);
+  CHECK_THROWS_AS(set(s, "devices", "0:optix"), SettingsError);
+  CHECK_THROWS_AS(set(s, "devices", "cpu:cuda"), SettingsError);
+  set(s, "devices", "0:Vulkan, 0:cuda,1,cpu");
+  CHECK(s.devices == "0:vulkan,0:cuda,1,cpu");
+  const std::vector<DeviceItem> items = parseDeviceList(s.devices);
+  REQUIRE(items.size() == 4);
+  CHECK((items[0].gpu == 0 && items[0].backend == BackendKind::Vulkan && !items[0].cpu));
+  CHECK((items[1].gpu == 0 && items[1].backend == BackendKind::Cuda));
+  CHECK((items[2].gpu == 1 && items[2].backend == BackendKind::Auto));
+  CHECK(items[3].cpu);
   CHECK_THROWS_AS(set(s, "aov", "albedo,beauty"), SettingsError);
   CHECK_THROWS_AS(set(s, "checkpoint", "5s"), SettingsError);
 }

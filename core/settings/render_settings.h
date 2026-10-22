@@ -125,7 +125,7 @@ struct RenderSettings {
 
   // Devices
   BackendKind backend = BackendKind::Auto;
-  std::string devices = "all";  // "all", "gpu", or a list like "0,1,cpu"
+  std::string devices = "all";  // "all", "gpu", or a list like "0,1:cuda,cpu" (parseDeviceList)
   uint32_t threads = 0;         // 0: all cores
   uint32_t tile_size = 256;
   uint64_t vram_limit = 0;  // bytes, 0: automatic
@@ -168,5 +168,15 @@ struct RenderSettings {
 
   bool operator==(const RenderSettings&) const = default;
 };
+
+// One entry of a --devices list: a GPU number (as penumbra --list-devices shows it) with an optional backend
+// ("1:cuda"), or "cpu". The same GPU may appear twice with different backends: two slots on one GPU (DECISIONS
+// D-090). Throws ValueError on anything else; "all" and "gpu" are not lists.
+struct DeviceItem {
+  bool cpu = false;
+  uint32_t gpu = 0;
+  BackendKind backend = BackendKind::Auto;  // Vulkan or Cuda when the item names one
+};
+std::vector<DeviceItem> parseDeviceList(std::string_view list);
 
 }  // namespace pen

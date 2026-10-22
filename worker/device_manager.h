@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -29,6 +30,7 @@ struct RenderGpu {
   uint64_t vram_bytes = 0;
   int vulkan = -1;  // Vulkan physical device index, when it has ray tracing
   int cuda = -1;    // CUDA ordinal, when this build's kernels run on it
+  std::array<uint8_t, 16> uuid{};
 };
 
 struct GpuInventory {

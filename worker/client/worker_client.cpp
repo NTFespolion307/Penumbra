@@ -14,6 +14,7 @@
 #include <set>
 #include <thread>
 
+#include "backends/gpu/nvml.h"
 #include "core/exit_codes.h"
 #include "core/scene/scene_loader.h"
 #include "core/settings/parse.h"
@@ -137,6 +138,7 @@ class Worker {
   Clock::time_point download_started_;
   double next_progress_ = 0.25;
   std::vector<std::unique_ptr<DeviceSlot>> slots_;
+  std::vector<bool> skipped_;  // per device: could not take this render's scene (DECISIONS D-092)
 
   // Shared with the slot threads.
   std::mutex mutex_;
@@ -583,9 +585,14 @@ void Worker::prepare(const std::filesystem::path& folder) {
   wire::WorkerReadyT ready;
   ready.render_id = render_id_;
   try {
+    skipped_.clear();
     for (const PreparedDevice& p : prepareDevices(*scene_, s, devices_)) {
-      spdlog::info("device {} ready in {:.2f}s: {}", p.device, p.build_seconds, p.summary);
+      skipped_.push_back(p.skipped);
+      if (p.skipped) spdlog::warn("device {} is skipped for this render: {}", p.device, p.reason);
+      else spdlog::info("device {} ready in {:.2f}s: {}", p.device, p.build_seconds, p.summary);
       auto d = std::make_unique<wire::DeviceReadyDescT>();
+      d->skipped = p.skipped;
+      d->reason = p.reason;
       d->device = p.device;
       d->backend = static_cast<uint8_t>(p.backend);
       d->memory_tier = p.memory_tier;
@@ -604,6 +611,7 @@ void Worker::startSlots() {
   {
     std::lock_guard lock(mutex_);
     failed_.assign(devices_.size(), false);
+    for (size_t d = 0; d < skipped_.size() && d < failed_.size(); ++d) failed_[d] = skipped_[d];  // leases go back
     pending_requests_.clear();
     outstanding_.clear();
     counters_.clear();
@@ -668,7 +676,9 @@ void Worker::startSlots() {
     std::lock_guard lock(mutex_);
     counters_[d].in_flight = in_flight_;
   }
-  for (auto& s : slots_) s->start();
+  // A skipped device keeps its slot (so device numbers stay) but never starts, so it never asks for work.
+  for (uint32_t d = 0; d < slots_.size(); ++d)
+    if (d >= skipped_.size() || !skipped_[d]) slots_[d]->start();
 }
 
 void Worker::stopSlots(bool cancel) {
@@ -773,6 +783,13 @@ void Worker::sendStats() {
     ds->device = d;
     ds->busy_percent = dt > 0 ? static_cast<float>(std::min(100.0, 100.0 * (busy - c.last_busy) / dt)) : 0.f;
     ds->temperature_c = -300.f;
+    // NVIDIA GPUs: the driver's own usage, VRAM and temperature (NVML, D-093); else Penumbra's busy %.
+    if (const auto live = queryGpuLiveStats(devices_[d]->info().uuid)) {
+      ds->busy_percent = live->usage_percent;
+      ds->vram_used = live->vram_used;
+      ds->vram_total = live->vram_total;
+      ds->temperature_c = live->temperature_c;
+    }
     ds->tiles_per_s = dt > 0 ? static_cast<float>((c.tiles - c.last_tiles) / dt) : 0.f;
     ds->samples_per_s = dt > 0 ? double(c.samples - c.last_samples) / dt : 0.0;
     c.last_busy = busy;

@@ -34,6 +34,7 @@ const GpuInventory& gpuInventory() {
         r.name = g.name;
         r.vram_bytes = g.vram_bytes;
         r.vulkan = static_cast<int>(g.physical_index);
+        r.uuid = g.uuid;
         out.gpus.push_back(r);
         rtUuid.push_back(g.uuid);
       } else {
@@ -67,6 +68,7 @@ const GpuInventory& gpuInventory() {
       r.name = g.name;
       r.vram_bytes = g.vram_bytes;
       r.cuda = static_cast<int>(g.ordinal);
+      r.uuid = g.uuid;
       out.gpus.push_back(r);
     }
 #else
@@ -103,9 +105,10 @@ DeviceSelection createDevices(const RenderSettings& s, bool controllerHost) {
   const bool gpuAllowed =
       s.backend == BackendKind::Auto || s.backend == BackendKind::Vulkan || s.backend == BackendKind::Cuda;
 
-  // --devices: "all", "gpu", or a list of GPU indices and "cpu" (repeat "cpu" for several CPU slots, D-046).
+  // --devices: "all", "gpu", or a list of GPUs (each optionally with :vulkan or :cuda, D-090) and "cpu" (repeat
+  // "cpu" for several CPU slots, D-046).
   uint32_t cpuSlots = 0;
-  std::vector<uint32_t> gpuIndices;
+  std::vector<DeviceItem> gpuIndices;
   bool allGpus = false;
   if (s.devices == "all") {
     allGpus = gpuAllowed && !nullBackend;
@@ -113,14 +116,21 @@ DeviceSelection createDevices(const RenderSettings& s, bool controllerHost) {
     if (!gpuAllowed) throw NoDeviceError(fmt::format("--devices gpu does not go with --backend {}", toString(s.backend)));
     allGpus = true;
   } else {
-    size_t start = 0;
-    for (;;) {
-      const size_t comma = s.devices.find(',', start);
-      const std::string item = s.devices.substr(start, comma - start);
-      if (item == "cpu") ++cpuSlots;
-      else gpuIndices.push_back(static_cast<uint32_t>(std::stoul(item)));
-      if (comma == std::string::npos) break;
-      start = comma + 1;
+    std::vector<DeviceItem> items;
+    try {
+      items = parseDeviceList(s.devices);
+    } catch (const std::exception& e) {
+      throw NoDeviceError(fmt::format("--devices {}: {}", s.devices, e.what()));
+    }
+    for (const DeviceItem& d : items) {
+      if (d.cpu) {
+        ++cpuSlots;
+        continue;
+      }
+      if (d.backend != BackendKind::Auto && s.backend != BackendKind::Auto && d.backend != s.backend)
+        throw NoDeviceError(fmt::format("--devices {} asks for {} on GPU {}, but --backend is {}", s.devices,
+                                        toString(d.backend), d.gpu, toString(s.backend)));
+      gpuIndices.push_back(d);
     }
     if (!gpuIndices.empty() && !gpuAllowed)
       throw NoDeviceError(fmt::format("--devices {} names GPUs, but --backend {} renders on the CPU", s.devices,
@@ -131,29 +141,33 @@ DeviceSelection createDevices(const RenderSettings& s, bool controllerHost) {
   if (!nullBackend && (allGpus || !gpuIndices.empty())) {
     const GpuInventory& inv = gpuInventory();
     for (const std::string& n : inv.notes) sel.notes.push_back(n);
-    std::vector<uint32_t> wanted = gpuIndices;
+    std::vector<DeviceItem> wanted = gpuIndices;
     if (allGpus)
-      for (uint32_t i = 0; i < inv.gpus.size(); ++i) wanted.push_back(i);
+      for (uint32_t i = 0; i < inv.gpus.size(); ++i) wanted.push_back({false, i, BackendKind::Auto});
     const std::string need = s.backend == BackendKind::Vulkan ? "Vulkan ray tracing"
                              : s.backend == BackendKind::Cuda ? "CUDA"
                                                               : "Vulkan ray tracing or CUDA";
-    for (uint32_t i : wanted) {
+    for (const DeviceItem& want : wanted) {
+      const uint32_t i = want.gpu;
       if (i >= inv.gpus.size())
         throw NoDeviceError(fmt::format("--devices {}: there is no GPU {} that can render (penumbra --list-devices "
                                         "shows them)",
                                         s.devices, i));
       const RenderGpu& g = inv.gpus[i];
-      BackendKind kind = s.backend;
+      BackendKind kind = want.backend != BackendKind::Auto ? want.backend : s.backend;
       if (kind == BackendKind::Auto) kind = g.vulkan >= 0 ? BackendKind::Vulkan : BackendKind::Cuda;
       if ((kind == BackendKind::Vulkan && g.vulkan < 0) || (kind == BackendKind::Cuda && g.cuda < 0)) {
-        if (!allGpus) throw NoDeviceError(fmt::format("--devices {}: GPU {} ({}) has no {}", s.devices, i, g.name, need));
+        if (!allGpus)
+          throw NoDeviceError(fmt::format("--devices {}: GPU {} ({}) has no {}", s.devices, i, g.name,
+                                          kind == BackendKind::Vulkan ? "Vulkan ray tracing" : "CUDA"));
         sel.notes.push_back(fmt::format("skipping GPU {} ({}): no {}", i, g.name, need));
         continue;
       }
       try {
         sel.devices.push_back(createGpuBackend(g, kind));
         sel.notes.push_back(fmt::format("GPU {}: {}, backend {}{}", i, g.name, toString(kind),
-                                        s.backend == BackendKind::Auto && kind == BackendKind::Cuda
+                                        s.backend == BackendKind::Auto && want.backend == BackendKind::Auto &&
+                                                kind == BackendKind::Cuda
                                             ? " (no Vulkan ray tracing: software BVH)"
                                             : ""));
       } catch (const BackendError& e) {
@@ -180,11 +194,15 @@ DeviceSelection createDevices(const RenderSettings& s, bool controllerHost) {
     const uint32_t hw = usableCpuThreads();
     uint32_t threads = s.threads;
     if (threads == 0) {
-      threads = controllerHost && hw > 2 ? hw - 2 : hw;
-      if (controllerHost && hw > 2)
-        sel.notes.push_back(fmt::format("cpu: using {} of {} threads, leaving 2 for the controller (--threads to "
-                                        "override)",
-                                        threads, hw));
+      // Leave 2 threads for the controller, and one per GPU slot to feed it (hybrid mode, DECISIONS D-090).
+      const uint32_t gpuSlots = static_cast<uint32_t>(sel.devices.size());
+      const uint32_t reserve = (controllerHost ? 2 : 0) + gpuSlots;
+      threads = hw > reserve ? hw - reserve : hw;
+      if (reserve > 0 && hw > reserve)
+        sel.notes.push_back(fmt::format("cpu: using {} of {} threads, leaving {}{}{} (--threads to override)", threads,
+                                        hw, controllerHost ? "2 for the controller" : "",
+                                        controllerHost && gpuSlots ? " and " : "",
+                                        gpuSlots ? fmt::format("{} to feed the GPU slot(s)", gpuSlots) : ""));
     }
     const uint32_t perSlot = std::max(1u, threads / cpuSlots);
     if (cpuSlots > 1)

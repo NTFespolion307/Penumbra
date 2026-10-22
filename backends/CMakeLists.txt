@@ -1,6 +1,9 @@
 # backends: IBackend implementations: cpu/ (Embree, M1), null/ (test only), vulkan/ (M5), cuda/ (M6), optix/ (M13),
 # and gpu/ (scene data shared by the GPU backends). The only place that may include Vulkan, CUDA, OptiX or Embree.
-add_library(penumbra_backends STATIC cpu/cpu_backend.cpp null/null_backend.cpp gpu/gpu_scene.cpp)
+add_library(penumbra_backends STATIC cpu/cpu_backend.cpp null/null_backend.cpp gpu/gpu_scene.cpp gpu/nvml.cpp)
+if(NOT WIN32)
+  target_link_libraries(penumbra_backends PRIVATE ${CMAKE_DL_LIBS})  # NVML (and the CUDA driver) load at run time
+endif()
 target_link_libraries(penumbra_backends PUBLIC penumbra_core PRIVATE embree TBB::tbb)
 
 # Third-party code compiled here has its own warnings, which are not ours.

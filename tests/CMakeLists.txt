@@ -114,11 +114,19 @@ pen_render_test(slots_null devices cornell.pen.json "--res|1080p|--spp|256|--bac
 pen_render_test(fault_throw faults cornell.pen.json "--res|1080p|--scale|0.5|--spp|96" -DREF_DEVICES=cpu
                 -DFAULT_DEVICES=cpu,cpu,cpu "-DFAULTS=device=1,after=0,mode=throw" "-DEXPECT_LOG=failed and is removed" -DSMALL_CHUNKS=1)
 pen_render_test(fault_hang faults cornell.pen.json "--res|1080p|--spp|256|--backend|null" -DREF_DEVICES=cpu
-                -DFAULT_DEVICES=cpu,cpu,cpu "-DFAULTS=device=1,after=2,mode=hang" "-DEXPECT_LOG=is late" -DSMALL_CHUNKS=1)
+                -DFAULT_DEVICES=cpu,cpu,cpu "-DFAULTS=device=1,after=2,mode=hang" "-DEXPECT_LOG=is late" -DSMALL_CHUNKS=1
+                -DNO_TAIL=1)
+# M7 (D-091): the same hang near the end, caught by tail duplication: an idle device copies the stuck item.
+pen_render_test(tail_duplicate faults cornell.pen.json "--res|1080p|--spp|256|--backend|null" -DREF_DEVICES=cpu
+                -DFAULT_DEVICES=cpu,cpu,cpu "-DFAULTS=device=1,after=2,mode=hang"
+                "-DEXPECT_LOG=duplicated to device [^\n]*the first valid result wins.*copy of tile [^\n]* won" -DSMALL_CHUNKS=1)
 pen_render_test(spp0_time_limit timelimit cornell.pen.json "--res|1080p|--scale|0.5|--spp|0|--time-limit|5s")
 # Killed mid-pass: the single tile holds some of its 8 chunks; resume continues from there, bit for bit.
 # One thread for the killed run, so it cannot finish within KILL_AFTER even on a fast machine.
 pen_render_test(resume_chunks resume cornell.pen.json "--res|1080p|--scale|0.5|--spp|128" -DKILL_AFTER=15 -DCUT_THREADS=1 -DSMALL_CHUNKS=1)
+# M7 (D-092): a device that cannot take the scene is skipped; the others render the same image.
+pen_render_test(skip_device faults cornell.pen.json "--res|1080p|--scale|0.5|--spp|32" -DREF_DEVICES=cpu
+                -DFAULT_DEVICES=cpu,cpu "-DFAULTS=device=0,mode=upload" "-DEXPECT_LOG=device 0 [^\n]*is skipped for this render")
 set_tests_properties(render.slots_cpu render.fault_throw render.resume_chunks PROPERTIES LABELS "render;gate;slow")
 if(UNIX)  # sends a real SIGINT with coreutils `timeout`
   pen_render_test(interrupt interrupt cornell.pen.json "--res|1080p|--spp|16" -DKILL_AFTER=6 -DSMALL_CHUNKS=1)
@@ -187,13 +195,21 @@ pen_net_test(device_fail 7511 2 cornell.pen.json "${PEN_NET_12}" "-DREF_ARGS=--d
              "-DWORKER_ARGS=--threads|4" "-DFIRST_WORKER_ARGS=--devices|cpu,cpu"
              "-DFIRST_WORKER_ENV=PENUMBRA_TEST_FAULTS=device=1,after=0,mode=throw"
              "-DEXPECT_LOG=device 1 of worker 0 failed and is removed")
+pen_net_test(device_skipped 7520 2 cornell.pen.json "${PEN_NET_12}" "-DREF_ARGS=--devices|cpu" "-DCONTROLLER_ARGS=--no-local"
+             "-DWORKER_ARGS=--threads|4" "-DFIRST_WORKER_ARGS=--devices|cpu,cpu"
+             "-DFIRST_WORKER_ENV=PENUMBRA_TEST_FAULTS=device=1,mode=upload"
+             "-DEXPECT_LOG=device 1 [^\n]*is skipped for this render")
 pen_net_test(worker_crash 7512 2 cornell.pen.json "${PEN_NET_12}" "-DREF_ARGS=--devices|cpu"
              "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|4" -DFIRST_WORKER_EXPECT=137
              "-DFIRST_WORKER_ENV=PENUMBRA_TEST_FAULTS=device=0,after=1,mode=exit"
              "-DEXPECT_LOG=worker 0 left .*; [1-9][0-9]* lease\(s\) requeued")
 pen_net_test(worker_hang 7513 2 cornell.pen.json "--res|1080p|--spp|256|--backend|null" "-DREF_ARGS=--devices|cpu"
              "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--backend|null"
-             "-DFIRST_WORKER_ENV=PENUMBRA_TEST_FAULTS=device=0,after=2,mode=hang" "-DEXPECT_LOG=is late")
+             "-DFIRST_WORKER_ENV=PENUMBRA_TEST_FAULTS=device=0,after=2,mode=hang" "-DEXPECT_LOG=is late" -DNO_TAIL=1)
+pen_net_test(tail_duplicate 7521 2 cornell.pen.json "--res|1080p|--spp|256|--backend|null" "-DREF_ARGS=--devices|cpu"
+             "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--backend|null"
+             "-DFIRST_WORKER_ENV=PENUMBRA_TEST_FAULTS=device=0,after=2,mode=hang"
+             "-DEXPECT_LOG=duplicated to device [^\n]*the first valid result wins.*copy of tile [^\n]* won")
 pen_net_test(worker_silent 7514 2 cornell.pen.json "--res|1080p|--scale|0.5|--spp|256" "-DREF_ARGS=--devices|cpu"
              "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|4" -DFIRST_WORKER_EXPECT=7
              "-DFIRST_WORKER_ENV=PENUMBRA_TEST_FAULTS=device=0,after=1,mode=freeze" "-DEXPECT_LOG=heartbeat lost")
@@ -262,6 +278,18 @@ foreach(_b IN LISTS _pen_gpu_backends)
   pen_gpu_test(${_b} ao_vs_cpu pair spheres.pen.json "--res|160x90|--spp|256|--integrator|ao" "-DARGS_A=--backend|cpu"
                "-DARGS_B=--backend|${_b}" -DMAXRELMSE=1e-3)
   pen_gpu_test(${_b} debug_normal runs spheres.pen.json "--res|160x90|--spp|1|--integrator|debug:normal|--backend|${_b}")
+  # M7, several GPUs (skipped on a machine with one): all GPUs give the same bits as one GPU of the same backend,
+  # and a GPU that fails or hangs mid-render changes nothing (DECISIONS D-091, D-094).
+  pen_gpu_test(${_b} multi_gpu devices cornell.pen.json "--res|1080p|--scale|0.5|--spp|256|--backend|${_b}"
+               "-DDEVICE_SETS=0+gpu" -DSMALL_CHUNKS=1 -DMIN_GPUS=2)
+  pen_gpu_test(${_b} multi_gpu_fail faults cornell.pen.json "--res|1080p|--scale|0.5|--spp|256|--backend|${_b}"
+               -DREF_DEVICES=0 -DFAULT_DEVICES=gpu "-DFAULTS=device=1,after=1,mode=throw"
+               "-DEXPECT_LOG=failed and is removed" -DSMALL_CHUNKS=1 -DMIN_GPUS=2)
+  pen_gpu_test(${_b} multi_gpu_hang faults cornell.pen.json "--res|1080p|--scale|0.5|--spp|256|--backend|${_b}"
+               -DREF_DEVICES=0 -DFAULT_DEVICES=gpu "-DFAULTS=device=1,after=1,mode=hang"
+               "-DEXPECT_LOG=duplicated to device" -DSMALL_CHUNKS=1 -DMIN_GPUS=2)
+  set_tests_properties(render.${_b}_multi_gpu render.${_b}_multi_gpu_fail render.${_b}_multi_gpu_hang
+                       PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:")
 endforeach()
 if(PEN_ENABLE_CUDA)
   # Traversal step counts exist only in the software BVH.
@@ -272,6 +300,15 @@ if(PEN_ENABLE_VULKAN AND PEN_ENABLE_CUDA)
   pen_render_test(gpu_cuda_vs_vulkan pair cutout.pen.json "--res|320x180|--spp|1024" "-DARGS_A=--backend|vulkan"
                   "-DARGS_B=--backend|cuda" -DMAXRELMSE=1e-3)
   set_tests_properties(render.gpu_cuda_vs_vulkan PROPERTIES LABELS "gpu;vulkan;cuda")
+  # M7 (D-090): backends mixed on one host, also on one GPU listed twice; every device renders items.
+  pen_render_test(gpu_mixed_one_gpu pair cornell.pen.json "--res|1080p|--scale|0.25|--spp|1024" "-DARGS_A=--backend|cpu"
+                  "-DARGS_B=--devices|0:vulkan,0:cuda,cpu" -DMAXRELMSE=1e-3 -DSMALL_CHUNKS=1
+                  "-DEXPECT_LOG=local/0 [^\n]*: [1-9][0-9]* items.*local/1 [^\n]*: [1-9][0-9]* items.*local/2 [^\n]*: [1-9][0-9]* items")
+  pen_render_test(gpu_mixed_multi pair cornell.pen.json "--res|1080p|--scale|0.25|--spp|1024" "-DARGS_A=--backend|cpu"
+                  "-DARGS_B=--devices|0:vulkan,1:cuda,cpu" -DMAXRELMSE=1e-3 -DSMALL_CHUNKS=1 -DMIN_GPUS=2
+                  "-DEXPECT_LOG=local/0 [^\n]*: [1-9][0-9]* items.*local/1 [^\n]*: [1-9][0-9]* items.*local/2 [^\n]*: [1-9][0-9]* items")
+  set_tests_properties(render.gpu_mixed_one_gpu render.gpu_mixed_multi PROPERTIES LABELS "gpu;vulkan;cuda")
+  set_tests_properties(render.gpu_mixed_multi PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:")
 endif()
 if(_pen_gpu_backends)
   # Every Slang shading function against its C++ original on 65,536 inputs (DECISIONS D-077).
