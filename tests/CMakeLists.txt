@@ -255,8 +255,10 @@ foreach(_b IN LISTS _pen_gpu_backends)
                -DTOLERANCE=0.005)
   pen_gpu_test(${_b} furnace_glass uniform furnace_glass.pen.json "--spp|256|--backend|${_b}" -DTOLERANCE=0.005)
   pen_gpu_test(${_b} repeatable devices spheres.pen.json "--res|320x180|--spp|64|--backend|${_b}" "-DDEVICE_SETS=0+0")
+  # Small chunks, so the frame is many items and both devices get some (the log must show it).
   pen_gpu_test(${_b} hybrid pair cornell.pen.json "--res|1080p|--scale|0.25|--spp|1024" "-DARGS_A=--backend|cpu"
-               "-DARGS_B=--backend|${_b}|--devices|0,cpu" -DMAXRELMSE=1e-3)
+               "-DARGS_B=--backend|${_b}|--devices|0,cpu" -DMAXRELMSE=1e-3 -DSMALL_CHUNKS=1
+               "-DEXPECT_LOG=local/0 [^\n]*: [1-9][0-9]* items.*local/1 [^\n]*: [1-9][0-9]* items")
   pen_gpu_test(${_b} ao_vs_cpu pair spheres.pen.json "--res|160x90|--spp|256|--integrator|ao" "-DARGS_A=--backend|cpu"
                "-DARGS_B=--backend|${_b}" -DMAXRELMSE=1e-3)
   pen_gpu_test(${_b} debug_normal runs spheres.pen.json "--res|160x90|--spp|1|--integrator|debug:normal|--backend|${_b}")

@@ -5,6 +5,7 @@
 #   reference    REFERENCE, MAXRELMSE      relMSE against a golden image
 #   runs         -                         the render must succeed
 #   pair         ARGS_A, ARGS_B, MAXRELMSE two renders that differ only in ARGS_A / ARGS_B agree within MAXRELMSE
+#                (EXPECT_LOG: a regex the second render's log must match)
 # Renders use the CPU unless ARGS names a backend, so a test means the same on a machine with a GPU.
 
 string(REPLACE "|" ";" extra "${ARGS}")
@@ -71,6 +72,9 @@ elseif(MODE STREQUAL "pair")
   string(REPLACE "|" ";" b "${ARGS_B}")
   render("${NAME}_a.exr" ${a})
   render("${NAME}_b.exr" ${b})
+  if(DEFINED EXPECT_LOG AND NOT last_log MATCHES "${EXPECT_LOG}")  # checked against the second render
+    message(FATAL_ERROR "the log of the second render does not show '${EXPECT_LOG}':\n${last_log}")
+  endif()
   diff("${NAME}_a.exr" "${NAME}_b.exr" --max-relmse ${MAXRELMSE})
 elseif(MODE STREQUAL "devices")
   # The same image, bit for bit, whatever the number of device slots (D-045). DEVICE_SETS: "+"-separated.
