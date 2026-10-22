@@ -35,6 +35,18 @@ bool tailDuplicationEnabled() {
   }();
   return enabled;
 }
+
+// Test only (D-095): once this many chunks are merged, checkpoint the film and session, then exit at once with
+// code 137 like a killed process, so resume tests cut a render at the same point on any machine. 0 = off.
+uint32_t killAfterItems() {
+  static const uint32_t n = [] {
+    const char* v = std::getenv("PENUMBRA_TEST_KILL_AFTER_ITEMS");
+    const uint32_t k = v ? static_cast<uint32_t>(std::strtoul(v, nullptr, 10)) : 0;
+    if (k > 0) spdlog::warn("TEST HOOK ACTIVE (PENUMBRA_TEST_KILL_AFTER_ITEMS): exiting after {} merged chunks", k);
+    return k;
+  }();
+  return n;
+}
 }  // namespace
 
 RenderController::RenderController(const RenderSettings& settings, std::shared_ptr<const Scene> scene,
@@ -176,6 +188,7 @@ bool RenderController::mergeLocked(const TileResult& r) {
   }
   const uint32_t tile = static_cast<uint32_t>(r.item_id >> 32);
   scheduler_.markMerged(tile);
+  ++merged_items_;
   if (scheduler_.tileComplete(tile)) {
     try {
       film_.flushTile(tile);
@@ -425,7 +438,8 @@ RenderOutcome RenderController::run(const RenderRunOptions& options) {
       }
       reissueLateLocked();
       if (!wanted_.empty()) serveLocked();  // tail duplicates become worth it as leases age (D-091)
-      if (std::chrono::duration<double>(now - lastCheckpoint).count() >= settings_.checkpoint_s) {
+      const bool kill = killAfterItems() > 0 && merged_items_ >= killAfterItems();
+      if (kill || std::chrono::duration<double>(now - lastCheckpoint).count() >= settings_.checkpoint_s) {
         lastCheckpoint = now;
         try {
           film_.checkpoint();
@@ -442,6 +456,11 @@ RenderOutcome RenderController::run(const RenderRunOptions& options) {
           lock.unlock();
           options.after_checkpoint(p);
           lock.lock();
+        }
+        if (kill) {
+          spdlog::warn("TEST HOOK: exiting with code 137 after {} merged chunks", merged_items_);
+          spdlog::default_logger()->flush();
+          std::_Exit(137);
         }
       }
       if (options.progress && std::chrono::duration<double>(now - lastProgress).count() >= 1.0) {

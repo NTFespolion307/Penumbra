@@ -133,6 +133,7 @@ class RenderController final : public WorkerEvents {
   bool running_ = false;  // run() has offered the scene; later workers get it from addWorker
   uint32_t reissued_ = 0;
   uint32_t duplicated_ = 0, duplicate_wins_ = 0;
+  uint32_t merged_items_ = 0;
   bool finished_ = false;
   bool out_of_disk_ = false;
   std::string failure_;     // every device failed

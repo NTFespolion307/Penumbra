@@ -624,3 +624,10 @@ freeing (it leaks rather than hang or free memory the GPU may still use). Errors
 removed (`DeviceFailed`) and its leases go to the others, as for any device failure (D-047 fault tests). While the
 render runs, a hung device's leases are caught by tail duplication (D-091) or the late-lease check (D-049); the
 cancel at the end of the render then frees its slot within 10 s.
+
+**D-095 Resume tests cut the render by merged chunks, not by time (M7).** `render.resume_chunks` failed on the
+4x RTX 3060 box: one thread of its shared EPYC renders a chunk in about 14 s, so the run killed after 15 s had no
+chunk in its only checkpoint. A fixed kill time cannot suit both fast and slow machines, so the resume tests set
+the test hook `PENUMBRA_TEST_KILL_AFTER_ITEMS=N` (D-047 style, logged when active): once N chunks are merged
+the controller checkpoints the film and session and exits at once with code 137, like a killed process. The
+resume then has to reproduce the uninterrupted image bit for bit, as before.

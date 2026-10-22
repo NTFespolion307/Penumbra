@@ -100,7 +100,7 @@ pen_render_test(ao runs spheres.pen.json "--res|160x90|--spp|4|--integrator|ao")
 pen_render_test(debug_normal runs spheres.pen.json "--res|160x90|--spp|1|--integrator|debug:normal")
 # M2: kill + --resume gives the same image bit for bit; merging region and sample-range halves reproduces the
 # single render; a --region render equals that crop of the full render; every preset renders.
-pen_render_test(resume resume cornell.pen.json "--res|1080p|--spp|16" -DKILL_AFTER=13 -DSMALL_CHUNKS=1)
+pen_render_test(resume resume cornell.pen.json "--res|1080p|--spp|16" -DKILL_AFTER_ITEMS=4 -DSMALL_CHUNKS=1)
 pen_render_test(merge_regions merge_regions cornell.pen.json "--res|1080p|--spp|4")
 pen_render_test(merge_samples merge_samples cornell.pen.json "--res|1080p|--spp|8")
 pen_render_test(region_crop region_crop cornell.pen.json "--res|1080p|--spp|4")
@@ -122,8 +122,8 @@ pen_render_test(tail_duplicate faults cornell.pen.json "--res|1080p|--spp|256|--
                 "-DEXPECT_LOG=duplicated to device [^\n]*the first valid result wins.*copy of tile [^\n]* won" -DSMALL_CHUNKS=1)
 pen_render_test(spp0_time_limit timelimit cornell.pen.json "--res|1080p|--scale|0.5|--spp|0|--time-limit|5s")
 # Killed mid-pass: the single tile holds some of its 8 chunks; resume continues from there, bit for bit.
-# One thread for the killed run, so it cannot finish within KILL_AFTER even on a fast machine.
-pen_render_test(resume_chunks resume cornell.pen.json "--res|1080p|--scale|0.5|--spp|128" -DKILL_AFTER=15 -DCUT_THREADS=1 -DSMALL_CHUNKS=1)
+pen_render_test(resume_chunks resume cornell.pen.json "--res|1080p|--scale|0.5|--spp|128" -DKILL_AFTER_ITEMS=3
+                -DSMALL_CHUNKS=1)
 # M7 (D-092): a device that cannot take the scene is skipped; the others render the same image.
 pen_render_test(skip_device faults cornell.pen.json "--res|1080p|--scale|0.5|--spp|32" -DREF_DEVICES=cpu
                 -DFAULT_DEVICES=cpu,cpu "-DFAULTS=device=0,mode=upload" "-DEXPECT_LOG=device 0 [^\n]*is skipped for this render")

@@ -123,18 +123,21 @@ elseif(MODE STREQUAL "timelimit")
     message(FATAL_ERROR "the render did not stop at the time limit:\n${last_log}")
   endif()
 elseif(MODE STREQUAL "resume")
-  # Reference, then a run killed (no clean shutdown) after its first checkpoint, then --resume: bit-identical.
+  # Reference, then a run killed (no clean shutdown) right after a checkpoint once KILL_AFTER_ITEMS chunks are
+  # merged (test hook PENUMBRA_TEST_KILL_AFTER_ITEMS, D-095), then --resume: bit-identical.
   render("${NAME}_ref.exr")
   file(REMOVE "${WORKDIR}/${NAME}_cut.exr" "${WORKDIR}/${NAME}_cut.penfilm" "${WORKDIR}/${NAME}_cut.session.json")
   if(NOT DEFINED CUT_THREADS)
     set(CUT_THREADS 2)
   endif()
-  execute_process(COMMAND "${PENUMBRA}" ${common} -o "${NAME}_cut.exr" --threads ${CUT_THREADS} --checkpoint 10s
-                  WORKING_DIRECTORY "${WORKDIR}" TIMEOUT ${KILL_AFTER} RESULT_VARIABLE rc OUTPUT_VARIABLE o ERROR_VARIABLE e)
-  if(rc EQUAL 0)
-    message(FATAL_ERROR "the render finished before it was killed after ${KILL_AFTER}s; raise --spp for this test")
+  set(ENV{PENUMBRA_TEST_KILL_AFTER_ITEMS} ${KILL_AFTER_ITEMS})
+  execute_process(COMMAND "${PENUMBRA}" ${common} -o "${NAME}_cut.exr" --threads ${CUT_THREADS} --checkpoint 10m
+                  WORKING_DIRECTORY "${WORKDIR}" TIMEOUT 1800 RESULT_VARIABLE rc OUTPUT_VARIABLE o ERROR_VARIABLE e)
+  unset(ENV{PENUMBRA_TEST_KILL_AFTER_ITEMS})
+  if(NOT rc EQUAL 137)
+    message(FATAL_ERROR "the render was not cut after ${KILL_AFTER_ITEMS} chunks (exit ${rc}); raise --spp:\n${o}${e}")
   endif()
-  message(STATUS "killed after ${KILL_AFTER}s (${rc})")
+  message(STATUS "cut after ${KILL_AFTER_ITEMS} merged chunks (${rc})")
   if(NOT EXISTS "${WORKDIR}/${NAME}_cut.session.json")
     message(FATAL_ERROR "no session file after the kill:\n${o}${e}")
   endif()
