@@ -19,7 +19,8 @@ add_executable(penumbra_unit_tests
   unit/test_settings.cpp)
 target_link_libraries(penumbra_unit_tests PRIVATE penumbra_cli penumbra_controller penumbra_net Catch2::Catch2WithMain)
 target_compile_definitions(penumbra_unit_tests PRIVATE PEN_TEST_DATA_DIR="${PEN_TEST_DATA}")
-catch_discover_tests(penumbra_unit_tests PROPERTIES LABELS unit)
+# Unit tests count chunks of the M3 size (2^22 pixel-samples, DECISIONS D-083) unless they pass a budget.
+catch_discover_tests(penumbra_unit_tests PROPERTIES LABELS unit ENVIRONMENT "PENUMBRA_TEST_CHUNK_BUDGET=4194304")
 
 # ---- Smoke tests: run the real binary and check exit codes and messages ----
 set(PEN_SMOKE_COMMON "--config|${PEN_TEST_DATA}/empty-config.json|--log-file|${CMAKE_CURRENT_BINARY_DIR}/smoke.log")
@@ -60,7 +61,9 @@ pen_smoke(tiff 0 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/scene.pen.json
 pen_smoke(webp 0 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/scene.pen.json|--res|64x36|--spp|1|-o|out.webp" "wrote")
 pen_smoke(resume_missing 1 "${PEN_SMOKE_COMMON}|--terminal|--resume|missing.session.json" "cannot open session")
 pen_smoke(merge_missing 1 "${PEN_SMOKE_COMMON}|merge|missing.penfilm|-o|m.exr" "cannot open")
-pen_smoke(cuda_not_yet 3 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/empty.gltf|--backend|cuda|-o|x.png" "M6")
+pen_smoke(optix_not_yet 3 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/empty.gltf|--backend|optix|-o|x.png" "M13")
+pen_smoke(debug_bvh_needs_cuda 1 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/empty.gltf|--integrator|debug:bvh|-o|x.png"
+          "add --backend cuda")
 pen_smoke(unknown_camera 2 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/empty.gltf|--camera|Nope|-o|x.png" "not in the scene")
 
 # ---- Gate tests (M1): scenes are generated at build time by penumbra-scenegen ----
@@ -97,27 +100,28 @@ pen_render_test(ao runs spheres.pen.json "--res|160x90|--spp|4|--integrator|ao")
 pen_render_test(debug_normal runs spheres.pen.json "--res|160x90|--spp|1|--integrator|debug:normal")
 # M2: kill + --resume gives the same image bit for bit; merging region and sample-range halves reproduces the
 # single render; a --region render equals that crop of the full render; every preset renders.
-pen_render_test(resume resume cornell.pen.json "--res|1080p|--spp|16" -DKILL_AFTER=13)
+pen_render_test(resume resume cornell.pen.json "--res|1080p|--spp|16" -DKILL_AFTER=13 -DSMALL_CHUNKS=1)
 pen_render_test(merge_regions merge_regions cornell.pen.json "--res|1080p|--spp|4")
 pen_render_test(merge_samples merge_samples cornell.pen.json "--res|1080p|--spp|8")
 pen_render_test(region_crop region_crop cornell.pen.json "--res|1080p|--spp|4")
 pen_render_test(presets presets cornell.pen.json "--spp|1|--scale|0.01")
 set_tests_properties(render.resume PROPERTIES LABELS "render;gate;slow")
 # M3: N local slots match 1 slot bit for bit; failed and hung devices are recovered without changing the image.
-pen_render_test(slots_cpu devices cornell.pen.json "--res|1080p|--scale|0.5|--spp|32" "-DDEVICE_SETS=cpu+cpu,cpu+cpu,cpu,cpu,cpu")
+pen_render_test(slots_cpu devices cornell.pen.json "--res|1080p|--scale|0.5|--spp|32" "-DDEVICE_SETS=cpu+cpu,cpu+cpu,cpu,cpu,cpu" -DSMALL_CHUNKS=1)
 pen_render_test(slots_null devices cornell.pen.json "--res|1080p|--spp|256|--backend|null"
-                "-DDEVICE_SETS=cpu+cpu,cpu,cpu,cpu+cpu,cpu,cpu,cpu,cpu,cpu,cpu,cpu")
+                "-DDEVICE_SETS=cpu+cpu,cpu,cpu,cpu+cpu,cpu,cpu,cpu,cpu,cpu,cpu,cpu" -DSMALL_CHUNKS=1)
 # 12 chunks for 3 slots (2 in flight each), so the faulty device surely gets work; it fails on its first item.
 pen_render_test(fault_throw faults cornell.pen.json "--res|1080p|--scale|0.5|--spp|96" -DREF_DEVICES=cpu
-                -DFAULT_DEVICES=cpu,cpu,cpu "-DFAULTS=device=1,after=0,mode=throw" "-DEXPECT_LOG=failed and is removed")
+                -DFAULT_DEVICES=cpu,cpu,cpu "-DFAULTS=device=1,after=0,mode=throw" "-DEXPECT_LOG=failed and is removed" -DSMALL_CHUNKS=1)
 pen_render_test(fault_hang faults cornell.pen.json "--res|1080p|--spp|256|--backend|null" -DREF_DEVICES=cpu
-                -DFAULT_DEVICES=cpu,cpu,cpu "-DFAULTS=device=1,after=2,mode=hang" "-DEXPECT_LOG=is late")
+                -DFAULT_DEVICES=cpu,cpu,cpu "-DFAULTS=device=1,after=2,mode=hang" "-DEXPECT_LOG=is late" -DSMALL_CHUNKS=1)
 pen_render_test(spp0_time_limit timelimit cornell.pen.json "--res|1080p|--scale|0.5|--spp|0|--time-limit|5s")
 # Killed mid-pass: the single tile holds some of its 8 chunks; resume continues from there, bit for bit.
-pen_render_test(resume_chunks resume cornell.pen.json "--res|1080p|--scale|0.5|--spp|64" -DKILL_AFTER=15 -DCUT_THREADS=4)
+# One thread for the killed run, so it cannot finish within KILL_AFTER even on a fast machine.
+pen_render_test(resume_chunks resume cornell.pen.json "--res|1080p|--scale|0.5|--spp|128" -DKILL_AFTER=15 -DCUT_THREADS=1 -DSMALL_CHUNKS=1)
 set_tests_properties(render.slots_cpu render.fault_throw render.resume_chunks PROPERTIES LABELS "render;gate;slow")
 if(UNIX)  # sends a real SIGINT with coreutils `timeout`
-  pen_render_test(interrupt interrupt cornell.pen.json "--res|1080p|--spp|16" -DKILL_AFTER=6)
+  pen_render_test(interrupt interrupt cornell.pen.json "--res|1080p|--spp|16" -DKILL_AFTER=6 -DSMALL_CHUNKS=1)
   set_tests_properties(render.interrupt PROPERTIES LABELS "render;gate;slow")
 endif()
 # The 20K gate (laptop, 1 spp, ~4 GB film): run with `ctest -L large`; the build scripts skip it.
@@ -202,7 +206,7 @@ pen_net_test(join_mid_render 7516 1 cornell.pen.json "--res|1080p|--scale|0.5|--
 pen_net_test(bad_network 7517 1 cornell.pen.json "--res|1080p|--scale|0.5|--spp|32" "-DREF_ARGS=--devices|cpu"
              "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|4"
              "-DNETEM_ARGS=--delay-ms|100|--loss|0.02|--up-kbps|10000"
-             "-DEXPECT_WORKER_LOG=round trip to the controller [0-9]+ ms: 3 items in flight")
+             "-DEXPECT_WORKER_LOG=device 0: [0-9]+ items in flight .round trip [0-9]+ ms.")
 set_tests_properties(net.worker_silent PROPERTIES LABELS "net;gate;slow")
 
 # M4 step 5: the controller is killed mid-render (power loss) and resumed from its session file; its --stay
@@ -222,42 +226,69 @@ pen_net_test(scale_64 7520 64 cornell.pen.json "--res|4k|--spp|4096|--backend|nu
              "-DEXPECT_LOG=w64/7 [^\n]*: [1-9][0-9]* items")
 set_tests_properties(net.stay_resume net.scale_64 PROPERTIES LABELS "net;gate;slow")
 
-# ---- GPU tests (M5): label gpu, skipped by the build scripts; run with scripts/test-gpu.sh or ctest -L gpu ----
-# Gate (docs/GUIDE.md M5): Vulkan RT matches the CPU at 4,096 spp within relMSE 1e-3. Same backend and seed must
-# repeat bit for bit; a mixed GPU + CPU render stays within the tolerance; the furnace stays uniform.
+# ---- GPU tests (M5, M6): label gpu plus vulkan or cuda, skipped by the build scripts; run with
+# scripts/test-gpu.sh (ctest -L gpu; a GPU without ray tracing: ctest -L cuda) ----
+# Gate (docs/GUIDE.md M5, M6): each GPU backend matches the CPU at 4,096 spp within relMSE 1e-3. Same backend and
+# seed must repeat bit for bit; a mixed GPU + CPU render stays within the tolerance; the furnace stays uniform.
+pen_render_test(cutout_cpu runs cutout.pen.json "--res|160x90|--spp|4|--backend|cpu")
+function(pen_gpu_test backend name mode scene args)
+  pen_render_test(${backend}_${name} ${mode} ${scene} "${args}" ${ARGN})
+  set_tests_properties(render.${backend}_${name} PROPERTIES LABELS "gpu;${backend}")
+endfunction()
+set(_pen_gpu_backends "")
 if(PEN_ENABLE_VULKAN)
-  function(pen_gpu_test name mode scene args)
-    pen_render_test(gpu_${name} ${mode} ${scene} "${args}" ${ARGN})
-    set_tests_properties(render.gpu_${name} PROPERTIES LABELS "gpu")
-  endfunction()
-  pen_gpu_test(golden_cornell reference cornell.pen.json "--res|256x256|--spp|4096|--backend|vulkan"
+  list(APPEND _pen_gpu_backends vulkan)
+endif()
+if(PEN_ENABLE_CUDA)
+  list(APPEND _pen_gpu_backends cuda)
+endif()
+foreach(_b IN LISTS _pen_gpu_backends)
+  pen_gpu_test(${_b} golden_cornell reference cornell.pen.json "--res|256x256|--spp|4096|--backend|${_b}"
                -DREFERENCE=${PROJECT_SOURCE_DIR}/tests/golden/cornell_256_4096spp.exr -DMAXRELMSE=1e-3)
-  pen_gpu_test(spheres_vs_cpu pair spheres.pen.json "--res|320x180|--spp|4096" "-DARGS_A=--backend|cpu"
-               "-DARGS_B=--backend|vulkan" -DMAXRELMSE=1e-3)
-  pen_gpu_test(bigtex_vs_cpu pair bigtex.pen.json "--res|240x240|--spp|1024" "-DARGS_A=--backend|cpu"
-               "-DARGS_B=--backend|vulkan" -DMAXRELMSE=1e-3)
-  pen_gpu_test(furnace_diffuse uniform furnace_diffuse.pen.json "--res|32x32|--spp|16384|--backend|vulkan"
+  pen_gpu_test(${_b} spheres_vs_cpu pair spheres.pen.json "--res|320x180|--spp|4096" "-DARGS_A=--backend|cpu"
+               "-DARGS_B=--backend|${_b}" -DMAXRELMSE=1e-3)
+  pen_gpu_test(${_b} bigtex_vs_cpu pair bigtex.pen.json "--res|240x240|--spp|1024" "-DARGS_A=--backend|cpu"
+               "-DARGS_B=--backend|${_b}" -DMAXRELMSE=1e-3)
+  pen_gpu_test(${_b} cutout_vs_cpu pair cutout.pen.json "--res|320x180|--spp|1024" "-DARGS_A=--backend|cpu"
+               "-DARGS_B=--backend|${_b}" -DMAXRELMSE=1e-3)
+  pen_gpu_test(${_b} furnace_diffuse uniform furnace_diffuse.pen.json "--res|32x32|--spp|16384|--backend|${_b}"
                -DTOLERANCE=0.005)
-  pen_gpu_test(furnace_glass uniform furnace_glass.pen.json "--spp|256|--backend|vulkan" -DTOLERANCE=0.005)
-  pen_gpu_test(repeatable devices spheres.pen.json "--res|320x180|--spp|64|--backend|vulkan" "-DDEVICE_SETS=0+0")
-  pen_gpu_test(hybrid pair cornell.pen.json "--res|1080p|--scale|0.25|--spp|1024" "-DARGS_A=--backend|cpu"
-               "-DARGS_B=--backend|vulkan|--devices|0,cpu" -DMAXRELMSE=1e-3)
-  pen_gpu_test(ao_vs_cpu pair spheres.pen.json "--res|160x90|--spp|256|--integrator|ao" "-DARGS_A=--backend|cpu"
-               "-DARGS_B=--backend|vulkan" -DMAXRELMSE=1e-3)
-  pen_gpu_test(debug_normal runs spheres.pen.json "--res|160x90|--spp|1|--integrator|debug:normal|--backend|vulkan")
+  pen_gpu_test(${_b} furnace_glass uniform furnace_glass.pen.json "--spp|256|--backend|${_b}" -DTOLERANCE=0.005)
+  pen_gpu_test(${_b} repeatable devices spheres.pen.json "--res|320x180|--spp|64|--backend|${_b}" "-DDEVICE_SETS=0+0")
+  # Small chunks, so the frame is many items and both devices get some (the log must show it).
+  pen_gpu_test(${_b} hybrid pair cornell.pen.json "--res|1080p|--scale|0.25|--spp|1024" "-DARGS_A=--backend|cpu"
+               "-DARGS_B=--backend|${_b}|--devices|0,cpu" -DMAXRELMSE=1e-3 -DSMALL_CHUNKS=1
+               "-DEXPECT_LOG=local/0 [^\n]*: [1-9][0-9]* items.*local/1 [^\n]*: [1-9][0-9]* items")
+  pen_gpu_test(${_b} ao_vs_cpu pair spheres.pen.json "--res|160x90|--spp|256|--integrator|ao" "-DARGS_A=--backend|cpu"
+               "-DARGS_B=--backend|${_b}" -DMAXRELMSE=1e-3)
+  pen_gpu_test(${_b} debug_normal runs spheres.pen.json "--res|160x90|--spp|1|--integrator|debug:normal|--backend|${_b}")
+endforeach()
+if(PEN_ENABLE_CUDA)
+  # Traversal step counts exist only in the software BVH.
+  pen_gpu_test(cuda debug_bvh runs spheres.pen.json "--res|160x90|--spp|1|--integrator|debug:bvh|--backend|cuda")
+endif()
+if(PEN_ENABLE_VULKAN AND PEN_ENABLE_CUDA)
+  # The two GPU backends share the shading code (DECISIONS D-085); on one GPU they must agree closely.
+  pen_render_test(gpu_cuda_vs_vulkan pair cutout.pen.json "--res|320x180|--spp|1024" "-DARGS_A=--backend|vulkan"
+                  "-DARGS_B=--backend|cuda" -DMAXRELMSE=1e-3)
+  set_tests_properties(render.gpu_cuda_vs_vulkan PROPERTIES LABELS "gpu;vulkan;cuda")
+endif()
+if(_pen_gpu_backends)
   # Every Slang shading function against its C++ original on 65,536 inputs (DECISIONS D-077).
   add_executable(penumbra-gpu-parity gpu/parity.cpp)
   target_link_libraries(penumbra-gpu-parity PRIVATE penumbra_backends)
-  add_test(NAME gpu.parity COMMAND penumbra-gpu-parity)
-  set_tests_properties(gpu.parity PROPERTIES LABELS "gpu")
+  foreach(_b IN LISTS _pen_gpu_backends)
+    add_test(NAME gpu.parity_${_b} COMMAND penumbra-gpu-parity --backend ${_b})
+    set_tests_properties(gpu.parity_${_b} PROPERTIES LABELS "gpu;${_b}")
+  endforeach()
 endif()
 
 if(NOT EXISTS "${PROJECT_SOURCE_DIR}/tests/golden/cornell_256_4096spp.exr")
   message(STATUS "tests/golden/cornell_256_4096spp.exr not found: render.golden_cornell is disabled")
   set_tests_properties(render.golden_cornell PROPERTIES DISABLED TRUE)
-  if(PEN_ENABLE_VULKAN)
-    set_tests_properties(render.gpu_golden_cornell PROPERTIES DISABLED TRUE)
-  endif()
+  foreach(_b IN LISTS _pen_gpu_backends)
+    set_tests_properties(render.${_b}_golden_cornell PROPERTIES DISABLED TRUE)
+  endforeach()
 endif()
 
 # ---- Repository checks ----

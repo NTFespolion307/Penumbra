@@ -9,8 +9,12 @@
 #include "core/system/paths.h"
 #include "core/system/sysinfo.h"
 #include "core/version.h"
+#include "worker/device_manager.h"
 #if defined(PEN_HAS_VULKAN)
 #include "backends/vulkan/vulkan_backend.h"
+#endif
+#if defined(PEN_HAS_CUDA)
+#include "backends/cuda/cuda_backend.h"
 #endif
 
 namespace pen::app {
@@ -45,23 +49,15 @@ int printVersion() {
 int listDevices() {
   const SystemInfo sys = querySystem();
   print(fmt::format("Render devices on {} (numbers are what --devices takes):\n", sys.host));
-#if defined(PEN_HAS_VULKAN)
-  const VulkanProbe& probe = probeVulkan();
-  uint32_t n = 0;
-  for (const VulkanGpu& g : probe.gpus) {
-    if (g.ray_tracing)
-      print(fmt::format("  {:<5} {}, {} VRAM   backend vulkan (hardware ray tracing)\n", n++, g.name,
-                        formatBytes(g.vram_bytes)));
+  const GpuInventory& inv = gpuInventory();
+  for (const RenderGpu& g : inv.gpus) {
+    std::string backends;
+    if (g.vulkan >= 0) backends = "vulkan (hardware ray tracing, the default)";
+    if (g.cuda >= 0) backends += g.vulkan >= 0 ? ", cuda" : "cuda (software BVH, the default)";
+    print(fmt::format("  {:<5} {}, {} VRAM   backend {}\n", g.index, g.name, formatBytes(g.vram_bytes), backends));
   }
-  for (const VulkanGpu& g : probe.gpus)
-    if (!g.ray_tracing)
-      print(fmt::format("  -     {} ({}): not used, no Vulkan ray tracing (missing {})\n", g.name, g.type, g.missing));
-  if (!probe.loader_found) print(fmt::format("  -     no GPU: {}\n", probe.error));
-#else
-  print("  -     GPUs: this build has no GPU backend (PEN_ENABLE_VULKAN=OFF)\n");
-#endif
-  print(fmt::format("  cpu   {}, {} threads   backend cpu (Embree)\n", sys.cpu, sys.logical_cores));
-  print("CUDA (GPUs without ray tracing) arrives in M6.\n");
+  print(fmt::format("  cpu   {}, {} threads   backend cpu (Embree)\n", sys.cpu, usableCpuThreads()));
+  for (const std::string& n : inv.notes) print(fmt::format("  -     {}\n", n));
   return 0;
 }
 
@@ -91,7 +87,17 @@ int diagnose() {
 #else
   row("Vulkan", "not built (PEN_ENABLE_VULKAN=OFF)");
 #endif
-  row("CUDA", "not probed yet (CUDA backend arrives in M6)");
+#if defined(PEN_HAS_CUDA)
+  row("CUDA build", cudaBuildSummary());
+  const CudaProbe& cuda = probeCuda();
+  if (!cuda.driver_found) row("CUDA", cuda.error);
+  else row("CUDA", fmt::format("driver supports CUDA {}.{}", cuda.driver_version / 1000, cuda.driver_version % 1000 / 10));
+  for (const CudaGpu& g : cuda.gpus)
+    row("CUDA", fmt::format("{} (compute {}.{}, {} VRAM): {}", g.name, g.cc_major, g.cc_minor,
+                            formatBytes(g.vram_bytes), g.usable ? "OK" : g.why));
+#else
+  row("CUDA", "not built (no CUDA toolkit when Penumbra was built, or PEN_ENABLE_CUDA=OFF)");
+#endif
   row("TCP 7420", "bind check arrives with networking in M4");
   return 0;
 }

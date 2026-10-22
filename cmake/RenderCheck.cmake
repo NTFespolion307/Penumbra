@@ -5,6 +5,7 @@
 #   reference    REFERENCE, MAXRELMSE      relMSE against a golden image
 #   runs         -                         the render must succeed
 #   pair         ARGS_A, ARGS_B, MAXRELMSE two renders that differ only in ARGS_A / ARGS_B agree within MAXRELMSE
+#                (EXPECT_LOG: a regex the second render's log must match)
 # Renders use the CPU unless ARGS names a backend, so a test means the same on a machine with a GPU.
 
 string(REPLACE "|" ";" extra "${ARGS}")
@@ -14,6 +15,13 @@ endif()
 set(common --terminal "${SCENE}" --config "${WORKDIR}/empty-config.json" --log-file "${WORKDIR}/${NAME}.log"
            --progress plain --bit-depth 32 ${extra})
 file(WRITE "${WORKDIR}/empty-config.json" "{}\n")
+
+# SMALL_CHUNKS=1: work items of 2^22 pixel-samples instead of the default (tests that need many items per tile,
+# DECISIONS D-083). Network tests always use it. Set in this script's environment, which every process it starts
+# inherits: wrapping penumbra in `cmake -E env` would make a kill hit the wrapper and leave penumbra running.
+if(SMALL_CHUNKS OR MODE STREQUAL "network")
+  set(ENV{PENUMBRA_TEST_CHUNK_BUDGET} 4194304)
+endif()
 
 # Renders `out`; extra arguments go to penumbra. RENDER_ENV (e.g. "PENUMBRA_TEST_FAULTS=...") is set for the
 # process when defined. The log text is left in `last_log` in the caller's scope.
@@ -64,6 +72,9 @@ elseif(MODE STREQUAL "pair")
   string(REPLACE "|" ";" b "${ARGS_B}")
   render("${NAME}_a.exr" ${a})
   render("${NAME}_b.exr" ${b})
+  if(DEFINED EXPECT_LOG AND NOT last_log MATCHES "${EXPECT_LOG}")  # checked against the second render
+    message(FATAL_ERROR "the log of the second render does not show '${EXPECT_LOG}':\n${last_log}")
+  endif()
   diff("${NAME}_a.exr" "${NAME}_b.exr" --max-relmse ${MAXRELMSE})
 elseif(MODE STREQUAL "devices")
   # The same image, bit for bit, whatever the number of device slots (D-045). DEVICE_SETS: "+"-separated.

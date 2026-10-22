@@ -6,6 +6,8 @@
 //   spheres.gltf + sky.hdr glass, gold, clear-coated and sheen spheres on a procedural HDRI -> spheres.pen.json
 //   bigtex.gltf + bigtex.bin + textures/noise.png   a quad with a 12 MB noise texture, external buffer and a
 //                         texture in a subfolder: scene package transfer tests -> bigtex.pen.json
+//   cutout.gltf           orthographic camera (axis-parallel rays), an alpha-masked checker quad, one sphere mesh
+//                         instanced five times, 1- and 2-triangle meshes: GPU traversal tests -> cutout.pen.json
 // The output is deterministic, so tests can regenerate it at build time.
 
 #include <cmath>
@@ -341,6 +343,71 @@ void bigtex(const fs::path& dir) {
             {{"scene", "bigtex.gltf"}, {"environment", {{"color", {1.0, 1.0, 1.0}}}}, {"render", {{"res", "240p"}}}});
 }
 
+// Software ray tracing corner cases (CUDA backend, DECISIONS D-086): rays with exact zero direction components
+// (orthographic camera looking down -Z), alpha cutouts inside the traversal, instancing with non-uniform scale and
+// rotation (TLAS and object-space rays), and meshes too small for a CWBVH (triangle lists).
+void cutout(const fs::path& dir) {
+  constexpr int N = 64;
+  std::vector<uint8_t> px(size_t(N) * N * 4);
+  for (int y = 0; y < N; ++y)
+    for (int x = 0; x < N; ++x) {
+      uint8_t* p = &px[(size_t(y) * N + x) * 4];
+      const bool open = ((x / 8) + (y / 8)) % 2 == 0;
+      p[0] = 230, p[1] = 140, p[2] = 40, p[3] = open ? 0 : 255;
+    }
+  stbi_write_png((dir / "cutout_checker.png").string().c_str(), N, N, 4, px.data(), N * 4);
+
+  GltfWriter w;
+  w.useExtension("KHR_materials_specular");
+  const int tex = w.texture("cutout_checker.png");
+  const int checker = w.material({{"name", "checker"},
+                                  {"pbrMetallicRoughness",
+                                   {{"baseColorTexture", {{"index", tex}}}, {"metallicFactor", 0.0}, {"roughnessFactor", 0.8}}},
+                                  {"alphaMode", "MASK"},
+                                  {"alphaCutoff", 0.5},
+                                  {"doubleSided", true}});
+  const int back = w.material(lambert("back", {0.2f, 0.35f, 0.6f}));
+  const int red = w.material(lambert("red", {0.7f, 0.15f, 0.1f}));
+  const int green = w.material(lambert("green", {0.15f, 0.6f, 0.2f}));
+
+  MeshData quad;
+  addQuad(quad, {-1.2f, -0.7f, 0}, {1.2f, -0.7f, 0}, {1.2f, 0.7f, 0}, {-1.2f, 0.7f, 0}, {0, 0, 5}, 1);
+  quad.uvs = {0, 1, 1, 1, 1, 0, 0, 0};
+  w.node({{"name", "checker"}, {"mesh", w.mesh("checker", quad, checker)}, {"translation", {0, 0, 0.6}}});
+
+  MeshData wall;  // 2 triangles: a triangle-list BLAS
+  addQuad(wall, {-3, -2, 0}, {3, -2, 0}, {3, 2, 0}, {-3, 2, 0}, {0, 0, 5}, 1);
+  w.node({{"name", "wall"}, {"mesh", w.mesh("wall", wall, back)}, {"translation", {0, 0, -1.0}}});
+
+  MeshData tri;  // 1 triangle
+  tri.positions = {{-0.3f, -0.25f, 0}, {0.3f, -0.25f, 0}, {0, 0.3f, 0}};
+  tri.normals = {{0, 0, 1}, {0, 0, 1}, {0, 0, 1}};
+  tri.indices = {0, 1, 2};
+  w.node({{"name", "triangle"}, {"mesh", w.mesh("triangle", tri, green)}, {"translation", {1.15f, 0.45f, -0.5}}});
+
+  const int sphere = w.mesh("sphere", uvSphere(0.25f, 24, 12), red);
+  const json placements[] = {
+      {{"translation", {-0.9, 0.3, -0.3}}},
+      {{"translation", {-0.3, -0.3, -0.2}}, {"scale", {1.6, 0.6, 1.0}}},
+      {{"translation", {0.35, 0.25, -0.4}}, {"rotation", {0.2588190, 0, 0.2588190, 0.9305076}}, {"scale", {0.7, 1.8, 0.7}}},
+      {{"translation", {0.9, -0.35, -0.1}}, {"scale", {0.5, 0.5, 0.5}}},
+      {{"translation", {0.0, 0.0, 0.2}}, {"scale", {0.3, 0.3, 0.3}}}};
+  int k = 0;
+  for (const json& p : placements) {
+    json n = p;
+    n["name"] = "sphere" + std::to_string(k++);
+    n["mesh"] = sphere;
+    w.node(n);
+  }
+
+  const int cam = w.camera(
+      {{"type", "orthographic"}, {"orthographic", {{"xmag", 1.6}, {"ymag", 0.9}, {"znear", 0.01}, {"zfar", 100.0}}}});
+  w.node({{"name", "Camera"}, {"camera", cam}, {"translation", {0, 0, 4.0}}});
+  w.write(dir / "cutout.gltf");
+  writeJson(dir / "cutout.pen.json",
+            {{"scene", "cutout.gltf"}, {"environment", {{"color", {1.0, 1.0, 1.0}}}}, {"render", {{"res", "320x180"}}}});
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -359,6 +426,7 @@ int main(int argc, char** argv) {
               {{"res", "64x64"}, {"max_bounces", 128}, {"no_rr", true}});
   spheres(dir);
   bigtex(dir);
+  cutout(dir);
   std::printf("wrote test scenes to %s\n", dir.string().c_str());
   return 0;
 }

@@ -125,6 +125,10 @@ port forwarding/UPnP, VPN for CGNAT, Windows Firewall and `ufw allow 7420/tcp`, 
 | Gaming PC | RTX 5060, 8 GB, Blackwell sm_120, hardware RT | Single-GPU Vulkan RT + CUDA, Windows GPU tests, low-VRAM fallback, LAN worker |
 | GPU servers (up to 5) | Mostly NVIDIA, mixed models | Multi-GPU, 60K-160K renders, internet-worker tests, benchmarks |
 
+- GPU servers are rented vast.ai containers/VMs, destroyed after every day: each session gets new SSH addresses
+  and empty machines, so set them up from scratch per README (prerequisites, vcpkg, clone, build). Never rely on
+  files, builds or caches left on a server from an earlier day. Use only the CPUs the container's cgroup quota
+  allows (not the host's core count) for build and test parallelism.
 - `PEN_CUDA_ARCHS` default `75;80;86;89;90;120`; add older archs if the server has them.
 - Never mark M5-M9 as passed without results from the gaming PC or the GPU server; reports name the machine and GPU.
 - Preferred: both GPU machines are self-hosted GitHub Actions runners (`gpu-windows`, `gpu-linux`) running `ctest -L gpu` on pushes to `main` only, never on pull requests from forks.

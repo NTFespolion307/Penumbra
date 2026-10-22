@@ -1,11 +1,12 @@
-// GPU scene and frame data; must match backends/vulkan/gpu_types.h field for field (scalar block layout).
+// GPU scene and frame data; must match backends/gpu/gpu_types.h field for field (one layout for Vulkan scalar
+// block layout and CUDA natural alignment, DECISIONS D-086).
 #pragma once
 
 struct TextureRef {
   int index;
   uint tex_coord;
-  uint has_transform;
   float2 offset;
+  uint has_transform;
   float rotation;
   float2 scale;
 };
@@ -13,36 +14,39 @@ struct TextureRef {
 struct Material {
   float4 base_color;
   TextureRef base_color_tex;
-  float metallic;
-  float roughness;
   TextureRef metallic_roughness_tex;
   TextureRef normal_tex;
+  TextureRef emissive_tex;
+  TextureRef transmission_tex;
+  TextureRef specular_tex;
+  TextureRef specular_color_tex;
+  TextureRef clearcoat_tex;
+  TextureRef clearcoat_roughness_tex;
+  TextureRef sheen_color_tex;
+  TextureRef sheen_roughness_tex;
+  TextureRef anisotropy_tex;
+  float metallic;
+  float roughness;
   float normal_scale;
   float3 emissive;
   float emissive_strength;
-  TextureRef emissive_tex;
   float transmission;
-  TextureRef transmission_tex;
   float ior;
   float specular;
-  TextureRef specular_tex;
   float3 specular_color;
-  TextureRef specular_color_tex;
   float clearcoat;
-  TextureRef clearcoat_tex;
   float clearcoat_roughness;
-  TextureRef clearcoat_roughness_tex;
   float3 sheen_color;
-  TextureRef sheen_color_tex;
   float sheen_roughness;
-  TextureRef sheen_roughness_tex;
   float anisotropy;
   float anisotropy_rotation;
-  TextureRef anisotropy_tex;
   uint alpha_mode;
   float alpha_cutoff;
   uint double_sided;
   uint emits;
+  uint pad0;
+  uint pad1;
+  uint pad2;
 };
 
 struct Texture {
@@ -141,6 +145,25 @@ struct PushConstants {
   uint height;
   uint sample_begin;
   uint sample_end;
+  uint sample_count;
+  uint flags;
+};
+static const uint kItemAccumulate = 1;
+static const uint kItemFinish = 2;
+
+// Software ray tracing (CUDA backend, bvh.slang).
+struct Blas {
+  uint kind;  // 0 no triangles, 1 CWBVH, 2 triangle list
+  uint node_base;
+  uint tri_base;
+  uint tri_count;
+};
+
+struct TlasNode {
+  float3 lo;
+  uint left_first;
+  float3 hi;
+  uint count;
 };
 
 // Integrator modes (core/settings/render_settings.h Integrator).
@@ -149,3 +172,4 @@ static const uint kModeAo = 1;
 static const uint kModeDebugNormal = 2;
 static const uint kModeDebugAlbedo = 3;
 static const uint kModeDebugDepth = 4;
+static const uint kModeDebugBvh = 5;

@@ -130,6 +130,8 @@ class CpuBackend final : public IBackend {
   }
 
   void prepare(const FrameSetup& frame) override {
+    if (frame.params.mode == Integrator::DebugBvh)
+      throw BackendError("debug:bvh needs traversal step counts, which Embree does not report; use --backend cuda");
     frame_ = frame;
     cancel_ = false;
   }

@@ -469,3 +469,113 @@ README. Vulkan vs CPU at 4,096 spp: golden Cornell relMSE 1.1e-8, spheres 7.9e-1
 shading functions passes (integer paths exact). Speed: about 15x the 48-core Xeon (docs/BENCHMARKS.md).
 Windows (laptop, MSVC 19.51, Intel UHD without ray tracing): 154/154 with the GPU skipped, also from a fresh clone
 of `m5`. Not covered, by the user's decision: a Windows GPU run (scripts\test-gpu.ps1 on the gaming PC, later).
+
+## After M5: work items for fast GPUs on slow links
+
+User test 2026-10-20: laptop controller, RTX 5060 Ti worker joining over Tailscale (userspace mode, 141 ms round
+trip). The GPU sat at 5% and the render ran at well under half its speed: an item was 2^22 pixel-samples (17 ms on
+this GPU), each item sends a full tile back, and 3 items in flight cannot cover a 141 ms round trip. The user asked
+to keep results bit-identical, which rules out float16 tiles (D-053).
+
+**D-083 Work items of 2^26 pixel-samples (was 2^22).** Chunks stay fixed by the settings alone, so every
+distribution of work still gives the same bits (D-045); only the last bits of images compared with earlier
+versions change once (golden tests unaffected). One item is about 0.3 s on an RTX 5060 Ti and a few seconds on a
+many-core CPU (the guide's 2-10 s), and the bytes sent per sample drop 16x. A 256 x 256 tile now takes chunks of
+1,024 samples; frames below 1080p (one tile) get correspondingly more samples per chunk. Costs: coarser preview
+steps and more work lost when a render is cut. Test-only `PENUMBRA_TEST_CHUNK_BUDGET` restores small items for the
+tests that need many items per tile (slots, faults, resume, interrupt, all network tests, unit tests).
+
+**D-084 Items in flight follow the round trip.** A network worker keeps ceil(2 x round trip / item time) + 1 items
+per device in flight (2 to 64; the device's median of its last 16 items), so a fast device behind a long link is
+never idle waiting for its next lease. It measures the round trip as soon as it joins. The guide's "2, or 3 above
+50 ms" remains the rule until the first items have finished. Small changes are ignored to avoid fluttering.
+
+## M6: CUDA compute backend
+
+**D-085 One GPU path tracer, two ways to trace.** The path loop moved from `shaders/pathtrace.slang` into
+`shaders/integrator.slang`, written against two functions the entry file defines before including it:
+`intersect(o, d)` (closest hit) and `occluded(o, d, tmax)`. `pathtrace.slang` implements them with Vulkan ray
+tracing (`TraceRay`), `pathtrace_cuda.slang` with the software BVH (`bvh.slang`). slangc compiles the same shading
+code to SPIR-V and to CUDA C++ (the guide's plan); the C++ code stays the reference (D-077) and the parity test now
+runs on both GPU backends. A work item may be split into several CUDA launches of about 1M paths each (sample
+ranges summed in order, the running sum kept in the output buffer), so each launch is short and the result is the
+same bits as a single launch.
+
+**D-086 Software ray tracing: tinybvh CWBVH, one byte layout for both GPU backends.** tinybvh is kept in
+`third_party/tinybvh` (MIT; it has no vcpkg port), pinned to commit bfd3e819 (v1.9.0, 2026-09-29), compiled in one
+file with its warnings off; its fatal errors throw `BackendError` instead of ending the process. Each mesh gets a
+CWBVH (`BVH8_CWBVH`, Ylitie et al. 2017); a mesh of 1 to 3 triangles is a plain triangle list, because tinybvh
+cannot make a CWBVH whose root is a leaf. A binary BVH over the instances (median splits, 2 per leaf) sits on top;
+rays enter each mesh in object space with an unnormalized direction, so `t` stays the world ray parameter. The
+traversal is a port of tinybvh's `traverse_cwbvh.cl`, with these changes:
+- Alpha cutouts are tested inside the loop.
+- Shadow rays stop at the first hit.
+- Directions with zero components use a clamped reciprocal (orthographic cameras send exactly axis-parallel rays).
+- The triangle test cannot accept NaNs.
+- A full stack is counted and reported, not ignored.
+
+The node array is tinybvh's, with one change: each node's leaf triangle base becomes a triangle number. The
+triangles are Penumbra's own (`v2 - v0`, `v1 - v0`, `v0` with a scene-wide triangle id), rebuilt from the mesh in
+tinybvh's order. The pinned header turns on `CWBVH_COMPRESSED_TRIS` (4 float4 per triangle, a precomputed transform),
+and the first CUDA renders read that array as 3 float4 per triangle and crashed with an illegal address. Our format
+is the same whichever layout a later tinybvh picks, and the Moller-Trumbore test matches what the reference kernel
+does without compression.
+
+Slang's CUDA prelude (2026.19) gives `firstbithigh` on a uint with bit 31 set the signed meaning, which breaks the
+CWBVH hit masks; `highestBit()` avoids it. The GPU structs (`backends/gpu/gpu_types.h`, `shaders/types.slang`)
+are ordered so Vulkan's scalar layout and CUDA's natural alignment give the same bytes: float2 on 8 bytes, float4 on
+16, sizes padded by hand. Only `TextureRef` and `Material` were reordered. The build turns slangc's reflection JSON
+into a header (`cmake/CudaLayout.cmake`); the CUDA backend fills the kernel's parameter block by name from it and
+static_asserts the offset of every field of every struct.
+
+**D-087 CUDA kernels are built ahead of time; the driver is loaded at run time.** nvcc compiles the generated CUDA
+C++ into a fatbin embedded in the binary: machine code for every architecture in `PEN_CUDA_ARCHS` that the toolkit
+supports (the others are left out with a CMake warning), all produced from ONE PTX of the oldest architecture,
+which is embedded too. Every GPU generation therefore starts from the same program, and the driver can compile
+the PTX for GPUs newer than the list. Results agree very closely across generations but are not guaranteed bit for
+bit. On the RTX 5070 Ti and the GTX 1660 SUPER the Cornell box gave identical bits, while the spheres scene
+differed in the last bits, because ptxas schedules each architecture differently. Nothing links against CUDA: `nvcuda.dll` / `libcuda.so.1` is opened at start,
+so a machine without NVIDIA still runs Penumbra, and `--diagnose` says why CUDA is missing. A GPU is usable when
+the build has machine code for its architecture (same major version, equal or lower minor) or it is at least the
+PTX architecture, and the driver supports the toolkit's major version (CUDA 13 kernels need a CUDA 13 driver).
+CUDA 13 dropped compute capability 6.x and 7.0 (GTX 10-series, V100): building for those takes a CUDA 12.x
+toolkit and `-DPEN_CUDA_ARCHS="61;75;..."`. `PEN_ENABLE_CUDA` is ON when CMake finds a CUDA toolkit
+(`find_package(CUDAToolkit)`). On Windows nvcc gets `-allow-unsupported-compiler`, because it only preprocesses
+with MSVC here (device code only).
+
+**D-088 One GPU list for both backends.** The `--devices` numbering lists GPUs with Vulkan ray tracing in Vulkan
+order, then NVIDIA GPUs only CUDA can use, in CUDA order. A GPU on both lists is matched by UUID and appears
+once. `--backend auto` picks Vulkan where the GPU has ray tracing, else CUDA, and logs the choice per GPU.
+`--backend cuda` forces CUDA (also on RT GPUs, for testing), and `--backend vulkan` skips GPUs without RT. Tested
+on a GTX 1660 SUPER (2026-10-22): its driver (610) offers Vulkan ray tracing on the GTX 16 series, emulated on the
+shader cores, so `auto` uses Vulkan there too. CUDA is the default only where the driver offers no Vulkan RT
+(GTX 10 series and older, which need a CUDA 12 build, D-087), or where Vulkan itself is missing.
+`--integrator debug:bvh` (D-027) now works with `--backend cuda`: each pixel holds the number of BVH nodes visited
+plus triangles tested by the camera ray. Without `--backend cuda` the render is refused before it starts. The CPU
+and Vulkan backends refuse it in `prepare()`, so a worker that joins with another backend fails its devices
+instead of rendering zeros.
+
+**D-089 M6 gate results (2026-10-22).** Linux, vast.ai containers, Ubuntu 24.04, GCC 12.4, CUDA 13.3, driver 610,
+each built from a fresh clone per the README:
+- **RTX 5070 Ti 16 GB** (Blackwell, sm_120, 30 CPUs): full suite passes; 24/24 GPU tests (Vulkan and CUDA).
+  CUDA vs CPU at 4,096 spp: golden Cornell relMSE 1.1e-8, spheres 1.4e-9 (gate: 1e-3). Big texture 8e-10; cutout
+  (alpha, instancing, orthographic) 5.8e-10. CUDA vs Vulkan 2.2e-9. Parity of every shading function passes.
+- **GTX 1660 SUPER 6 GB** (Turing, sm_75, the oldest default target, no RT cores; 14 CPUs): full suite 157/157;
+  13/13 CUDA tests, with the same Cornell relMSE (1.082e-8) and spheres 1.4e-9.
+
+Both GPUs: CUDA repeats bit for bit; a mixed CUDA + CPU render stays within the tolerance, with both devices
+rendering items; `debug:bvh` renders.
+
+Windows (laptop, MSVC 19.51, no CUDA toolkit, so CUDA is not built): full suite passes. The `chunks` change
+(D-083, D-084) is tested in the same runs. They found two test harness bugs and one logging gap, all fixed:
+- `cmake -E env` wrappers orphaned killed processes.
+- One resume test was too fast on fast machines.
+- The first in-flight depth was not logged.
+
+Also from these runs:
+- The hybrid GPU tests had silently become CPU-only once items grew to 2^26 pixel-samples; they now use small
+  chunks and check that both devices rendered.
+- CUDA is about 9x slower than Vulkan RT on an RTX GPU (docs/BENCHMARKS.md), which is for M9 to tune.
+
+Not covered: CUDA on Windows (no toolkit on the laptop; the user's call), a GTX 10-series GPU (needs a CUDA 12
+build, D-087), and a Windows GPU run (gaming PC, later).

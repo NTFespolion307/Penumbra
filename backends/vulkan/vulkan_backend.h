@@ -3,6 +3,7 @@
 // Vulkan ray tracing backend (docs/GUIDE.md "Rendering backends"). This header has no Vulkan types, so the
 // device manager and --list-devices can use it without including Vulkan.
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -20,6 +21,7 @@ struct VulkanGpu {
   uint64_t vram_bytes = 0;      // device-local heap size
   bool ray_tracing = false;     // VK_KHR_ray_tracing_pipeline + acceleration structures + the features Penumbra needs
   std::string missing;          // why ray tracing is unusable, when it is
+  std::array<uint8_t, 16> uuid{};  // deviceUUID: matches CUDA's UUID for the same GPU
 };
 
 struct VulkanProbe {
