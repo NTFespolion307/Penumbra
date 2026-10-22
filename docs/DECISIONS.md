@@ -633,3 +633,8 @@ chunk in its only checkpoint. A fixed kill time cannot suit both fast and slow m
 the test hook `PENUMBRA_TEST_KILL_AFTER_ITEMS=N` (D-047 style, logged when active): once N chunks are merged
 the controller checkpoints the film and session and exits at once with code 137, like a killed process. The
 resume then has to reproduce the uninterrupted image bit for bit, as before.
+Found in the first cross-machine render (4x RTX 3060 host, laptop worker): Vulkan rendered a whole item (2^26
+pixel-samples) in one dispatch, 4-7 s on that host, so two healthy GPUs still busy with tail copies at the end of
+the render passed the 10 s grace and were removed as hung, and the render ended 11 s late. Vulkan now splits an item
+into dispatches of at most 2^22 paths (one submit each, cancel checked between them), the same scheme as CUDA's
+launches (`kItemAccumulate`; the same bits as one dispatch), so a cancel takes effect within one short dispatch.

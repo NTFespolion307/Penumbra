@@ -761,19 +761,43 @@ void VulkanBackend::render(const WorkItem& item, TileResult& out) {
   ensureOutput(r.pixels());
   std::memset(counter_buffer_.mapped, 0, 16);
   vmaFlushAllocation(vma_, counter_buffer_.alloc, 0, VK_WHOLE_SIZE);
-  const gpu::PushConstants pc{r.x0, r.y0, r.width(), r.height(), item.sample_begin, item.sample_end,
-                              item.sample_end - item.sample_begin, gpu::kItemFinish};
-  submitAndWait([&](VkCommandBuffer c) {
-    vk_.vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipeline_);
-    vk_.vkCmdBindDescriptorSets(c, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipeline_layout_, 0, 1, &set_, 0, nullptr);
-    vk_.vkCmdPushConstants(c, pipeline_layout_, VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(pc), &pc);
-    vk_.vkCmdTraceRaysKHR(c, &rgen_, &miss_, &hit_, &call_, r.width(), r.height(), 1);
-    VkMemoryBarrier mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-    mb.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    mb.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
-    vk_.vkCmdPipelineBarrier(c, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &mb, 0,
-                             nullptr, 0, nullptr);
-  });
+  // Dispatches of at most ~4M paths, like CUDA's launches: a cancel takes effect within one short dispatch (so a
+  // slow GPU is not taken for a hung one, D-094), and the running sum stays in the output buffer, so the result is
+  // the same bits as one dispatch (gpu::kItemAccumulate).
+  constexpr uint64_t kPathsPerDispatch = uint64_t(1) << 22;
+  const uint32_t total = item.sample_end - item.sample_begin;
+  const uint32_t step = static_cast<uint32_t>(
+      std::clamp<uint64_t>(kPathsPerDispatch / std::max<uint64_t>(r.pixels(), 1), 1, std::max(total, 1u)));
+  for (uint32_t s = item.sample_begin; s < item.sample_end;) {
+    const uint32_t e = std::min(item.sample_end, s + step);
+    gpu::PushConstants pc{r.x0, r.y0, r.width(), r.height(), s, e, total, 0};
+    if (s > item.sample_begin) pc.flags |= gpu::kItemAccumulate;
+    if (e == item.sample_end) pc.flags |= gpu::kItemFinish;
+    submitAndWait([&](VkCommandBuffer c) {
+      if (pc.flags & gpu::kItemAccumulate) {  // the previous dispatch's sum, written in an earlier submission
+        VkMemoryBarrier prev{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+        prev.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        prev.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+        vk_.vkCmdPipelineBarrier(c, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
+                                 VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, 0, 1, &prev, 0, nullptr, 0, nullptr);
+      }
+      vk_.vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipeline_);
+      vk_.vkCmdBindDescriptorSets(c, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipeline_layout_, 0, 1, &set_, 0,
+                                  nullptr);
+      vk_.vkCmdPushConstants(c, pipeline_layout_, VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(pc), &pc);
+      vk_.vkCmdTraceRaysKHR(c, &rgen_, &miss_, &hit_, &call_, r.width(), r.height(), 1);
+      VkMemoryBarrier mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+      mb.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+      mb.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+      vk_.vkCmdPipelineBarrier(c, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &mb,
+                               0, nullptr, 0, nullptr);
+    });
+    s = e;
+    if (s < item.sample_end && cancel_) {
+      out.cancelled = true;
+      return;
+    }
+  }
   vmaInvalidateAllocation(vma_, out_buffer_.alloc, 0, VK_WHOLE_SIZE);
   vmaInvalidateAllocation(vma_, counter_buffer_.alloc, 0, VK_WHOLE_SIZE);
   std::memcpy(out.mean.data(), out_buffer_.mapped, r.pixels() * sizeof(Vec3f));
