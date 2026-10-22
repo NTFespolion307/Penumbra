@@ -57,12 +57,17 @@ echo "    vcpkg: $VCPKG_ROOT"
 # nproc follows the affinity mask but not a container's CPU quota (cgroup v2 cpu.max): a container can show 192
 # cores and be allowed 23 (DECISIONS D-081).
 cores="$(nproc)"
-if [[ -r /sys/fs/cgroup/cpu.max ]]; then
+quota="max" period=0
+if [[ -r /sys/fs/cgroup/cpu.max ]]; then                       # cgroup v2
   read -r quota period < /sys/fs/cgroup/cpu.max
-  if [[ "$quota" != "max" && "$period" -gt 0 ]]; then
-    allowed=$(( (quota + period - 1) / period ))
-    (( allowed < cores )) && cores=$allowed
-  fi
+elif [[ -r /sys/fs/cgroup/cpu/cpu.cfs_quota_us ]]; then         # cgroup v1 (-1 = no limit)
+  quota="$(cat /sys/fs/cgroup/cpu/cpu.cfs_quota_us)"
+  period="$(cat /sys/fs/cgroup/cpu/cpu.cfs_period_us)"
+  (( quota < 0 )) && quota="max"
+fi
+if [[ "$quota" != "max" && "$period" -gt 0 ]]; then
+  allowed=$(( (quota + period - 1) / period ))
+  (( allowed < cores )) && cores=$allowed
 fi
 if [[ -z "${VCPKG_MAX_CONCURRENCY:-}" ]]; then
   mem_gb="$(awk '/MemAvailable/ {print int($2 / 1048576)}' /proc/meminfo)"
