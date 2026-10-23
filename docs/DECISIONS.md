@@ -643,4 +643,11 @@ launches (`kItemAccumulate`; the same bits as one dispatch), so a cancel takes e
 `sky.hdr`) and `cutout` scenes, about 2.2 MB, so a fresh clone can render right after building (README "Quick test
 right after cloning"). They are exactly what `penumbra-scenegen` writes: `.gitattributes` keeps them byte-exact on
 every OS (no CRLF conversion, so the scene package hash is the same everywhere), and the `docs.sample_scene_*`
-tests compare them with the generated copies. The furnace and big-texture scenes (8-12 MB, test-only) stay generated.
+tests compare them with the generated copies, except `spheres.gltf`: its vertices come from sin/cos, whose last bits
+differ between MSVC and GCC (found on the RTX 5080 gate box), so the generator's output is not byte-identical across
+OSes. The `render.sample_*` tests render each committed scene instead. The furnace and big-texture scenes
+(8-12 MB, test-only) stay generated.
+
+Also from the 5080 box: with tail duplication (D-091) a fast host finishes a frozen or slow device's last items, so
+`net.worker_silent` (which waits for the 30 s heartbeat loss) and the hybrid/mixed tests that require every device to
+win items now run with `NO_TAIL=1`, like the late-lease tests.

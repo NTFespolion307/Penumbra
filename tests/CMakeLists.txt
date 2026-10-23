@@ -212,7 +212,8 @@ pen_net_test(tail_duplicate 7521 2 cornell.pen.json "--res|1080p|--spp|256|--bac
              "-DEXPECT_LOG=duplicated to device [^\n]*the first valid result wins.*copy of tile [^\n]* won")
 pen_net_test(worker_silent 7514 2 cornell.pen.json "--res|1080p|--scale|0.5|--spp|256" "-DREF_ARGS=--devices|cpu"
              "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|4" -DFIRST_WORKER_EXPECT=7
-             "-DFIRST_WORKER_ENV=PENUMBRA_TEST_FAULTS=device=0,after=1,mode=freeze" "-DEXPECT_LOG=heartbeat lost")
+             "-DFIRST_WORKER_ENV=PENUMBRA_TEST_FAULTS=device=0,after=1,mode=freeze" "-DEXPECT_LOG=heartbeat lost"
+             -DNO_TAIL=1)
 pen_net_test(corrupt_tiles 7515 2 cornell.pen.json "${PEN_NET_12}" "-DREF_ARGS=--devices|cpu"
              "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|4" -DFIRST_WORKER_EXPECT=6
              "-DFIRST_WORKER_ENV=PENUMBRA_TEST_FAULTS=device=0,after=0,mode=corrupt" "-DEXPECT_LOG=kicking w1")
@@ -271,9 +272,10 @@ foreach(_b IN LISTS _pen_gpu_backends)
                -DTOLERANCE=0.005)
   pen_gpu_test(${_b} furnace_glass uniform furnace_glass.pen.json "--spp|256|--backend|${_b}" -DTOLERANCE=0.005)
   pen_gpu_test(${_b} repeatable devices spheres.pen.json "--res|320x180|--spp|64|--backend|${_b}" "-DDEVICE_SETS=0+0")
-  # Small chunks, so the frame is many items and both devices get some (the log must show it).
+  # Small chunks, so the frame is many items and both devices get some (the log must show it). No tail
+  # duplication: a fast GPU would otherwise also finish the CPU's last items and leave it with none (D-091).
   pen_gpu_test(${_b} hybrid pair cornell.pen.json "--res|1080p|--scale|0.25|--spp|1024" "-DARGS_A=--backend|cpu"
-               "-DARGS_B=--backend|${_b}|--devices|0,cpu" -DMAXRELMSE=1e-3 -DSMALL_CHUNKS=1
+               "-DARGS_B=--backend|${_b}|--devices|0,cpu" -DMAXRELMSE=1e-3 -DSMALL_CHUNKS=1 -DNO_TAIL=1
                "-DEXPECT_LOG=local/0 [^\n]*: [1-9][0-9]* items.*local/1 [^\n]*: [1-9][0-9]* items")
   pen_gpu_test(${_b} ao_vs_cpu pair spheres.pen.json "--res|160x90|--spp|256|--integrator|ao" "-DARGS_A=--backend|cpu"
                "-DARGS_B=--backend|${_b}" -DMAXRELMSE=1e-3)
@@ -305,7 +307,7 @@ if(PEN_ENABLE_VULKAN AND PEN_ENABLE_CUDA)
   pen_render_test(gpu_mixed_one_gpu pair cornell.pen.json "--res|1080p|--scale|0.25|--spp|1024" "-DARGS_A=--backend|cpu"
                   "-DARGS_B=--devices|0:vulkan,0:cuda,cpu" -DMAXRELMSE=1e-3 -DSMALL_CHUNKS=1)
   pen_render_test(gpu_mixed_multi pair cornell.pen.json "--res|1080p|--scale|0.25|--spp|1024" "-DARGS_A=--backend|cpu"
-                  "-DARGS_B=--devices|0:vulkan,1:cuda,cpu" -DMAXRELMSE=1e-3 -DSMALL_CHUNKS=1 -DMIN_GPUS=2
+                  "-DARGS_B=--devices|0:vulkan,1:cuda,cpu" -DMAXRELMSE=1e-3 -DSMALL_CHUNKS=1 -DMIN_GPUS=2 -DNO_TAIL=1
                   "-DEXPECT_LOG=local/0 [^\n]*: [1-9][0-9]* items.*local/1 [^\n]*: [1-9][0-9]* items.*local/2 [^\n]*: [1-9][0-9]* items")
   set_tests_properties(render.gpu_mixed_one_gpu render.gpu_mixed_multi PROPERTIES LABELS "gpu;vulkan;cuda")
   set_tests_properties(render.gpu_mixed_multi PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:")
@@ -335,10 +337,19 @@ add_test(NAME docs.cli_reference
 add_test(NAME lint.layering
          COMMAND "${CMAKE_COMMAND}" -DSOURCE_DIR=${PROJECT_SOURCE_DIR} -P "${PROJECT_SOURCE_DIR}/cmake/CheckLayering.cmake")
 set_tests_properties(docs.cli_reference lint.layering PROPERTIES LABELS lint)
-# The sample scenes in scenes/ (for a quick render after cloning) must stay what penumbra-scenegen writes.
-foreach(_f cornell.gltf cornell.pen.json spheres.gltf spheres.pen.json sky.hdr cutout.gltf cutout.pen.json
-           cutout_checker.png)
+# The sample scenes in scenes/ (for a quick render after cloning, D-096) must render, and must stay what
+# penumbra-scenegen writes. spheres.gltf is not compared: its vertices come from sin/cos, whose last bits differ
+# between MSVC and GCC, so the generated copy differs per OS.
+foreach(_f cornell.gltf cornell.pen.json spheres.pen.json sky.hdr cutout.gltf cutout.pen.json cutout_checker.png)
   add_test(NAME docs.sample_scene_${_f}
            COMMAND "${CMAKE_COMMAND}" -E compare_files "${PROJECT_SOURCE_DIR}/scenes/${_f}" "${PEN_SCENES}/${_f}")
   set_tests_properties(docs.sample_scene_${_f} PROPERTIES LABELS lint)
+endforeach()
+foreach(_s cornell spheres cutout)
+  add_test(NAME render.sample_${_s}
+           COMMAND "${CMAKE_COMMAND}" -DPENUMBRA=$<TARGET_FILE:penumbra> -DDIFF=$<TARGET_FILE:penumbra-diff>
+                   -DWORKDIR=${CMAKE_CURRENT_BINARY_DIR} -DNAME=sample_${_s}
+                   -DSCENE=${PROJECT_SOURCE_DIR}/scenes/${_s}.pen.json "-DARGS=--res|160x90|--spp|4" -DMODE=runs
+                   -P "${PROJECT_SOURCE_DIR}/cmake/RenderCheck.cmake")
+  set_tests_properties(render.sample_${_s} PROPERTIES LABELS "render")
 endforeach()
