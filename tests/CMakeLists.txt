@@ -213,7 +213,9 @@ pen_net_test(tail_duplicate 7521 2 cornell.pen.json "--res|1080p|--spp|256|--bac
 pen_net_test(worker_silent 7514 2 cornell.pen.json "--res|1080p|--scale|0.5|--spp|256" "-DREF_ARGS=--devices|cpu"
              "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|4" -DFIRST_WORKER_EXPECT=7
              "-DFIRST_WORKER_ENV=PENUMBRA_TEST_FAULTS=device=0,after=1,mode=freeze" "-DEXPECT_LOG=heartbeat lost"
-             -DNO_TAIL=1)
+             -DNO_TAIL=1 -DWORKER_DELAY_MS=35000)
+# Worker 1 starts at 35 s and goes silent after one item; worker 2 joins at 70 s, after the controller has
+# dropped worker 1 (30 s), so a fast worker 2 cannot finish the render before the heartbeat loss (any speed).
 pen_net_test(corrupt_tiles 7515 2 cornell.pen.json "${PEN_NET_12}" "-DREF_ARGS=--devices|cpu"
              "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|4" -DFIRST_WORKER_EXPECT=6
              "-DFIRST_WORKER_ENV=PENUMBRA_TEST_FAULTS=device=0,after=0,mode=corrupt" "-DEXPECT_LOG=kicking w1")
