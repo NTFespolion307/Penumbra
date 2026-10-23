@@ -55,6 +55,12 @@
       "dependencies": [
         "catch2"
       ]
+    },
+    "ui": {
+      "description": "User interface window (Dear ImGui is vendored in third_party/imgui)",
+      "dependencies": [
+        "glfw3"
+      ]
     }
   }
 }

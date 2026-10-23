@@ -5,6 +5,11 @@ option(PEN_BUILD_TESTS "Build unit, smoke and lint tests" ON)
 if(PEN_BUILD_TESTS)
   list(APPEND VCPKG_MANIFEST_FEATURES "tests")
 endif()
+# The UI's window library (GLFW) is a vcpkg manifest feature too, so headless builds do not fetch it.
+option(PEN_ENABLE_UI "Dear ImGui user interface (M10)" ON)
+if(PEN_ENABLE_UI)
+  list(APPEND VCPKG_MANIFEST_FEATURES "ui")
+endif()
 
 project(Penumbra VERSION 0.1.0 DESCRIPTION "Distributed multi-GPU path tracer" LANGUAGES CXX)
 
@@ -38,7 +43,6 @@ endif()
 # ---- Feature options (see docs/GUIDE.md "Build, dependencies and platforms") ----
 option(PEN_ENABLE_VULKAN "Vulkan RT backend and UI swapchain (built from M5)" ON)
 option(PEN_ENABLE_OPTIX "OptiX backend and denoiser (optional, M13)" OFF)
-option(PEN_ENABLE_UI "Dear ImGui user interface (built from M10)" ON)
 if(NOT DEFINED PEN_ENABLE_CUDA)
   # ON when a CUDA toolkit (nvcc) is found: on PATH, through CUDA_PATH (the Windows installer sets it) or in
   # /usr/local/cuda. Nothing links against CUDA; the driver is loaded at run time (DECISIONS D-087).

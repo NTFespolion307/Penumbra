@@ -13,6 +13,53 @@ endif()
 target_link_libraries(penumbra PRIVATE penumbra_cli penumbra_controller penumbra_net)
 set_target_properties(penumbra PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
+# ---- UI (M10, docs/GUIDE.md "UI"; DECISIONS D-100) ----
+# Dear ImGui is vendored (third_party/imgui, v1.92.9) because the vcpkg port has no GLFW/Vulkan/OpenGL backends.
+# GLFW opens X11/Wayland and ImGui's OpenGL loader opens libGL at run time, so --terminal and --worker never need
+# display libraries.
+if(PEN_ENABLE_UI)
+  find_package(glfw3 CONFIG REQUIRED)
+  set(_imgui "${PROJECT_SOURCE_DIR}/third_party/imgui")
+  add_library(penumbra_imgui STATIC
+    "${_imgui}/imgui.cpp" "${_imgui}/imgui_draw.cpp" "${_imgui}/imgui_tables.cpp" "${_imgui}/imgui_widgets.cpp"
+    "${_imgui}/backends/imgui_impl_glfw.cpp" "${_imgui}/backends/imgui_impl_opengl3.cpp")
+  target_include_directories(penumbra_imgui SYSTEM PUBLIC "${_imgui}" "${_imgui}/backends")
+  target_link_libraries(penumbra_imgui PUBLIC glfw)
+  target_compile_options(penumbra_imgui PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/W0,-w>)
+  if(PEN_ENABLE_VULKAN)
+    find_package(volk CONFIG REQUIRED)
+    target_sources(penumbra_imgui PRIVATE "${_imgui}/backends/imgui_impl_vulkan.cpp")
+    target_compile_definitions(penumbra_imgui PUBLIC IMGUI_IMPL_VULKAN_USE_VOLK)
+    target_link_libraries(penumbra_imgui PUBLIC volk::volk volk::volk_headers)
+  endif()
+
+  # IBM Plex (SIL OFL 1.1, third_party/fonts) compiled into the binary so the UI looks the same everywhere.
+  set(_gen "${CMAKE_CURRENT_BINARY_DIR}/generated")
+  set(_font_sources "")
+  foreach(_font PlexSansRegular:IBMPlexSans-Regular PlexSansMedium:IBMPlexSans-Medium PlexSansSemiBold:IBMPlexSans-SemiBold
+                PlexMonoRegular:IBMPlexMono-Regular PlexMonoMedium:IBMPlexMono-Medium)
+    string(REPLACE ":" ";" _pair "${_font}")
+    list(GET _pair 0 _name)
+    list(GET _pair 1 _file)
+    add_custom_command(
+      OUTPUT "${_gen}/font_${_name}.cpp"
+      COMMAND "${CMAKE_COMMAND}" -E make_directory "${_gen}"
+      COMMAND pen-embed-binary "${PROJECT_SOURCE_DIR}/third_party/fonts/${_file}.ttf" "${_gen}/font_${_name}.cpp" k${_name}
+      DEPENDS "${PROJECT_SOURCE_DIR}/third_party/fonts/${_file}.ttf" pen-embed-binary
+      VERBATIM)
+    list(APPEND _font_sources "${_gen}/font_${_name}.cpp")
+  endforeach()
+
+  add_library(penumbra_ui STATIC ui/app.cpp ui/theme.cpp ui/gfx_gl.cpp ${_font_sources})
+  if(PEN_ENABLE_VULKAN)
+    target_sources(penumbra_ui PRIVATE ui/gfx_vulkan.cpp)
+    target_compile_definitions(penumbra_ui PRIVATE PEN_UI_VULKAN=1)
+  endif()
+  target_link_libraries(penumbra_ui PUBLIC penumbra_core PRIVATE penumbra_imgui penumbra_controller)
+  target_link_libraries(penumbra PRIVATE penumbra_ui)
+  target_compile_definitions(penumbra PRIVATE PEN_HAS_UI=1)
+endif()
+
 # Regenerates the CLI reference in README.md from the same option table as --help.
 add_custom_target(update-cli-docs
   COMMAND "${CMAKE_COMMAND}" -DEXE=$<TARGET_FILE:penumbra> -DREADME=${PROJECT_SOURCE_DIR}/README.md -DMODE=update

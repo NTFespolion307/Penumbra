@@ -5,18 +5,22 @@
 #   ./scripts/build.sh             Release build with tests
 #   ./scripts/build.sh --debug     Debug build
 #   ./scripts/build.sh --no-tests --clean
+#   ./scripts/build.sh --ui | --no-ui    Force the user interface on or off (default: on when a display is present)
 set -euo pipefail
 
 config=release
 tests=1
 clean=0
+ui=auto
 for arg in "$@"; do
   case "$arg" in
     --debug) config=debug ;;
     --release) config=release ;;
     --no-tests) tests=0 ;;
     --clean) clean=1 ;;
-    -h|--help) sed -n '2,8p' "$0"; exit 0 ;;
+    --ui) ui=1 ;;
+    --no-ui) ui=0 ;;
+    -h|--help) sed -n '2,9p' "$0"; exit 0 ;;
     *) echo "unknown option: $arg" >&2; exit 1 ;;
   esac
 done
@@ -87,8 +91,22 @@ if (( clean )) && [[ -d "build/$preset" ]]; then
   rm -rf "build/$preset"
 fi
 
+# The UI needs a display; servers and rented containers build without it (DECISIONS D-100). Its window library
+# needs the X11 development headers.
+if [[ "$ui" == auto ]]; then
+  if [[ -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" ]]; then ui=1; else ui=0; fi
+  if (( ui )); then step "User interface: on (a display is present; --no-ui to skip)"
+  else step "User interface: off (no display found; --ui to build it anyway)"; fi
+fi
+if (( ui )); then
+  pkg-config --exists x11 xrandr xinerama xcursor xi xkbcommon 2>/dev/null ||
+    fail "the user interface needs the X11 development packages. Install them with:
+  sudo apt install -y libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev libgl1-mesa-dev
+or build without the UI: ./scripts/build.sh --no-ui"
+fi
+
 step "Configuring ($preset); the first run builds the dependencies and takes a few minutes"
-cmake --preset "$preset"
+cmake --preset "$preset" -DPEN_ENABLE_UI=$( (( ui )) && echo ON || echo OFF )
 
 step "Building"
 cmake --build --preset "$preset"

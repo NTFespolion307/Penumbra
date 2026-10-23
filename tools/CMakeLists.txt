@@ -10,5 +10,8 @@ target_link_libraries(penumbra-scenegen PRIVATE penumbra_core)
 add_executable(penumbra-netem-proxy netem_proxy.cpp)
 target_link_libraries(penumbra-netem-proxy PRIVATE penumbra_net)  # Asio and its settings
 
+# Build tool: a binary file as a C++ byte array (CUDA kernels, UI fonts).
+add_executable(pen-embed-binary embed_binary.cpp)
+
 set_target_properties(penumbra-diff penumbra-scenegen penumbra-netem-proxy PROPERTIES
                       RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")

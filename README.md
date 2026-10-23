@@ -134,6 +134,14 @@ Run these in a terminal:
    ```
    `cmake --version` now prints `3.31.6` and `echo $VCPKG_ROOT` prints your vcpkg folder.
 
+Optional, the user interface (on a desktop; servers and rented containers run headless and skip this):
+
+- Install the X11 development packages the UI's window library needs:
+  ```bash
+  sudo apt install -y libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev libgl1-mesa-dev
+  ```
+  `./scripts/build.sh` builds the UI when a display is present and says which it chose.
+
 Optional, the CUDA toolkit (for the CUDA backend; the toolkit only, it does not touch the driver):
 
 9. Download NVIDIA's repository key for this distribution (Ubuntu 22.04/24.04, Debian 12):
@@ -197,7 +205,9 @@ folder such as `C:\dev`: MSVC fails on paths longer than 260 characters.
    Success ends with `Built: .../Penumbra/build/linux-gcc-release/bin/penumbra`.
 
 Script options: `-Config debug` / `--debug` for a debug build, `-NoTests` / `--no-tests` to skip the tests,
-`-Clean` / `--clean` to start from an empty build folder.
+`-Clean` / `--clean` to start from an empty build folder. On Linux the user interface is built when a display is
+present (`DISPLAY` or `WAYLAND_DISPLAY`) and skipped on headless machines; `--ui` / `--no-ui` force it. Windows
+always builds it.
 
 ### Manual CMake presets
 
@@ -238,7 +248,7 @@ The binary is `build/<preset>/bin/penumbra` (`penumbra.exe` on Windows).
 | `PEN_ENABLE_VULKAN` | `ON` | Vulkan RT backend (the UI swapchain from M10). `OFF` builds a CPU-only Penumbra |
 | `PEN_ENABLE_CUDA` | `ON` if the CUDA toolkit is found | CUDA backend. Nothing links against CUDA: the driver is loaded when Penumbra starts, so the binary also runs on machines without NVIDIA |
 | `PEN_ENABLE_OPTIX` | `OFF` | OptiX backend and denoiser *(planned, M13, optional)* |
-| `PEN_ENABLE_UI` | `ON` | The user interface *(planned, M10)*; turn off for headless servers |
+| `PEN_ENABLE_UI` | `ON` | The user interface (M10); off for headless servers (`build.sh` turns it off when there is no display). `--terminal` and `--worker` never need display libraries either way |
 | `PEN_CUDA_ARCHS` | `75;80;86;89;90;120` | CUDA architectures to compile for. Newer GPUs run the embedded PTX. CUDA 13 cannot build for GTX 10-series (61) or V100 (70); for those, build with CUDA 12.x and add the architecture, e.g. `-DPEN_CUDA_ARCHS="61;75;86"` |
 | `PEN_BUILD_TESTS` | `ON` | Unit, smoke and lint tests |
 
@@ -674,6 +684,7 @@ Start with `penumbra --diagnose` and include its output in any bug report.
 | Linux: "CMake 3.26 or newer is required" | Install the official CMake as in [Prerequisites](#prerequisites); check `which cmake` points to `/opt/cmake/bin/cmake`. |
 | No Vulkan ray tracing, or the GPU is not listed | Update the GPU driver; `penumbra --list-devices` and `--diagnose` show each GPU and what it is missing. In Docker, the container needs `-e NVIDIA_DRIVER_CAPABILITIES=all`. NVIDIA GPUs without ray tracing render through CUDA when the build has it (`--diagnose` shows "CUDA build"); other GPUs without it are skipped and the CPU renders. |
 | CUDA not found | At build time: install the CUDA toolkit and rebuild (CMake prints `CUDA=ON`); without it Penumbra still builds with Vulkan and CPU. At run time: `penumbra --diagnose` shows the driver and each GPU. "The driver supports CUDA 12.x, this build needs CUDA 13.x": update the NVIDIA driver (580+), or build with a CUDA 12 toolkit. "compute capability ... is older than this build's oldest target": see `PEN_CUDA_ARCHS`. |
+| The UI window stays black, flickers or does not open | The UI draws with Vulkan and falls back to OpenGL 3.3 by itself when Vulkan cannot show a window; the log says which (`UI: drawing with ...`). To force OpenGL, start it with the environment variable `PENUMBRA_UI_RENDERER=opengl` (PowerShell: `$env:PENUMBRA_UI_RENDERER="opengl"; penumbra`). On a machine with no display at all, use `--terminal` or `--worker`. |
 | Worker: "could not join: the connection closed before the controller answered" (exit code 6) | Something closed the connection before the controller said anything: the address or port is not the controller's, a firewall, proxy or relay on the way drops it (on a rented container, check the relay in [Rented GPU containers](#rented-gpu-containers-vastai-runpod-and-similar)), or the controller is ignoring this address after more than 5 wrong codes (wait 10 minutes or restart the controller). |
 | Worker: "could not join: the controller did not accept the join code" (exit code 6) | The code differs from the one the controller printed; copy it again (case and dashes do not matter). After more than 5 wrong codes in a minute the controller ignores that address for 10 minutes: wait, or restart the controller. |
 | Worker: "the controller rejected this worker: ... runs Penumbra ... (git ...)" (exit code 6) | The two machines run different builds. Run `git pull` and rebuild on both ([Updating](#updating)); the git hashes must match. |
