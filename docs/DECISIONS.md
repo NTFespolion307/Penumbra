@@ -687,3 +687,9 @@ stops the render".
 
 Open: the 3060 host's low absolute speed (about 9 M samples/s per GPU at about 30 W, both backends) to recheck in
 M9; on one GPU listed twice the driver time-slices the two contexts unevenly (D-090).
+
+**D-099 M10 (UI) before M8 and M9 (user decision, 2026-10-23).** The user asked to build the UI next and do M8
+(memory budget) and M9 (performance) after it. The UI drives the existing controller and worker code, which M8 and
+M9 change only inside devices, so nothing blocks it. Until M8, the UI shows each GPU's memory tier as reported
+(always tier 0 today), and the `--vram-limit` / texture-downsize settings are added to the UI together with the
+flags in M8. Until M9, render-time estimates use the speed the cluster measured in the session, not `--benchmark`.
