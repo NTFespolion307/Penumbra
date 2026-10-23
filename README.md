@@ -263,7 +263,8 @@ cmake --preset linux-gcc-release -DPEN_ENABLE_CUDA=OFF -DPEN_ENABLE_UI=OFF
 
 | Command | What it does |
 | --- | --- |
-| `penumbra` | Opens the UI as controller *(planned, M10; shows a notice until then)* |
+| `penumbra` | Opens the UI as controller: it hosts on the LAN at once, and its Dashboard and Hosts pages show every connected machine *(the Viewport and Settings pages are being built in M10)* |
+| `penumbra scene.pen.json` | Opens the UI with that scene loaded on the Render page |
 | `penumbra --terminal scene.glb -o out.png` | Headless render on this machine's devices (GPUs with ray tracing, else the CPU) |
 | `penumbra --terminal scene.glb --res 720p --spp 16 -o preview.png` | Quick preview |
 | `penumbra --terminal scene.pen.json --res 4k --spp 1024 -o final.exr` | 4K final with settings from a `.pen.json` |

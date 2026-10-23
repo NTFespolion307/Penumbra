@@ -25,6 +25,7 @@ RemoteWorker::RemoteWorker(WorkerId id, WorkerEvents& events, SceneUploader& upl
   info_.address = connection_->peer();
   info_.logical_cores = hello_.logical_cores;
   info_.ram_total = hello_.ram_total;
+  info_.version = fmt::format("{} (git {})", hello_.app_version, hello_.git_hash);
   for (const auto& d : hello_.devices) {
     DeviceInfo di;
     di.name = d->name;
@@ -208,6 +209,11 @@ void RemoteWorker::onMessage(net::Message&& msg) {
         stats.ram_used = m.ram_used;
         stats.ram_total = m.ram_total;
         stats.upload_bound = m.upload_bound;
+        stats.rtt_ms = m.rtt_ms;
+        stats.upload_bytes_per_s = m.upload_bytes_per_s;
+        stats.cache_used = m.cache_used;
+        stats.cache_limit = m.cache_limit;
+        stats.cache_scenes = m.cache_scenes;
         for (const auto& d : m.devices)
           stats.devices.push_back({d->device, d->busy_percent, d->vram_used, d->vram_total, d->temperature_c,
                                    d->tiles_per_s, d->samples_per_s});
@@ -219,6 +225,11 @@ void RemoteWorker::onMessage(net::Message&& msg) {
         if (m.level == wire::LogLevel::Error) spdlog::error("{}: {}", info_.name, m.text);
         else if (m.level == wire::LogLevel::Warn) spdlog::warn("{}: {}", info_.name, m.text);
         else spdlog::info("{}: {}", info_.name, m.text);
+        events_.onLog(id_,
+                      m.level == wire::LogLevel::Error  ? WorkerEvents::LogLevel::Error
+                      : m.level == wire::LogLevel::Warn ? WorkerEvents::LogLevel::Warning
+                                                        : WorkerEvents::LogLevel::Info,
+                      m.text);
         break;
       }
       case MsgType::Heartbeat: {

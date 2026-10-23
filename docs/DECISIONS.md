@@ -713,3 +713,21 @@ flags in M8. Until M9, render-time estimates use the speed the cluster measured 
   library. Wayland desktops run the UI through XWayland. On Linux, `build.sh` builds the UI only when a display is
   present (`--ui` / `--no-ui` to force). Checked: Windows draws with Vulkan (Intel UHD), WSL falls back to OpenGL
   3.3 on its own (no Vulkan loader there).
+
+**D-101 How the UI is built (M10, steps 2-4).**
+- **One render path.** The UI and `--terminal` share `controller/render_job` (prepare: settings, scene package,
+  scene, disk check, film and session file; finish: output, summary, cleanup) and `HostingSession` (one host and
+  join code across renders, workers stay attached between renders, one render at a time through RenderController).
+  The UI's `RenderRunner` runs exactly that on a background thread; Stop is Ctrl+C (checkpoint, image written).
+- **Protocol 4** adds the round trip, upload rate and scene cache use to `Stats`, for the Hosts pages' Ping, Upload
+  and Scene cache; worker `Log` lines are kept per host for "Log from this host".
+- **Switching hosts or devices off** (Hosts pages) is done in the session: a disabled device's work requests are
+  dropped and a disabled host is not offered renders, so RenderController is unchanged. This machine's disabled
+  GPUs are left out of its `--devices` list. Applies to renders that start afterwards.
+- **Framing preview** (Render page): the guide's `renderPreview`, done as a direct small render on this machine's
+  CPU (a few samples, about 480 px wide), not through the scheduler: it is a UI aid and never part of an image.
+- **Textures** (preview, viewport) are ImGui 1.92 `ImTextureData` registered as user textures, so the Vulkan and
+  OpenGL backends upload them; `ImTextureData::GetTexRef()` must be used (`ImTextureRef(ptr)` is the legacy
+  `void*` ID constructor and draws the wrong texture).
+- **Test hooks** for checking pages without clicking (D-047 style, logged when active): `PENUMBRA_TEST_UI_PAGE`
+  opens a page at start, `PENUMBRA_TEST_UI_SCREENSHOT=<png>` saves the frame shown after 8 s (OpenGL) and exits.

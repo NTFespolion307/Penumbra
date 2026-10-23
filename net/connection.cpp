@@ -228,7 +228,8 @@ void Connection::writeNext() {
   }
   writing_ = std::move(cipher);
   writing_plain_ = plainBytes;
-  asio::async_write(socket_, asio::buffer(writing_), [self = shared_from_this(), shutdownAfter](std::error_code ec, size_t) {
+  asio::async_write(socket_, asio::buffer(writing_), [self = shared_from_this(), shutdownAfter](std::error_code ec, size_t n) {
+    self->sent_ += n;
     self->queued_ -= self->writing_plain_;
     self->writing_plain_ = 0;
     if (ec) return self->fail(ec.message());

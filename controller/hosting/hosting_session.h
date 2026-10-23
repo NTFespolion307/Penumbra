@@ -7,6 +7,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <shared_mutex>
 #include <string>
 #include <vector>
@@ -39,6 +40,7 @@ struct HostView {
   bool connected = true;
   bool in_render = false;  // attached to the current render
   std::optional<WorkerStats> stats;  // the latest Stats (every 2 s)
+  std::vector<SessionEvent> log;     // the latest warnings and errors it forwarded (at most 20)
 };
 
 // The controller's hosting session (docs/GUIDE.md "Session versus render"): one listener and join code for as
@@ -84,6 +86,12 @@ class HostingSession final : public WorkerEvents {
   void onDeviceFailed(WorkerId worker, DeviceId device, const std::string& error) override;
   void onGone(WorkerId worker, GoneReason reason, const std::string& detail) override;
   void onStats(WorkerId worker, const WorkerStats& stats) override;
+  void onLog(WorkerId worker, LogLevel level, const std::string& text) override;
+  // Disconnects a worker with a reason (the Hosts page's Kick).
+  void kick(WorkerId worker, const std::string& reason);
+  // Hosts and devices switched off on the Hosts pages: a disabled device's work requests are dropped, a disabled
+  // host is not offered renders (it stays connected). Applies to renders that start afterwards.
+  void setDisabled(std::set<WorkerId> hosts, std::set<std::pair<WorkerId, DeviceId>> devices);
 
  private:
   struct Entry {
@@ -111,6 +119,8 @@ class HostingSession final : public WorkerEvents {
   std::map<WorkerId, Entry> workers_;
   WorkerId next_id_ = 1;
   std::deque<SessionEvent> events_;
+  std::set<WorkerId> disabled_hosts_;
+  std::set<std::pair<WorkerId, DeviceId>> disabled_devices_;
   RenderController* render_ = nullptr;  // while render() runs
 };
 

@@ -32,6 +32,13 @@ class SceneCache {
   // Unpacks the finished download into the cache, verifies every file, evicts old packages. Returns the folder.
   std::filesystem::path finishDownload();
 
+  struct Usage {
+    uint64_t bytes = 0;  // complete packages
+    uint32_t scenes = 0;
+  };
+  Usage usage() const;
+  uint64_t limit() const { return limit_; }
+
   // Bytes the cache may still take for this package (free disk, limit). For scene_rejected.
   std::optional<std::string> cannotHold(const ScenePackage& pkg) const;
 

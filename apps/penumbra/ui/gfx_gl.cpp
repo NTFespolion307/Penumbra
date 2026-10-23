@@ -5,6 +5,11 @@
 #include <imgui_impl_opengl3.h>
 
 #include <stdexcept>
+#include <string>
+#include <vector>
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h>
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
@@ -33,6 +38,10 @@ class GlGfx final : public Gfx {
     ImGui_ImplGlfw_Shutdown();
   }
   const char* name() const override { return "OpenGL 3.3"; }
+  bool captureNextFrame(const std::string& pngPath) override {
+    capture_ = pngPath;
+    return true;
+  }
   void newFrame() override {
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
@@ -44,11 +53,20 @@ class GlGfx final : public Gfx {
     glClearColor(clear[0], clear[1], clear[2], clear[3]);
     glClear(GL_COLOR_BUFFER_BIT);
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    if (!capture_.empty()) {  // the back buffer, before it is shown; rows bottom-up
+      std::vector<unsigned char> px(size_t(w) * h * 4);
+      glPixelStorei(GL_PACK_ALIGNMENT, 1);
+      glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+      stbi_flip_vertically_on_write(1);
+      stbi_write_png(capture_.c_str(), w, h, 4, px.data(), w * 4);
+      capture_.clear();
+    }
     glfwSwapBuffers(window_);
   }
 
  private:
   GLFWwindow* window_;
+  std::string capture_;
 };
 
 }  // namespace

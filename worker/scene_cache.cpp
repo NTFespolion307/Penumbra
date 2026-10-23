@@ -156,6 +156,21 @@ fs::path SceneCache::finishDownload() {
   return final;
 }
 
+SceneCache::Usage SceneCache::usage() const {
+  Usage u;
+  std::error_code ec;
+  for (const auto& d : fs::directory_iterator(dir_, ec)) {
+    const fs::path m = d.path() / "manifest.json";
+    if (!d.is_directory() || !fs::is_regular_file(m, ec)) continue;
+    try {
+      u.bytes += ScenePackage::fromManifest(readText(m)).total_bytes;
+      ++u.scenes;
+    } catch (const std::exception&) {
+    }
+  }
+  return u;
+}
+
 void SceneCache::evict(const fs::path& keep) {
   struct Entry {
     fs::path path;

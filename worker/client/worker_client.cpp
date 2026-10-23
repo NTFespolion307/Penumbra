@@ -149,6 +149,9 @@ class Worker {
   std::atomic<bool> paused_{false};
 
   CpuUsage cpu_;
+  uint64_t last_sent_ = 0;              // connection bytes at the last Stats (upload rate)
+  SceneCache::Usage cache_usage_;       // refreshed every 30 s and after each download
+  Clock::time_point cache_checked_{};
   Clock::time_point last_stats_ = Clock::now();
   Clock::time_point last_heartbeat_ = Clock::now();
   int in_flight_ = 2;   // depth for new slots, from the round trip alone
@@ -567,6 +570,7 @@ void Worker::finishDownload() {
   std::filesystem::path folder;
   try {
     folder = cache_.finishDownload();
+    cache_checked_ = {};  // the next Stats re-reads the cache size
   } catch (const std::exception& e) {
     return rejectScene(render_id_, fmt::format("the scene download failed: {}", e.what()));
   }
@@ -781,6 +785,17 @@ void Worker::sendStats() {
   s.ram_total = sys.ram_total;
   s.ram_used = sys.ram_total - sys.ram_available;
   s.upload_bound = uploadBound();
+  s.rtt_ms = static_cast<float>(rtt_ms_);
+  const uint64_t sent = conn_->bytesSent();
+  s.upload_bytes_per_s = dt > 0 ? double(sent - last_sent_) / dt : 0.0;
+  last_sent_ = sent;
+  if (Clock::now() - cache_checked_ > std::chrono::seconds(30)) {  // reads every manifest: not every 2 s
+    cache_usage_ = cache_.usage();
+    cache_checked_ = Clock::now();
+  }
+  s.cache_used = cache_usage_.bytes;
+  s.cache_scenes = cache_usage_.scenes;
+  s.cache_limit = cache_.limit();
   std::lock_guard lock(mutex_);
   for (uint32_t d = 0; d < slots_.size(); ++d) {
     DeviceCounters& c = counters_[d];

@@ -36,6 +36,7 @@ struct WorkerInfo {
   std::string address;  // where it connected from
   uint32_t logical_cores = 0;
   uint64_t ram_total = 0;
+  std::string version;  // "0.1.0 (git 1a2b3c4d5e6f)"
 };
 
 // What a worker host reports every 2 s, also when idle (docs/GUIDE.md "Stats").
@@ -52,6 +53,10 @@ struct WorkerStats {
   uint64_t ram_used = 0, ram_total = 0;
   bool upload_bound = false;
   std::vector<Device> devices;
+  float rtt_ms = 0;  // 0 = not measured yet
+  double upload_bytes_per_s = 0;
+  uint64_t cache_used = 0, cache_limit = 0;
+  uint32_t cache_scenes = 0;
 };
 
 struct DeviceReady {
@@ -90,6 +95,13 @@ class WorkerEvents {
   virtual void onStats(WorkerId worker, const WorkerStats& stats) {
     (void)worker;
     (void)stats;
+  }
+  // A warning or error the worker forwarded (docs/GUIDE.md "Logging"); also in the controller's log.
+  enum class LogLevel { Info, Warning, Error };
+  virtual void onLog(WorkerId worker, LogLevel level, const std::string& text) {
+    (void)worker;
+    (void)level;
+    (void)text;
   }
 };
 

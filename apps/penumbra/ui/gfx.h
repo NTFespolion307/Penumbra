@@ -16,6 +16,11 @@ class Gfx {
   virtual void newFrame() = 0;
   // Renders ImGui's draw data over `clear` (RGBA, linear 0-1) and presents it.
   virtual void render(const float clear[4]) = 0;
+  // Test only: saves the next rendered frame as a PNG (OpenGL; Vulkan returns false).
+  virtual bool captureNextFrame(const std::string& pngPath) {
+    (void)pngPath;
+    return false;
+  }
 };
 
 // Both take an ImGui context that exists already and set up ImGui's GLFW and renderer backends for `window`.

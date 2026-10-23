@@ -194,6 +194,7 @@ void HostingSession::attach(WorkerId id) {
     std::lock_guard lock(mutex_);
     auto it = workers_.find(id);
     if (it == workers_.end() || !it->second.view.connected || it->second.render_id) return;
+    if (disabled_hosts_.count(id)) return;  // switched off on the Hosts page
     link = it->second.link.get();
   }
   // The render offers the scene right after the link is made (a worker joining mid-render gets it at once).
@@ -222,6 +223,10 @@ void HostingSession::onReady(WorkerId worker, const std::vector<DeviceReady>& de
 }
 
 void HostingSession::onRequestWork(WorkerId worker, DeviceId device, int count) {
+  {
+    std::lock_guard lock(mutex_);
+    if (disabled_devices_.count({worker, device})) return;  // switched off: it gets no work
+  }
   std::shared_lock rl(render_mutex_);
   if (const auto rid = renderId(worker); render_ && rid) render_->onRequestWork(*rid, device, count);
 }
@@ -266,6 +271,37 @@ void HostingSession::onGone(WorkerId worker, GoneReason reason, const std::strin
 void HostingSession::onStats(WorkerId worker, const WorkerStats& stats) {
   std::lock_guard lock(mutex_);
   if (auto it = workers_.find(worker); it != workers_.end()) it->second.view.stats = stats;
+}
+
+void HostingSession::onLog(WorkerId worker, LogLevel level, const std::string& text) {
+  std::lock_guard lock(mutex_);
+  auto it = workers_.find(worker);
+  if (it == workers_.end()) return;
+  auto& log = it->second.view.log;
+  log.push_back({std::chrono::system_clock::now(),
+                 level == LogLevel::Error     ? SessionEvent::Level::Error
+                 : level == LogLevel::Warning ? SessionEvent::Level::Warning
+                                              : SessionEvent::Level::Info,
+                 text});
+  if (log.size() > 20) log.erase(log.begin());
+}
+
+void HostingSession::kick(WorkerId worker, const std::string& reason) {
+  RemoteWorker* link = nullptr;
+  {
+    std::lock_guard lock(mutex_);
+    auto it = workers_.find(worker);
+    if (it == workers_.end() || !it->second.view.connected) return;
+    link = it->second.link.get();
+  }
+  spdlog::warn("kicking {}: {}", link->info().name, reason);
+  link->kick(reason);
+}
+
+void HostingSession::setDisabled(std::set<WorkerId> hosts, std::set<std::pair<WorkerId, DeviceId>> devices) {
+  std::lock_guard lock(mutex_);
+  disabled_hosts_ = std::move(hosts);
+  disabled_devices_ = std::move(devices);
 }
 
 // ---------------------------------------------------------------- views
