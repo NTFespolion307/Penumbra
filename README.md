@@ -37,10 +37,11 @@ On the GPU, an image matches the CPU's within float rounding (relMSE about 1e-8 
 4. [Running on one machine](#running-on-one-machine)
 5. [Rendering with several machines](#rendering-with-several-machines)
 6. [CLI reference](#cli-reference)
-7. [Resolutions, backends, memory and formats](#resolutions-backends-memory-and-formats)
-8. [Scenes from Blender](#scenes-from-blender)
-9. [Troubleshooting](#troubleshooting)
-10. [Updating](#updating)
+7. [Supported formats](#supported-formats)
+8. [Resolutions, backends, memory and formats](#resolutions-backends-memory-and-formats)
+9. [Scenes from Blender](#scenes-from-blender)
+10. [Troubleshooting](#troubleshooting)
+11. [Updating](#updating)
 
 ## Why you build it yourself
 
@@ -138,7 +139,7 @@ Optional, the user interface (on a desktop; servers and rented containers run he
 
 - Install the X11 development packages the UI's window library needs:
   ```bash
-  sudo apt install -y libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev libgl1-mesa-dev
+  sudo apt install -y libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
   ```
   `./scripts/build.sh` builds the UI when a display is present and says which it chose.
 
@@ -559,6 +560,23 @@ full text on your machine.
 **Exit codes:** 0 success, 1 bad arguments (also: mode not built yet in this milestone), 2 scene load error,
 3 no usable device, 4 out of disk, 5 interrupted (checkpoint written), 6 rejected by controller, 7 connection
 lost.
+
+## Supported formats
+
+**What Penumbra reads:**
+
+| What | Formats | Notes |
+| --- | --- | --- |
+| Scene | glTF 2.0: `.glb` (binary, recommended), `.gltf` (with its `.bin` and texture files); Wavefront `.obj` with `.mtl` | glTF is the main format (Blender's exporter, see [Scenes from Blender](#scenes-from-blender)); OBJ is for simple test meshes |
+| Scene settings | `.pen.json` | Wraps a scene with the HDRI, camera choice and render settings |
+| glTF extensions | `KHR_materials_transmission`, `_ior`, `_clearcoat`, `_sheen`, `_specular`, `_emissive_strength`, `_anisotropy`, `KHR_texture_transform`, `KHR_lights_punctual`, `EXT_mesh_gpu_instancing` | Other extensions log a warning and fall back to the base PBR material. `KHR_materials_volume` renders as solid glass. Draco-compressed meshes are skipped with a warning (export without Draco) |
+| Textures | PNG, JPEG, BMP, TGA, Radiance `.hdr`, OpenEXR `.exr` | sRGB or linear as glTF specifies |
+| Environment (HDRI) | Radiance `.hdr`, OpenEXR `.exr` (also PNG/JPEG, treated as low dynamic range) | Equirectangular (latitude-longitude) maps |
+
+**What Penumbra writes:** PNG (`.png`), OpenEXR (`.exr`), JPEG (`.jpg`, `.jpeg`), TIFF (`.tif`, `.tiff`) and WebP
+(`.webp`); the output file's extension picks the format. Bit depths and size limits are in
+[Output formats and limits](#output-formats-and-limits). Films (`.penfilm`) and session files (`.session.json`)
+are Penumbra's own, for `--resume` and `merge`.
 
 ## Resolutions, backends, memory and formats
 

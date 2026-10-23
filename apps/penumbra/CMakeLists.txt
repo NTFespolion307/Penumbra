@@ -14,18 +14,28 @@ target_link_libraries(penumbra PRIVATE penumbra_cli penumbra_controller penumbra
 set_target_properties(penumbra PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 # ---- UI (M10, docs/GUIDE.md "UI"; DECISIONS D-100) ----
-# Dear ImGui is vendored (third_party/imgui, v1.92.9) because the vcpkg port has no GLFW/Vulkan/OpenGL backends.
-# GLFW opens X11/Wayland and ImGui's OpenGL loader opens libGL at run time, so --terminal and --worker never need
-# display libraries.
+# Dear ImGui (third_party/imgui, v1.92.9) and GLFW (third_party/glfw, 3.4) are vendored: the vcpkg imgui port has
+# no GLFW/Vulkan/OpenGL backends, and the vcpkg glfw3 port builds the whole X11 client library chain (autotools
+# included) on Linux. GLFW needs only the X11 headers to build and opens libX11 at run time, and ImGui's OpenGL
+# loader opens libGL at run time, so --terminal and --worker never need display libraries. X11 only: Wayland
+# desktops run it through XWayland.
 if(PEN_ENABLE_UI)
-  find_package(glfw3 CONFIG REQUIRED)
+  set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+  set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+  set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
+  set(GLFW_BUILD_WAYLAND OFF CACHE BOOL "" FORCE)
+  add_subdirectory("${PROJECT_SOURCE_DIR}/third_party/glfw" "${CMAKE_BINARY_DIR}/third_party/glfw" EXCLUDE_FROM_ALL)
+  target_compile_options(glfw PRIVATE $<$<NOT:$<C_COMPILER_ID:MSVC>>:-w>)  # MSVC: GLFW sets its own /W3
   set(_imgui "${PROJECT_SOURCE_DIR}/third_party/imgui")
   add_library(penumbra_imgui STATIC
     "${_imgui}/imgui.cpp" "${_imgui}/imgui_draw.cpp" "${_imgui}/imgui_tables.cpp" "${_imgui}/imgui_widgets.cpp"
     "${_imgui}/backends/imgui_impl_glfw.cpp" "${_imgui}/backends/imgui_impl_opengl3.cpp")
   target_include_directories(penumbra_imgui SYSTEM PUBLIC "${_imgui}" "${_imgui}/backends")
   target_link_libraries(penumbra_imgui PUBLIC glfw)
-  target_compile_options(penumbra_imgui PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/W0,-w>)
+  # Vendored code: none of the project's warning flags (they would only clash with /W0).
+  set_target_properties(penumbra_imgui PROPERTIES COMPILE_OPTIONS "")
+  target_compile_options(penumbra_imgui PRIVATE "$<IF:$<CXX_COMPILER_ID:MSVC>,/W0;/utf-8;/EHsc,-w>")
   if(PEN_ENABLE_VULKAN)
     find_package(volk CONFIG REQUIRED)
     target_sources(penumbra_imgui PRIVATE "${_imgui}/backends/imgui_impl_vulkan.cpp")

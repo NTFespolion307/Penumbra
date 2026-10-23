@@ -99,9 +99,9 @@ if [[ "$ui" == auto ]]; then
   else step "User interface: off (no display found; --ui to build it anyway)"; fi
 fi
 if (( ui )); then
-  pkg-config --exists x11 xrandr xinerama xcursor xi xkbcommon 2>/dev/null ||
+  pkg-config --exists x11 xrandr xinerama xcursor xi 2>/dev/null ||
     fail "the user interface needs the X11 development packages. Install them with:
-  sudo apt install -y libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev libgl1-mesa-dev
+  sudo apt install -y libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
 or build without the UI: ./scripts/build.sh --no-ui"
 fi
 

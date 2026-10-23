@@ -706,3 +706,10 @@ flags in M8. Until M9, render-time estimates use the speed the cluster measured 
   OpenGL fallback (no GPU for the display), while it renders with its GPUs as usual.
 - `--terminal`, `--worker` and every info mode never load window libraries (GLFW and ImGui's OpenGL loader open
   them at run time only in UI mode), so workers keep starting on servers with no display libraries at all.
+- GLFW 3.4 is vendored in `third_party/glfw` too (zlib license), built with X11 only: the vcpkg glfw3 port builds the
+  whole X11 client library chain from source on Linux (autotools included), which failed on a GNU mirror timeout
+  in WSL and would slow every container build. GLFW needs only the system X11 headers (`libx11-dev libxrandr-dev
+  libxinerama-dev libxcursor-dev libxi-dev`) and opens libX11 at run time; `ldd penumbra` lists no display
+  library. Wayland desktops run the UI through XWayland. On Linux, `build.sh` builds the UI only when a display is
+  present (`--ui` / `--no-ui` to force). Checked: Windows draws with Vulkan (Intel UHD), WSL falls back to OpenGL
+  3.3 on its own (no Vulkan loader there).
