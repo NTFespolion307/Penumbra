@@ -8,14 +8,17 @@ the image. Any number of **workers**, each with one or more GPUs, join with the 
 code, render tiles and send them back. A render on one machine is the same thing with no workers, and every
 combination of machines, GPUs and backends converges to the same image.
 
-> **Status: milestone M5 (Vulkan ray tracing on the GPU).** Penumbra renders glTF and OBJ scenes on GPUs with
-> hardware ray tracing (Vulkan RT), on any NVIDIA GPU through CUDA, and on the CPU (Embree), alone or together, with a path tracer (next-event estimation, MIS), the glTF PBR material with its common extensions and
-> HDRI lighting, at any size up to 160K, with checkpoints, `--resume` and `merge`, writing EXR, PNG, JPEG, TIFF
-> or WebP. Work is split into tile and sample chunks that any number of local devices share, with recovery from
-> failed or hung devices. Several machines render together: a controller hosts, workers on the LAN or the
-> internet join with a code (encrypted), download the scene once, and any failure of a worker, its devices or the
-> network is recovered without changing the image. Several GPUs per machine arrive in M7, the UI in M10. Features marked
-> *(planned, Mx)* below are not built yet. The roadmap is in [`docs/GUIDE.md`](docs/GUIDE.md).
+> **Status: milestone M7 (multi-GPU workers).** Penumbra renders glTF and OBJ scenes on GPUs with hardware ray
+> tracing (Vulkan RT), on any NVIDIA GPU through CUDA, and on the CPU (Embree), with a path tracer (next-event
+> estimation, MIS), the glTF PBR material with its common extensions and HDRI lighting, at any size up to 160K,
+> with checkpoints, `--resume` and `merge`, writing EXR, PNG, JPEG, TIFF or WebP. Every machine uses all its GPUs
+> at once, with Vulkan, CUDA and the CPU mixed freely; work is split into tile and sample chunks that the devices
+> share, idle devices take over the last chunks of slower ones, and a GPU that fails, hangs or cannot hold the
+> scene is dropped without changing the image. Several machines render together: a controller hosts, workers on
+> the LAN or the internet join with a code (encrypted), download the scene once, and any failure of a worker, its
+> devices or the network is recovered without changing the image. Memory tiers for big scenes arrive in M8, the
+> UI in M10. Features marked *(planned, Mx)* below are not built yet. The roadmap is in
+> [`docs/GUIDE.md`](docs/GUIDE.md).
 
 <!-- A screenshot goes here once the UI exists (M10). -->
 
