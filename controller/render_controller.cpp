@@ -499,7 +499,8 @@ RenderOutcome RenderController::run(const RenderRunOptions& options) {
   outcome.reissued = reissued_;
   outcome.duplicated = duplicated_;
   outcome.duplicate_wins = duplicate_wins_;
-  outcome.seconds = progressLocked().elapsed_seconds;
+  outcome.progress = progressLocked();
+  outcome.seconds = outcome.progress.elapsed_seconds;
   for (const auto& [key, tally] : tallies_) outcome.devices.push_back(tally);
   return outcome;
 }

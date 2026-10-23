@@ -31,6 +31,27 @@ struct WorkerInfo {
   std::string name;
   bool local = false;
   std::vector<DeviceInfo> devices;
+  // From the worker's Hello (network workers): for the Hosts page (docs/GUIDE.md "UI").
+  std::string os;
+  std::string address;  // where it connected from
+  uint32_t logical_cores = 0;
+  uint64_t ram_total = 0;
+};
+
+// What a worker host reports every 2 s, also when idle (docs/GUIDE.md "Stats").
+struct WorkerStats {
+  struct Device {
+    DeviceId device = 0;
+    float busy_percent = 0;  // NVML usage on NVIDIA, else the share of time spent rendering
+    uint64_t vram_used = 0, vram_total = 0;
+    float temperature_c = -300;  // < -273 when unknown
+    float tiles_per_s = 0;
+    double samples_per_s = 0;
+  };
+  float cpu_percent = 0;
+  uint64_t ram_used = 0, ram_total = 0;
+  bool upload_bound = false;
+  std::vector<Device> devices;
 };
 
 struct DeviceReady {
@@ -65,6 +86,11 @@ class WorkerEvents {
   // One device stopped for good; the worker continues with its other devices (docs/GUIDE.md "Device failure").
   virtual void onDeviceFailed(WorkerId worker, DeviceId device, const std::string& error) = 0;
   virtual void onGone(WorkerId worker, GoneReason reason, const std::string& detail) = 0;
+  // A host's statistics (network workers, every 2 s); renders do not need them, the session and UI do.
+  virtual void onStats(WorkerId worker, const WorkerStats& stats) {
+    (void)worker;
+    (void)stats;
+  }
 };
 
 class WorkerLink {

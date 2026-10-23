@@ -46,6 +46,7 @@ struct RenderOutcome {
   uint32_t duplicate_wins = 0;  // ... whose result arrived first
   double seconds = 0;
   std::vector<DeviceTally> devices;
+  RenderProgress progress;  // at the end, for the session file
 };
 
 struct RenderRunOptions {
