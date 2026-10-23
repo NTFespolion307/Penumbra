@@ -693,3 +693,16 @@ M9; on one GPU listed twice the driver time-slices the two contexts unevenly (D-
 M9 change only inside devices, so nothing blocks it. Until M8, the UI shows each GPU's memory tier as reported
 (always tier 0 today), and the `--vram-limit` / texture-downsize settings are added to the UI together with the
 flags in M8. Until M9, render-time estimates use the speed the cluster measured in the session, not `--benchmark`.
+
+**D-100 M10 UI choices (user, 2026-10-23).** Dear ImGui on GLFW (guide), Vulkan swapchain with an OpenGL 3.3 fallback.
+- Charts (CPU/RAM history, throughput sparkline) are drawn with ImGui's draw lists: no ImPlot.
+- IBM Plex Sans and Mono (SIL Open Font License 1.1) are bundled in `third_party/fonts/` with their license and
+  compiled into the binary, so the UI looks like the mockups on every machine.
+- Open-file dialogs: the user approved `nativefiledialog-extended`, but on Linux it links GTK or D-Bus, and a headless
+  worker (same binary) would then fail to start on a server without them. So no library: on Windows the system
+  `IFileOpenDialog`, on Linux `zenity` or `kdialog` when installed, else a file browser inside the app.
+- The 3-machine gate runs one machine's UI on a rented GPU container under a virtual display (Xvfb + a VNC server
+  with noVNC), which the user opens in a browser through the SSH tunnel on port 8080. That container's UI uses the
+  OpenGL fallback (no GPU for the display), while it renders with its GPUs as usual.
+- `--terminal`, `--worker` and every info mode never load window libraries (GLFW and ImGui's OpenGL loader open
+  them at run time only in UI mode), so workers keep starting on servers with no display libraries at all.
