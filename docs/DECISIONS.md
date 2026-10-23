@@ -659,3 +659,31 @@ GPU, and the CPU worker never merged anything. A lease is now late after 10x the
 items (the last 32, duplicates included); a device with fewer than 3 finished items is judged by the median of all
 devices, so a device that hangs from its first items is still caught. Slow devices then contribute, and hung ones
 are still reissued.
+
+**D-098 M7 gate results (2026-10-22 and 2026-10-23).** Gate: "a multi-GPU worker matches 1 GPU; a removed GPU never
+stops the render".
+- **4x RTX 3060 12 GB** (vast.ai, Ubuntu 24.04, driver 580, 82-CPU quota), 2026-10-22: full suite 162/162 and GPU
+  tests 32/32 (Vulkan 17/17 again after the dispatch split, D-094). 4 GPUs give the same bits as 1 GPU per backend; a
+  GPU that throws or hangs mid-render leaves the image unchanged; 4 GPUs render 3.95x one GPU (docs/BENCHMARKS.md).
+- **2x RTX 5080 16 GB** (vast.ai, Ubuntu 24.04, driver 595, 23-CPU quota), 2026-10-23: README setup from an empty
+  container, fresh clone, build, full suite. The first run found four test-harness problems, all fixed in tests
+  only (D-096, D-091 notes, `net.worker_silent` timing); then 172/172 and GPU tests 32/32 at 7f342c7.
+- **Windows** (laptop, MSVC 19.51, no CUDA toolkit): fresh clone in `C:\dev\pen-m7` built with `scripts/build.ps1`,
+  168/168. **Ubuntu 22.04** (WSL, GCC 12.3): fresh clone, `scripts/build.sh`, 168/169; the only failure was the
+  `spheres.gltf` byte check, since removed (D-096). Later commits changed tests, docs and two controller functions
+  (D-097), which were rerun on both.
+- **Cross-machine** (guide "Cross-machine tests before closing M4 and M7"), all over Tailscale and checked against a
+  render on one machine:
+  - Linux controller (4x 3060), Windows worker (laptop): relMSE 3.9e-11.
+  - Windows controller (laptop), Linux worker (4x 3060) through the container relay: relMSE 7.9e-11.
+  - A LAN worker and an internet worker in one render: laptop controller (`--no-local`), a worker in WSL Ubuntu
+    22.04 joining the laptop's LAN address 192.168.2.129, and the 2x RTX 5080 box joining over Tailscale with the
+    README's container relay; 4K, 8,192 spp: relMSE 2.3e-13. The LAN worker merged 6 items once late leases were
+    judged per device (D-097). The LAN worker ran on the same laptop (WSL2, its own virtual network), not on a
+    second physical machine; the user had none on the LAN at the time.
+- Found and fixed on the way: Vulkan items as one long dispatch made slow GPUs look hung (D-094); timing-based
+  resume tests (D-095); one render-wide late-lease median starved slow devices (D-097); a misleading "wrong join
+  code" error when a relay dropped the connection.
+
+Open: the 3060 host's low absolute speed (about 9 M samples/s per GPU at about 30 W, both backends) to recheck in
+M9; on one GPU listed twice the driver time-slices the two contexts unevenly (D-090).
