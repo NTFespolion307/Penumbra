@@ -110,7 +110,7 @@ class RenderController final : public WorkerEvents {
   void requeueLostLocked(LeaseId id, const LeaseInfo& lease);
   void requeueWorkerLocked(WorkerId worker);
   std::vector<WorkerLink*> workerSnapshotLocked() const;
-  double medianItemSecondsLocked() const;
+  static double medianSeconds(const std::deque<double>& window);  // -1 with fewer than 3 items
 
   RenderSettings settings_;
   RenderOffer offer_;
@@ -128,6 +128,7 @@ class RenderController final : public WorkerEvents {
   std::map<uint64_t, TileResult> early_;              // results waiting for an earlier chunk of their tile
   std::map<WorkerId, uint32_t> rejects_;              // invalid results per worker
   std::deque<double> item_seconds_;                   // recent item durations, for hang detection
+  std::map<DeviceKey, std::deque<double>> device_seconds_;  // the same per device (D-097)
   uint32_t live_devices_ = 0;
   bool hosting_ = false;
   bool running_ = false;  // run() has offered the scene; later workers get it from addWorker

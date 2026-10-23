@@ -21,6 +21,7 @@ uint32_t sampleEnd(const RenderSettings& s) {
 }
 constexpr double kMinLateSeconds = 2.0;  // never call a lease late before this
 constexpr size_t kDurationWindow = 256;
+constexpr size_t kDeviceDurationWindow = 32;
 constexpr uint32_t kMaxRejects = 3;
 
 // Test only: turns tail duplication off so the tests of late leases see a hung device being caught (D-091).
@@ -240,6 +241,9 @@ void RenderController::onTileResult(WorkerId worker, TileResult&& r) {
   }
   item_seconds_.push_back(seconds);
   if (item_seconds_.size() > kDurationWindow) item_seconds_.pop_front();
+  std::deque<double>& mine = device_seconds_[{worker, r.device}];  // also when the result turns out a duplicate
+  mine.push_back(seconds);
+  if (mine.size() > kDeviceDurationWindow) mine.pop_front();
 
   // Already merged (a late copy of a re-issued item) or already waiting: the first valid result won.
   if (item.chunk < scheduler_.mergedChunks(item.tile) || early_.count(item.id)) {
@@ -356,21 +360,26 @@ void RenderController::stopLocked() {
   cv_.notify_all();
 }
 
-double RenderController::medianItemSecondsLocked() const {
-  if (item_seconds_.size() < 3) return -1;
-  std::vector<double> v(item_seconds_.begin(), item_seconds_.end());
+double RenderController::medianSeconds(const std::deque<double>& window) {
+  if (window.size() < 3) return -1;
+  std::vector<double> v(window.begin(), window.end());
   std::nth_element(v.begin(), v.begin() + v.size() / 2, v.end());
   return v[v.size() / 2];
 }
 
+// A lease is late after 10x its device's median item time, so a slow device (a CPU next to fast GPUs) is not
+// taken for a hung one; a device with fewer than 3 finished items is judged by the median of all devices (D-097).
 void RenderController::reissueLateLocked() {
-  const double median = medianItemSecondsLocked();
-  if (median < 0) return;
-  const double limit = std::max(10 * median, kMinLateSeconds);
+  const double overall = medianSeconds(item_seconds_);
   const auto now = Clock::now();
   bool any = false;
   for (auto& [id, info] : leases_) {
     if (info.reissued) continue;
+    const auto dev = device_seconds_.find({info.worker, info.device});
+    double median = dev != device_seconds_.end() ? medianSeconds(dev->second) : -1;
+    if (median < 0) median = overall;
+    if (median < 0) continue;
+    const double limit = std::max(10 * median, kMinLateSeconds);
     const double age = std::chrono::duration<double>(now - info.issued).count();
     if (age <= limit) continue;
     spdlog::warn("lease {} (tile {} chunk {}) on device {} of worker {} is late ({:.1f}s, 10x median is {:.1f}s); "

@@ -651,3 +651,11 @@ OSes. The `render.sample_*` tests render each committed scene instead. The furna
 Also from the 5080 box: with tail duplication (D-091) a fast host finishes a frozen or slow device's last items, so
 `net.worker_silent` (which waits for the 30 s heartbeat loss) and the hybrid/mixed tests that require every device to
 win items now run with `NO_TAIL=1`, like the late-lease tests.
+
+**D-097 Late leases are judged per device (M7).** The late-lease check (D-049) used one median item time for the whole
+render. In the LAN + internet cross-machine test (laptop controller, a CPU worker on the LAN, 2x RTX 5080 over
+Tailscale) that median was the GPUs' ~0.3 s, so every CPU item (~25 s) was declared late after 3-8 s and handed to a
+GPU, and the CPU worker never merged anything. A lease is now late after 10x the median of its own device's recent
+items (the last 32, duplicates included); a device with fewer than 3 finished items is judged by the median of all
+devices, so a device that hangs from its first items is still caught. Slow devices then contribute, and hung ones
+are still reissued.

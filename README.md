@@ -422,6 +422,61 @@ reconnect by themselves.
 
 All machines must run the same Penumbra version and git commit (see [Updating](#updating)).
 
+### Rented GPU containers (vast.ai, RunPod and similar)
+
+Rented containers usually may not create network interfaces, so Tailscale runs there in *userspace* mode:
+connections **to** the container over Tailscale work as usual, but programs in the container cannot open
+connections **out** over Tailscale by themselves, only through a proxy that Tailscale provides. So:
+
+- **The container hosts the render** (controller): nothing extra. Other machines join its Tailscale address.
+- **The container joins a render** (worker): a small relay, `socat`, passes Penumbra's connection through
+  Tailscale's proxy. Steps 5 and 6 below.
+
+Run these in the container's shell, as root (containers usually log you in as root). Containers rented by the day
+start empty, so repeat them on every new container.
+
+1. Install Tailscale:
+   ```bash
+   curl -fsSL https://tailscale.com/install.sh | sh
+   ```
+   Success: the last lines say the installation is complete.
+2. Start Tailscale in userspace mode, with its outbound proxy on port 1055:
+   ```bash
+   mkdir -p /var/run/tailscale /var/lib/tailscale && (tailscaled --tun=userspace-networking --outbound-http-proxy-listen=localhost:1055 --state=/var/lib/tailscale/tailscaled.state > /var/log/tailscaled.log 2>&1 &)
+   ```
+   Success: nothing is printed; `pgrep -x tailscaled` prints a process number.
+3. Sign the container in:
+   ```bash
+   tailscale up --hostname=gpu-box-1
+   ```
+   Success: it prints a login link; open it, approve the machine, and the command prints `Success.`
+   To skip the link on every new container, create a reusable auth key once in the Tailscale admin console
+   (Settings → Keys) and run `tailscale up --hostname=gpu-box-1 --authkey=tskey-...` instead.
+4. Print the container's Tailscale address (needed when the container hosts):
+   ```bash
+   tailscale ip -4
+   ```
+   Success: an address starting with `100.`
+5. Worker only: install the relay:
+   ```bash
+   apt-get update && apt-get install -y socat
+   ```
+   Success: `socat -V` prints a version.
+6. Worker only: start the relay, with the controller's Tailscale address in place of `100.101.102.103`:
+   ```bash
+   (socat TCP-LISTEN:7420,bind=127.0.0.1,fork,reuseaddr PROXY:127.0.0.1:100.101.102.103:7420,proxyport=1055 &)
+   ```
+   Success: nothing is printed; `pgrep -x socat` prints a process number.
+7. Worker only: join through the relay, from the folder where you built Penumbra:
+   ```bash
+   ./build/linux-gcc-release/bin/penumbra --worker --join 127.0.0.1 --code K7QD-M2XR-9FHT-4WNB
+   ```
+   Success: the log says `joined the controller as worker N`.
+
+Why the relay: `socat` listens on the container's own port 7420 and forwards each connection through Tailscale's
+proxy (port 1055) to the controller, so the worker simply joins `127.0.0.1`. Machines with a normal Tailscale or
+WireGuard install (PCs, VMs, your own servers) do not need any of this.
+
 ## CLI reference
 
 Generated from the same option table as `penumbra --help`. Every setting can also be set by its key in a
@@ -619,7 +674,7 @@ Start with `penumbra --diagnose` and include its output in any bug report.
 | Linux: "CMake 3.26 or newer is required" | Install the official CMake as in [Prerequisites](#prerequisites); check `which cmake` points to `/opt/cmake/bin/cmake`. |
 | No Vulkan ray tracing, or the GPU is not listed | Update the GPU driver; `penumbra --list-devices` and `--diagnose` show each GPU and what it is missing. In Docker, the container needs `-e NVIDIA_DRIVER_CAPABILITIES=all`. NVIDIA GPUs without ray tracing render through CUDA when the build has it (`--diagnose` shows "CUDA build"); other GPUs without it are skipped and the CPU renders. |
 | CUDA not found | At build time: install the CUDA toolkit and rebuild (CMake prints `CUDA=ON`); without it Penumbra still builds with Vulkan and CPU. At run time: `penumbra --diagnose` shows the driver and each GPU. "The driver supports CUDA 12.x, this build needs CUDA 13.x": update the NVIDIA driver (580+), or build with a CUDA 12 toolkit. "compute capability ... is older than this build's oldest target": see `PEN_CUDA_ARCHS`. |
-| Worker: "could not join: the connection closed before the controller answered" (exit code 6) | Something closed the connection before the controller said anything: the address or port is not the controller's, a firewall, proxy or relay on the way drops it (a SOCKS relay such as `socat` must be set up to pass TCP), or the controller is ignoring this address after more than 5 wrong codes (wait 10 minutes or restart the controller). |
+| Worker: "could not join: the connection closed before the controller answered" (exit code 6) | Something closed the connection before the controller said anything: the address or port is not the controller's, a firewall, proxy or relay on the way drops it (on a rented container, check the relay in [Rented GPU containers](#rented-gpu-containers-vastai-runpod-and-similar)), or the controller is ignoring this address after more than 5 wrong codes (wait 10 minutes or restart the controller). |
 | Worker: "could not join: the controller did not accept the join code" (exit code 6) | The code differs from the one the controller printed; copy it again (case and dashes do not matter). After more than 5 wrong codes in a minute the controller ignores that address for 10 minutes: wait, or restart the controller. |
 | Worker: "the controller rejected this worker: ... runs Penumbra ... (git ...)" (exit code 6) | The two machines run different builds. Run `git pull` and rebuild on both ([Updating](#updating)); the git hashes must match. |
 | Worker: "cannot connect to ...: connection refused" or timed out (exit code 7) | Check, in order: the controller is running with `--host` and printed "hosting on port 7420"; the address is one the controller listed; the firewall allows TCP 7420 on the controller (Windows: allow Penumbra when asked, or `New-NetFirewallRule -DisplayName Penumbra -Direction Inbound -Protocol TCP -LocalPort 7420 -Action Allow` in an admin PowerShell; Linux: `sudo ufw allow 7420/tcp`); for internet workers, the router forwards TCP 7420 (the controller logs whether UPnP did it) or both machines are on the same VPN. |
