@@ -39,6 +39,8 @@ struct DeviceReady {
   uint32_t memory_tier = 0;
   double build_seconds = 0;
   std::string summary;
+  bool skipped = false;  // cannot take the scene (reason); it never asks for work (DECISIONS D-092)
+  std::string reason;
 };
 
 // What every worker gets when a render starts: the loaded scene (in-process workers use it directly) and its

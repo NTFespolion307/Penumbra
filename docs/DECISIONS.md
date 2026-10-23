@@ -579,3 +579,111 @@ Also from these runs:
 
 Not covered: CUDA on Windows (no toolkit on the laptop; the user's call), a GTX 10-series GPU (needs a CUDA 12
 build, D-087), and a Windows GPU run (gaming PC, later).
+
+**D-090 `--devices` items name their backend (M7, 2026-10-22).** A GPU item in `--devices` may carry `:vulkan` or
+`:cuda` (`0:vulkan,1:cuda,cpu`), so one host mixes backends; without a suffix the GPU follows `--backend`, and
+`auto` picks Vulkan RT, else CUDA (D-088). The same GPU may be listed twice (`0:vulkan,0:cuda`), as two
+independent slots; this is for tests, not speed. Measured on an RTX 3060 (2026-10-22): CUDA alone 12.2 M
+samples/s; Vulkan + CUDA on the same GPU 13.1 M samples/s together, with the driver time-slicing the two contexts so
+unevenly that the CUDA slot finished 1 item while Vulkan did 31. The image is right; nothing is gained. A suffix that contradicts a non-auto `--backend` is refused before
+the render. Hybrid CPU: when GPUs render too and `--threads` is not set, the CPU device leaves one thread per GPU
+slot (plus 2 on the controller host) so the GPU feeder threads are not starved; the log says how many it took.
+
+**D-091 Tail duplication (M7).** When the scheduler has nothing left to hand out and a device that wants work has
+no lease at all, the controller gives it a copy of the oldest outstanding lease of another device, if that device
+should finish sooner: the lease is older than the owner's mean item time, or the idle device's mean item time is
+below what the owner has left (its mean minus the lease's age); devices without a finished item yet always qualify.
+The check runs on every event and every 200 ms, as leases age. Each item gets one copy at most; late-reissued leases and copies are not
+copied again. The first valid result is merged; the other is acknowledged as `duplicate` and dropped. The loser is
+not cancelled (workers only cancel everything, protocol 1-3): it finishes or is cancelled at the end of the render,
+which comes when every chunk is merged, so it never delays the image. A lost lease (device failed, released,
+worker gone, invalid result) is only requeued when no other lease still holds its item. Same backend means the
+same bits, so the image does not depend on which copy wins; a copy on another backend stays within the usual
+cross-backend tolerance. The 10x-median late-lease check (D-049) stays for hangs while the queue still has work;
+its tests turn duplication off with the test hook `PENUMBRA_TEST_NO_TAIL_DUPLICATION=1` (D-047, logged when active).
+The summary logs how many items were copied and how many copies won.
+
+**D-092 Devices prepare in parallel; a device that cannot take the scene is skipped (M7, protocol 3).** Every
+device plans memory, uploads the scene and prepares the frame on its own thread. A device that throws is reported
+in `WorkerReady` as `skipped` with the reason (new fields in `DeviceReadyDesc`, protocol version 3) and keeps its
+slot number, but never starts and gets no lease; the controller logs a warning and counts only the others. Only
+when every device fails does the worker answer `scene_rejected` (the local worker throws `BackendError` with all
+reasons).
+
+**D-093 NVML readings, loaded at run time (M7).** Worker `Stats` report per-GPU usage, VRAM used/total and
+temperature from NVML (`nvml.dll` / `libnvidia-ml.so.1`, part of the NVIDIA driver), opened with
+LoadLibrary/dlopen like the CUDA driver (D-087), so no SDK or header is needed and machines without it run the
+same. The few entry points are declared in `backends/gpu/nvml.cpp`. A GPU is found by its UUID
+(`nvmlDeviceGetHandleByUUID`, the same UUID Vulkan and CUDA report, now in `DeviceInfo`). Without NVML, or on
+another vendor's GPU, usage falls back to Penumbra's busy % and temperature is "unknown" (< -273), as the
+schema already allowed: no protocol change. `--list-devices` shows the live VRAM use, usage and temperature too.
+
+**D-094 A hung GPU cannot stop the render (M7).** The Vulkan fence wait (in 100 ms slices) and the CUDA wait
+(`cuStreamQuery` polling instead of `cuCtxSynchronize`) watch the cancel flag. A job that still runs 10 s after a
+cancel marks the device lost: the slot fails with a `BackendError` and the backend's destructor skips waiting and
+freeing (it leaks rather than hang or free memory the GPU may still use). Errors that already end in an error code
+(Vulkan `VK_ERROR_DEVICE_LOST`, CUDA sticky errors such as an illegal address) fail the item, the device is
+removed (`DeviceFailed`) and its leases go to the others, as for any device failure (D-047 fault tests). While the
+render runs, a hung device's leases are caught by tail duplication (D-091) or the late-lease check (D-049); the
+cancel at the end of the render then frees its slot within 10 s.
+
+**D-095 Resume tests cut the render by merged chunks, not by time (M7).** `render.resume_chunks` failed on the
+4x RTX 3060 box: one thread of its shared EPYC renders a chunk in about 14 s, so the run killed after 15 s had no
+chunk in its only checkpoint. A fixed kill time cannot suit both fast and slow machines, so the resume tests set
+the test hook `PENUMBRA_TEST_KILL_AFTER_ITEMS=N` (D-047 style, logged when active): once N chunks are merged
+the controller checkpoints the film and session and exits at once with code 137, like a killed process. The
+resume then has to reproduce the uninterrupted image bit for bit, as before.
+Found in the first cross-machine render (4x RTX 3060 host, laptop worker): Vulkan rendered a whole item (2^26
+pixel-samples) in one dispatch, 4-7 s on that host, so two healthy GPUs still busy with tail copies at the end of
+the render passed the 10 s grace and were removed as hung, and the render ended 11 s late. Vulkan now splits an item
+into dispatches of at most 2^22 paths (one submit each, cancel checked between them), the same scheme as CUDA's
+launches (`kItemAccumulate`; the same bits as one dispatch), so a cancel takes effect within one short dispatch.
+
+**D-096 Sample scenes in the repository (M7, user request).** `scenes/` holds the `cornell`, `spheres` (with
+`sky.hdr`) and `cutout` scenes, about 2.2 MB, so a fresh clone can render right after building (README "Quick test
+right after cloning"). They are exactly what `penumbra-scenegen` writes: `.gitattributes` keeps them byte-exact on
+every OS (no CRLF conversion, so the scene package hash is the same everywhere), and the `docs.sample_scene_*`
+tests compare them with the generated copies, except `spheres.gltf`: its vertices come from sin/cos, whose last bits
+differ between MSVC and GCC (found on the RTX 5080 gate box), so the generator's output is not byte-identical across
+OSes. The `render.sample_*` tests render each committed scene instead. The furnace and big-texture scenes
+(8-12 MB, test-only) stay generated.
+
+Also from the 5080 box: with tail duplication (D-091) a fast host finishes a frozen or slow device's last items, so
+`net.worker_silent` (which waits for the 30 s heartbeat loss) and the hybrid/mixed tests that require every device to
+win items now run with `NO_TAIL=1`, like the late-lease tests.
+
+**D-097 Late leases are judged per device (M7).** The late-lease check (D-049) used one median item time for the whole
+render. In the LAN + internet cross-machine test (laptop controller, a CPU worker on the LAN, 2x RTX 5080 over
+Tailscale) that median was the GPUs' ~0.3 s, so every CPU item (~25 s) was declared late after 3-8 s and handed to a
+GPU, and the CPU worker never merged anything. A lease is now late after 10x the median of its own device's recent
+items (the last 32, duplicates included); a device with fewer than 3 finished items is judged by the median of all
+devices, so a device that hangs from its first items is still caught. Slow devices then contribute, and hung ones
+are still reissued.
+
+**D-098 M7 gate results (2026-10-22 and 2026-10-23).** Gate: "a multi-GPU worker matches 1 GPU; a removed GPU never
+stops the render".
+- **4x RTX 3060 12 GB** (vast.ai, Ubuntu 24.04, driver 580, 82-CPU quota), 2026-10-22: full suite 162/162 and GPU
+  tests 32/32 (Vulkan 17/17 again after the dispatch split, D-094). 4 GPUs give the same bits as 1 GPU per backend; a
+  GPU that throws or hangs mid-render leaves the image unchanged; 4 GPUs render 3.95x one GPU (docs/BENCHMARKS.md).
+- **2x RTX 5080 16 GB** (vast.ai, Ubuntu 24.04, driver 595, 23-CPU quota), 2026-10-23: README setup from an empty
+  container, fresh clone, build, full suite. The first run found four test-harness problems, all fixed in tests
+  only (D-096, D-091 notes, `net.worker_silent` timing); then 172/172 and GPU tests 32/32 at 7f342c7.
+- **Windows** (laptop, MSVC 19.51, no CUDA toolkit): fresh clone in `C:\dev\pen-m7` built with `scripts/build.ps1`,
+  168/168. **Ubuntu 22.04** (WSL, GCC 12.3): fresh clone, `scripts/build.sh`, 168/169; the only failure was the
+  `spheres.gltf` byte check, since removed (D-096). Later commits changed tests, docs and two controller functions
+  (D-097), which were rerun on both.
+- **Cross-machine** (guide "Cross-machine tests before closing M4 and M7"), all over Tailscale and checked against a
+  render on one machine:
+  - Linux controller (4x 3060), Windows worker (laptop): relMSE 3.9e-11.
+  - Windows controller (laptop), Linux worker (4x 3060) through the container relay: relMSE 7.9e-11.
+  - A LAN worker and an internet worker in one render: laptop controller (`--no-local`), a worker in WSL Ubuntu
+    22.04 joining the laptop's LAN address 192.168.2.129, and the 2x RTX 5080 box joining over Tailscale with the
+    README's container relay; 4K, 8,192 spp: relMSE 2.3e-13. The LAN worker merged 6 items once late leases were
+    judged per device (D-097). The LAN worker ran on the same laptop (WSL2, its own virtual network), not on a
+    second physical machine; the user had none on the LAN at the time.
+- Found and fixed on the way: Vulkan items as one long dispatch made slow GPUs look hung (D-094); timing-based
+  resume tests (D-095); one render-wide late-lease median starved slow devices (D-097); a misleading "wrong join
+  code" error when a relay dropped the connection.
+
+Open: the 3060 host's low absolute speed (about 9 M samples/s per GPU at about 30 W, both backends) to recheck in
+M9; on one GPU listed twice the driver time-slices the two contexts unevenly (D-090).

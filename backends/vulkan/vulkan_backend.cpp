@@ -227,7 +227,11 @@ class VulkanBackend final : public IBackend {
   VkStridedDeviceAddressRegionKHR rgen_{}, miss_{}, hit_{}, call_{};
 
   std::atomic<bool> cancel_{false};
+  bool lost_ = false;  // the GPU stopped answering: nothing is waited for or destroyed any more (D-094)
 };
+
+// A cancelled GPU job that has not finished after this long means the GPU is hung (D-094).
+constexpr int kHungGraceSeconds = 10;
 
 // Descriptor bindings (shaders/*.slang).
 constexpr uint32_t kBindTlas = 0, kBindFrame = 1, kBindOut = 23, kBindCounters = 24, kBindCount = 25;
@@ -313,6 +317,7 @@ VulkanBackend::VulkanBackend(uint32_t physicalIndex) {
   info_.threads = 0;
   info_.memory_bytes = gpu.vram_bytes;
   info_.hardware_rt = true;
+  info_.uuid = gpu.uuid;
   vram_budget_ = gpu.vram_bytes / 10 * 9;  // docs/GUIDE.md "Budget": free VRAM minus 10% (M8 reads the live budget)
 
   frame_buffer_ = createBuffer(sizeof(gpu::Frame), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, Memory::Upload);
@@ -321,6 +326,7 @@ VulkanBackend::VulkanBackend(uint32_t physicalIndex) {
 }
 
 VulkanBackend::~VulkanBackend() {
+  if (lost_) return;  // its work may still be running: leak it rather than hang or free memory in use
   if (device_) vk_.vkDeviceWaitIdle(device_);
   releaseScene();
   destroy(frame_buffer_);
@@ -377,7 +383,22 @@ void VulkanBackend::submitAndWait(const std::function<void(VkCommandBuffer)>& re
   si.pCommandBuffers = &cmd_;
   check(vk_.vkResetFences(device_, 1, &fence_), "vkResetFences");
   check(vk_.vkQueueSubmit(queue_, 1, &si, fence_), "vkQueueSubmit");
-  check(vk_.vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX), "vkWaitForFences");
+  // Waits in slices, so a GPU that stops answering cannot hold its slot (and the end of the render) forever: once
+  // cancelled, the job gets kHungGraceSeconds to finish, then the device counts as lost (DECISIONS D-094).
+  std::chrono::steady_clock::time_point cancelledAt{};
+  for (;;) {
+    const VkResult r = vk_.vkWaitForFences(device_, 1, &fence_, VK_TRUE, 100'000'000);
+    if (r == VK_SUCCESS) return;
+    if (r != VK_TIMEOUT) check(r, "vkWaitForFences");
+    if (!cancel_) continue;
+    const auto now = std::chrono::steady_clock::now();
+    if (cancelledAt == std::chrono::steady_clock::time_point{}) cancelledAt = now;
+    if (now - cancelledAt > std::chrono::seconds(kHungGraceSeconds)) {
+      lost_ = true;
+      throw BackendError(fmt::format("Vulkan: {} does not answer: its job still runs {} s after the cancel",
+                                     info_.name, kHungGraceSeconds));
+    }
+  }
 }
 
 Buffer VulkanBackend::deviceBuffer(const void* data, size_t bytes, VkBufferUsageFlags usage) {
@@ -740,19 +761,43 @@ void VulkanBackend::render(const WorkItem& item, TileResult& out) {
   ensureOutput(r.pixels());
   std::memset(counter_buffer_.mapped, 0, 16);
   vmaFlushAllocation(vma_, counter_buffer_.alloc, 0, VK_WHOLE_SIZE);
-  const gpu::PushConstants pc{r.x0, r.y0, r.width(), r.height(), item.sample_begin, item.sample_end,
-                              item.sample_end - item.sample_begin, gpu::kItemFinish};
-  submitAndWait([&](VkCommandBuffer c) {
-    vk_.vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipeline_);
-    vk_.vkCmdBindDescriptorSets(c, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipeline_layout_, 0, 1, &set_, 0, nullptr);
-    vk_.vkCmdPushConstants(c, pipeline_layout_, VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(pc), &pc);
-    vk_.vkCmdTraceRaysKHR(c, &rgen_, &miss_, &hit_, &call_, r.width(), r.height(), 1);
-    VkMemoryBarrier mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-    mb.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    mb.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
-    vk_.vkCmdPipelineBarrier(c, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &mb, 0,
-                             nullptr, 0, nullptr);
-  });
+  // Dispatches of at most ~4M paths, like CUDA's launches: a cancel takes effect within one short dispatch (so a
+  // slow GPU is not taken for a hung one, D-094), and the running sum stays in the output buffer, so the result is
+  // the same bits as one dispatch (gpu::kItemAccumulate).
+  constexpr uint64_t kPathsPerDispatch = uint64_t(1) << 22;
+  const uint32_t total = item.sample_end - item.sample_begin;
+  const uint32_t step = static_cast<uint32_t>(
+      std::clamp<uint64_t>(kPathsPerDispatch / std::max<uint64_t>(r.pixels(), 1), 1, std::max(total, 1u)));
+  for (uint32_t s = item.sample_begin; s < item.sample_end;) {
+    const uint32_t e = std::min(item.sample_end, s + step);
+    gpu::PushConstants pc{r.x0, r.y0, r.width(), r.height(), s, e, total, 0};
+    if (s > item.sample_begin) pc.flags |= gpu::kItemAccumulate;
+    if (e == item.sample_end) pc.flags |= gpu::kItemFinish;
+    submitAndWait([&](VkCommandBuffer c) {
+      if (pc.flags & gpu::kItemAccumulate) {  // the previous dispatch's sum, written in an earlier submission
+        VkMemoryBarrier prev{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+        prev.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        prev.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+        vk_.vkCmdPipelineBarrier(c, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
+                                 VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, 0, 1, &prev, 0, nullptr, 0, nullptr);
+      }
+      vk_.vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipeline_);
+      vk_.vkCmdBindDescriptorSets(c, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipeline_layout_, 0, 1, &set_, 0,
+                                  nullptr);
+      vk_.vkCmdPushConstants(c, pipeline_layout_, VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0, sizeof(pc), &pc);
+      vk_.vkCmdTraceRaysKHR(c, &rgen_, &miss_, &hit_, &call_, r.width(), r.height(), 1);
+      VkMemoryBarrier mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+      mb.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+      mb.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+      vk_.vkCmdPipelineBarrier(c, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &mb,
+                               0, nullptr, 0, nullptr);
+    });
+    s = e;
+    if (s < item.sample_end && cancel_) {
+      out.cancelled = true;
+      return;
+    }
+  }
   vmaInvalidateAllocation(vma_, out_buffer_.alloc, 0, VK_WHOLE_SIZE);
   vmaInvalidateAllocation(vma_, counter_buffer_.alloc, 0, VK_WHOLE_SIZE);
   std::memcpy(out.mean.data(), out_buffer_.mapped, r.pixels() * sizeof(Vec3f));

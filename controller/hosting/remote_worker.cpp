@@ -1,5 +1,6 @@
 #include "controller/hosting/remote_worker.h"
 
+#include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
 #include <chrono>
@@ -164,7 +165,8 @@ void RemoteWorker::onMessage(net::Message&& msg) {
         }
         std::vector<DeviceReady> ready;
         for (const auto& d : m.devices)
-          ready.push_back({d->device, static_cast<BackendKind>(d->backend), d->memory_tier, d->build_seconds, d->summary});
+          ready.push_back({d->device, static_cast<BackendKind>(d->backend), d->memory_tier, d->build_seconds, d->summary,
+                           d->skipped, d->reason});
         events_.onReady(id_, ready);
         break;
       }
@@ -192,6 +194,11 @@ void RemoteWorker::onMessage(net::Message&& msg) {
         const auto m = net::decode<wire::StatsT>(msg.payload);
         spdlog::debug("{}: CPU {:.0f}%, RAM {:.1f}/{:.1f} GB{}", info_.name, m.cpu_percent, m.ram_used / 1e9,
                       m.ram_total / 1e9, m.upload_bound ? ", upload-bound" : "");
+        for (const auto& d : m.devices)
+          spdlog::debug("{} device {}: {:.0f}% busy, VRAM {:.1f}/{:.1f} GB, {}, {:.1f} tiles/s, {:.3g} samples/s",
+                        info_.name, d->device, d->busy_percent, d->vram_used / 1e9, d->vram_total / 1e9,
+                        d->temperature_c > -273 ? fmt::format("{:.0f} C", d->temperature_c) : "temperature unknown",
+                        d->tiles_per_s, d->samples_per_s);
         break;
       }
       case MsgType::Log: {

@@ -2,6 +2,7 @@
 
 // IBackend: what one render device implements (docs/GUIDE.md "Repository layout and core interfaces").
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <stdexcept>
@@ -22,6 +23,7 @@ struct DeviceInfo {
   uint32_t threads = 0;      // CPU worker threads
   uint64_t memory_bytes = 0; // device memory (RAM for the CPU)
   bool hardware_rt = false;
+  std::array<uint8_t, 16> uuid{};  // GPUs: Vulkan deviceUUID / CUDA UUID (NVML readings, D-093); zero otherwise
 };
 
 // Where the scene lives on the device (memory tiers arrive in M8; M1 is always tier 0).

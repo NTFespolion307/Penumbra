@@ -9,6 +9,7 @@
 #include "core/system/paths.h"
 #include "core/system/sysinfo.h"
 #include "core/version.h"
+#include "backends/gpu/nvml.h"
 #include "worker/device_manager.h"
 #if defined(PEN_HAS_VULKAN)
 #include "backends/vulkan/vulkan_backend.h"
@@ -54,7 +55,12 @@ int listDevices() {
     std::string backends;
     if (g.vulkan >= 0) backends = "vulkan (hardware ray tracing, the default)";
     if (g.cuda >= 0) backends += g.vulkan >= 0 ? ", cuda" : "cuda (software BVH, the default)";
-    print(fmt::format("  {:<5} {}, {} VRAM   backend {}\n", g.index, g.name, formatBytes(g.vram_bytes), backends));
+    std::string live;
+    if (const auto s = queryGpuLiveStats(g.uuid))
+      live = fmt::format(" ({} used, {:.0f}% busy{})", formatBytes(s->vram_used), s->usage_percent,
+                         s->temperature_c > -273 ? fmt::format(", {:.0f} C", s->temperature_c) : "");
+    print(fmt::format("  {:<5} {}, {} VRAM{}   backend {}\n", g.index, g.name, formatBytes(g.vram_bytes), live,
+                      backends));
   }
   print(fmt::format("  cpu   {}, {} threads   backend cpu (Embree)\n", sys.cpu, usableCpuThreads()));
   for (const std::string& n : inv.notes) print(fmt::format("  -     {}\n", n));

@@ -42,3 +42,24 @@ On a GPU with RT cores the CUDA path is about 9x slower than Vulkan RT, not the 
 cost: on `bigtex`, which has nothing to traverse, CUDA is faster than Vulkan. The megakernel uses 173 registers per
 thread and an 840-byte stack (two traversal stacks), which limits occupancy. M9 tunes it: register caps, megakernel
 vs wavefront, and stack size. CUDA is only the default on GPUs without ray tracing, where Vulkan RT is not an option.
+
+## 2026-10-22, M7: multi-GPU worker (4x RTX 3060)
+
+- **Machine:** vast.ai container, Ubuntu 24.04, 82 CPUs (cgroup v1 quota) of an AMD EPYC 7B12, 251 GB RAM,
+  4x NVIDIA GeForce RTX 3060 12 GB (Ampere, sm_86), driver 580.65, CUDA 13.0, PCIe 2.0 x8 per GPU.
+- **Build:** branch `m7` (3659f8f), Release, GCC 12.4.
+- **Settings:** `cornell`, path integrator, 12 bounces. Rates from the render log.
+
+| Run | Devices | Rate | Per GPU |
+| --- | --- | --- | --- |
+| 1080p, 256 spp | Vulkan, GPU 0 | 8.91 M samples/s | 8.9 |
+| 1080p, 64 spp | CUDA, GPU 0 | 12.2 M samples/s | 12.2 |
+| 4K, 2,048 spp (17 G samples, 483 s) | Vulkan, GPUs 0-3 | 35.2 M samples/s | 8.8 |
+
+Four GPUs render 3.95x one GPU; items split 59 / 73 / 60 / 63 and every GPU stayed at 100% utilization.
+
+The absolute rates are not representative of an RTX 3060. Both backends run at about 30-36 W of the 120 W limit at
+"100% utilization", SM clock 1,447 MHz, with the driver reporting the GPU-idle clock reason. Vulkan RT is ~60x
+slower than on the RTX 5070 Ti (M6) while CUDA is ~5x slower, so this host's GPUs look starved or capped. Moving the
+shader binding table and frame constants to VRAM changed nothing (8.91 M/s before and after; not kept). To be
+rechecked on other hardware in M9.

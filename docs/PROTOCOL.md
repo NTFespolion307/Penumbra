@@ -1,6 +1,6 @@
 # Penumbra wire protocol
 
-Protocol version **2** (`kProtocolVersion` in `core/version.h`). Version 2 added scene packages (`SceneHave`, `SceneChunk`, package fields in `SceneOffer`). The schema is `net/schema/penumbra.fbs`; this
+Protocol version **3** (`kProtocolVersion` in `core/version.h`). Version 2 added scene packages (`SceneHave`, `SceneChunk`, package fields in `SceneOffer`); version 3 added skipped devices to `WorkerReady` (M7). The schema is `net/schema/penumbra.fbs`; this
 file explains it and must change in the same commit as the schema. Any change to a message bumps the protocol
 version.
 
@@ -44,7 +44,7 @@ magic "PNBR" (4 bytes) | protocol version u16 | message type u16 | flags u16 | p
 | `SceneOffer` | 10 | C → W | Render id, full `RenderSettings` as JSON (paths as on the controller), pixel settings hash, scene hash, film size, package hash and manifest (below). |
 | `SceneHave` | 11 | W → C | Render id and `Cached`, `Need` with the first missing chunk index (a resumed download), or `Rejected` with a reason (not enough disk or RAM, bigger than the cache). |
 | `SceneChunk` | 12 | C → W | Package hash, chunk index, uncompressed size, zstd-compressed bytes. Bulk: sent in order from the first missing chunk. |
-| `WorkerReady` | 13 | W → C | Render id; per device: backend, memory tier, build time, summary. Or `scene_rejected` with a reason. A worker gets no lease before this. |
+| `WorkerReady` | 13 | W → C | Render id; per device: backend, memory tier, build time, summary, or `skipped` with a reason (protocol 3: a device that cannot take the scene; the worker renders with the others). Or `scene_rejected` with a reason when no device can. A worker gets no lease before this, and none for a skipped device. |
 | `RequestWork` | 20 | W → C | Device id and how many more items it can take. A request replaces the device's previous one (D-049). |
 | `Lease` | 21 | C → W | Lease id, device id, item id (`tile << 32 \| chunk`), tile rectangle, sample range, settings hash. |
 | `TileResult` | 22 | W → C | Lease id, device id, item id, rectangle, sample range, encoding, pixels, NaN count, render time, BLAKE3-64 checksum of the decoded floats. |

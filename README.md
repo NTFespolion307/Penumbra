@@ -8,14 +8,17 @@ the image. Any number of **workers**, each with one or more GPUs, join with the 
 code, render tiles and send them back. A render on one machine is the same thing with no workers, and every
 combination of machines, GPUs and backends converges to the same image.
 
-> **Status: milestone M5 (Vulkan ray tracing on the GPU).** Penumbra renders glTF and OBJ scenes on GPUs with
-> hardware ray tracing (Vulkan RT), on any NVIDIA GPU through CUDA, and on the CPU (Embree), alone or together, with a path tracer (next-event estimation, MIS), the glTF PBR material with its common extensions and
-> HDRI lighting, at any size up to 160K, with checkpoints, `--resume` and `merge`, writing EXR, PNG, JPEG, TIFF
-> or WebP. Work is split into tile and sample chunks that any number of local devices share, with recovery from
-> failed or hung devices. Several machines render together: a controller hosts, workers on the LAN or the
-> internet join with a code (encrypted), download the scene once, and any failure of a worker, its devices or the
-> network is recovered without changing the image. Several GPUs per machine arrive in M7, the UI in M10. Features marked
-> *(planned, Mx)* below are not built yet. The roadmap is in [`docs/GUIDE.md`](docs/GUIDE.md).
+> **Status: milestone M7 (multi-GPU workers).** Penumbra renders glTF and OBJ scenes on GPUs with hardware ray
+> tracing (Vulkan RT), on any NVIDIA GPU through CUDA, and on the CPU (Embree), with a path tracer (next-event
+> estimation, MIS), the glTF PBR material with its common extensions and HDRI lighting, at any size up to 160K,
+> with checkpoints, `--resume` and `merge`, writing EXR, PNG, JPEG, TIFF or WebP. Every machine uses all its GPUs
+> at once, with Vulkan, CUDA and the CPU mixed freely; work is split into tile and sample chunks that the devices
+> share, idle devices take over the last chunks of slower ones, and a GPU that fails, hangs or cannot hold the
+> scene is dropped without changing the image. Several machines render together: a controller hosts, workers on
+> the LAN or the internet join with a code (encrypted), download the scene once, and any failure of a worker, its
+> devices or the network is recovered without changing the image. Memory tiers for big scenes arrive in M8, the
+> UI in M10. Features marked *(planned, Mx)* below are not built yet. The roadmap is in
+> [`docs/GUIDE.md`](docs/GUIDE.md).
 
 <!-- A screenshot goes here once the UI exists (M10). -->
 
@@ -298,16 +301,33 @@ device pulls chunks as it finishes them, two at a time. Films kept in RAM refine
 an early look shows the full frame; disk films finish one tile after another. Chunks of a tile are always
 combined in the same order, so the image is identical to the bit whatever the number of devices, failures or
 resumes. A device that fails hands its chunks back to the others; a chunk that takes more than 10 times the
-usual time is handed out again, and the first result wins.
+usual time is handed out again, and the first result wins. Near the end, when nothing is left to hand out, an idle
+device also takes a copy of the oldest chunk still out on a slower device (tail duplication), so the last minutes
+do not wait on the slowest GPU or host.
 
 - **Render for a fixed time:** `--spp 0 --time-limit 2h` adds passes until the deadline (needs the film in RAM).
 - **Pick devices:** `--devices 0` renders on GPU 0 only, `--devices 0,cpu` on GPU 0 and the CPU together,
-  `--devices cpu` on the CPU only (numbers as `penumbra --list-devices` prints them). `--devices cpu,cpu,cpu,cpu`
-  splits the CPU into four devices (mainly for testing).
+  `--devices cpu` on the CPU only (numbers as `penumbra --list-devices` prints them). A GPU number may name its
+  backend: `--devices 0:vulkan,1:cuda` (the same GPU may be listed twice, `0:vulkan,0:cuda`, mainly for testing).
+  `--devices cpu,cpu,cpu,cpu` splits the CPU into four devices (mainly for testing). With GPUs, the CPU device
+  leaves one thread per GPU free to feed it.
+
+**Quick test right after cloning.** The repository ships three small scenes in `scenes/`: a Cornell box,
+material spheres on an HDRI, and an alpha-cutout scene. From the repository folder, with the binary path the build
+script printed:
+
+1. Render the Cornell box (a few seconds on a GPU, under a minute on most CPUs):
+   ```
+   build/windows-msvc-release/bin/penumbra.exe --terminal scenes/cornell.pen.json --spp 256 -o cornell.png
+   ```
+   On Linux: `build/linux-gcc-release/bin/penumbra --terminal scenes/cornell.pen.json --spp 256 -o cornell.png`
+2. The spheres on an HDRI (720p): `penumbra --terminal scenes/spheres.pen.json --spp 256 -o spheres.png`
+3. Several machines: host `scenes/cornell.pen.json` with `--terminal --host`, and join from another machine as in
+   [Rendering with several machines](#rendering-with-several-machines).
 
 **Test scenes and image comparison.** The build also makes two tools next to `penumbra`:
 
-1. Write the test scenes (Cornell box, furnace spheres, material spheres on an HDRI) into a folder:
+1. Write all test scenes (the three above plus the furnace spheres and a big-texture scene) into a folder:
    ```
    penumbra-scenegen scenes
    ```
@@ -402,6 +422,61 @@ reconnect by themselves.
 
 All machines must run the same Penumbra version and git commit (see [Updating](#updating)).
 
+### Rented GPU containers (vast.ai, RunPod and similar)
+
+Rented containers usually may not create network interfaces, so Tailscale runs there in *userspace* mode:
+connections **to** the container over Tailscale work as usual, but programs in the container cannot open
+connections **out** over Tailscale by themselves, only through a proxy that Tailscale provides. So:
+
+- **The container hosts the render** (controller): nothing extra. Other machines join its Tailscale address.
+- **The container joins a render** (worker): a small relay, `socat`, passes Penumbra's connection through
+  Tailscale's proxy. Steps 5 and 6 below.
+
+Run these in the container's shell, as root (containers usually log you in as root). Containers rented by the day
+start empty, so repeat them on every new container.
+
+1. Install Tailscale:
+   ```bash
+   curl -fsSL https://tailscale.com/install.sh | sh
+   ```
+   Success: the last lines say the installation is complete.
+2. Start Tailscale in userspace mode, with its outbound proxy on port 1055:
+   ```bash
+   mkdir -p /var/run/tailscale /var/lib/tailscale && (tailscaled --tun=userspace-networking --outbound-http-proxy-listen=localhost:1055 --state=/var/lib/tailscale/tailscaled.state > /var/log/tailscaled.log 2>&1 &)
+   ```
+   Success: nothing is printed; `pgrep -x tailscaled` prints a process number.
+3. Sign the container in:
+   ```bash
+   tailscale up --hostname=gpu-box-1
+   ```
+   Success: it prints a login link; open it, approve the machine, and the command prints `Success.`
+   To skip the link on every new container, create a reusable auth key once in the Tailscale admin console
+   (Settings → Keys) and run `tailscale up --hostname=gpu-box-1 --authkey=tskey-...` instead.
+4. Print the container's Tailscale address (needed when the container hosts):
+   ```bash
+   tailscale ip -4
+   ```
+   Success: an address starting with `100.`
+5. Worker only: install the relay:
+   ```bash
+   apt-get update && apt-get install -y socat
+   ```
+   Success: `socat -V` prints a version.
+6. Worker only: start the relay, with the controller's Tailscale address in place of `100.101.102.103`:
+   ```bash
+   (socat TCP-LISTEN:7420,bind=127.0.0.1,fork,reuseaddr PROXY:127.0.0.1:100.101.102.103:7420,proxyport=1055 &)
+   ```
+   Success: nothing is printed; `pgrep -x socat` prints a process number.
+7. Worker only: join through the relay, from the folder where you built Penumbra:
+   ```bash
+   ./build/linux-gcc-release/bin/penumbra --worker --join 127.0.0.1 --code K7QD-M2XR-9FHT-4WNB
+   ```
+   Success: the log says `joined the controller as worker N`.
+
+Why the relay: `socat` listens on the container's own port 7420 and forwards each connection through Tailscale's
+proxy (port 1055) to the controller, so the worker simply joins `127.0.0.1`. Machines with a normal Tailscale or
+WireGuard install (PCs, VMs, your own servers) do not need any of this.
+
 ## CLI reference
 
 Generated from the same option table as `penumbra --help`. Every setting can also be set by its key in a
@@ -431,7 +506,7 @@ full text on your machine.
 | Render | `--camera` | camera name | first in scene | `penumbra --camera Camera.001` | `camera` | Camera to render from |
 | Render | `--time-limit` | duration (2h30m, 45m, 90s) or none | none | `penumbra --time-limit 2h30m` | `time_limit` | Stop and write the output at the deadline |
 | Devices | `--backend` | auto, vulkan, cuda, cpu, optix | auto | `penumbra --backend cuda` | `backend` | Ray tracing backend |
-| Devices | `--devices` | all, gpu, or a list like 0,1,cpu (repeat cpu for several CPU slots) | all | `penumbra --devices 0,cpu` | `devices` | Which local devices render (controller or worker) |
+| Devices | `--devices` | all, gpu, or a list like 0,1:cuda,cpu (GPU numbers from --list-devices, optionally :vulkan or :cuda; repeat cpu for several CPU slots) | all | `penumbra --devices 0,cpu` | `devices` | Which local devices render (controller or worker) |
 | Devices | `--threads` | 0-4096, 0 = all cores | 0 | `penumbra --threads 8` | `threads` | CPU worker threads |
 | Devices | `--tile-size` | 16-4096 | 256 | `penumbra --tile-size 128` | `tile_size` | Work item tile size in pixels |
 | Devices | `--vram-limit` | size (6G, 512M) or auto | auto | `penumbra --vram-limit 6G` | `vram_limit` | VRAM budget per GPU (default: free VRAM minus 10%) |
@@ -521,12 +596,19 @@ and the CPU only when no GPU qualifies or `--devices` lists `cpu`. Every choice 
 `penumbra --list-devices` numbers the GPUs as `--devices` takes them: ray-tracing GPUs first, then NVIDIA GPUs
 that only CUDA can use; GPUs that cannot render are listed with the reason.
 
-### Multi-GPU and memory tiers *(planned, M7/M8)*
+### Multi-GPU and memory tiers *(memory tiers planned, M8)*
 
-A worker uses all its GPUs at once; each GPU pulls its own work, so fast GPUs do more of the frame. Each GPU
-picks a memory tier for the scene: **0** everything in VRAM; **1** textures in RAM (1.2–2× slower); **2**
-textures downsized (disable with `--no-texture-downsize`); **3** GPU skipped. Override the budget with
-`--vram-limit` and `--ram-limit`. A GPU that runs out of memory never crashes the render.
+A worker (and the controller's own machine) uses all its GPUs at once, one slot per GPU; each GPU pulls its own
+work, so fast GPUs do more of the frame. Backends mix freely on one host (`--devices 0:vulkan,1:cuda,cpu`), and
+with the CPU in the list it renders alongside, leaving one thread per GPU to feed it. Every GPU loads the scene at
+the same time; a GPU that cannot take the scene is skipped with the reason in the log and the others render. A GPU
+that fails or stops answering mid-render is removed and its work goes to the others: a removed GPU never stops
+the render, and the image is the same. On NVIDIA GPUs the worker reports usage, VRAM and temperature from the
+driver (NVML); `penumbra --list-devices` shows them too.
+
+Each GPU picks a memory tier for the scene *(M8)*: **0** everything in VRAM; **1** textures in RAM (1.2–2×
+slower); **2** textures downsized (disable with `--no-texture-downsize`); **3** GPU skipped. Override the budget
+with `--vram-limit` and `--ram-limit`. A GPU that runs out of memory never crashes the render.
 
 ### Output formats and limits
 
@@ -592,6 +674,7 @@ Start with `penumbra --diagnose` and include its output in any bug report.
 | Linux: "CMake 3.26 or newer is required" | Install the official CMake as in [Prerequisites](#prerequisites); check `which cmake` points to `/opt/cmake/bin/cmake`. |
 | No Vulkan ray tracing, or the GPU is not listed | Update the GPU driver; `penumbra --list-devices` and `--diagnose` show each GPU and what it is missing. In Docker, the container needs `-e NVIDIA_DRIVER_CAPABILITIES=all`. NVIDIA GPUs without ray tracing render through CUDA when the build has it (`--diagnose` shows "CUDA build"); other GPUs without it are skipped and the CPU renders. |
 | CUDA not found | At build time: install the CUDA toolkit and rebuild (CMake prints `CUDA=ON`); without it Penumbra still builds with Vulkan and CPU. At run time: `penumbra --diagnose` shows the driver and each GPU. "The driver supports CUDA 12.x, this build needs CUDA 13.x": update the NVIDIA driver (580+), or build with a CUDA 12 toolkit. "compute capability ... is older than this build's oldest target": see `PEN_CUDA_ARCHS`. |
+| Worker: "could not join: the connection closed before the controller answered" (exit code 6) | Something closed the connection before the controller said anything: the address or port is not the controller's, a firewall, proxy or relay on the way drops it (on a rented container, check the relay in [Rented GPU containers](#rented-gpu-containers-vastai-runpod-and-similar)), or the controller is ignoring this address after more than 5 wrong codes (wait 10 minutes or restart the controller). |
 | Worker: "could not join: the controller did not accept the join code" (exit code 6) | The code differs from the one the controller printed; copy it again (case and dashes do not matter). After more than 5 wrong codes in a minute the controller ignores that address for 10 minutes: wait, or restart the controller. |
 | Worker: "the controller rejected this worker: ... runs Penumbra ... (git ...)" (exit code 6) | The two machines run different builds. Run `git pull` and rebuild on both ([Updating](#updating)); the git hashes must match. |
 | Worker: "cannot connect to ...: connection refused" or timed out (exit code 7) | Check, in order: the controller is running with `--host` and printed "hosting on port 7420"; the address is one the controller listed; the firewall allows TCP 7420 on the controller (Windows: allow Penumbra when asked, or `New-NetFirewallRule -DisplayName Penumbra -Direction Inbound -Protocol TCP -LocalPort 7420 -Action Allow` in an admin PowerShell; Linux: `sudo ufw allow 7420/tcp`); for internet workers, the router forwards TCP 7420 (the controller logs whether UPnP did it) or both machines are on the same VPN. |

@@ -20,8 +20,11 @@ WorkerInfo LocalWorker::info() const {
 void LocalWorker::offerScene(const RenderOffer& offer) {
   scene_ = offer.scene;
   std::vector<DeviceReady> ready;
-  for (const PreparedDevice& p : prepareDevices(*scene_, offer.settings, devices_))
-    ready.push_back({p.device, p.backend, p.memory_tier, p.build_seconds, p.summary});
+  std::vector<bool> skipped;
+  for (const PreparedDevice& p : prepareDevices(*scene_, offer.settings, devices_)) {
+    ready.push_back({p.device, p.backend, p.memory_tier, p.build_seconds, p.summary, p.skipped, p.reason});
+    skipped.push_back(p.skipped);
+  }
   events_.onReady(id_, ready);
 
   for (DeviceId d = 0; d < devices_.size(); ++d) {
@@ -35,7 +38,9 @@ void LocalWorker::offerScene(const RenderOffer& offer) {
     };
     slots_.push_back(std::make_unique<DeviceSlot>(d, *devices_[d], cb));
   }
-  for (auto& s : slots_) s->start();
+  // A skipped device keeps its slot (so device numbers stay) but never starts, so it never asks for work.
+  for (DeviceId d = 0; d < slots_.size(); ++d)
+    if (!skipped[d]) slots_[d]->start();
 }
 
 void LocalWorker::sendLease(const Lease& lease) {

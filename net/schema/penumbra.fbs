@@ -76,6 +76,8 @@ table DeviceReadyDesc {
   memory_tier:uint;
   build_seconds:double;
   summary:string;
+  skipped:bool;           // protocol 3: this device cannot take the scene (reason); the others render
+  reason:string;
 }
 
 table WorkerReady {

@@ -20,7 +20,10 @@ class FaultyBackend final : public IBackend {
   FaultyBackend(std::unique_ptr<IBackend> inner, const FaultSpec& spec) : inner_(std::move(inner)), spec_(spec) {}
   DeviceInfo info() const override { return inner_->info(); }
   MemoryPlan plan(const SceneStats& s) override { return inner_->plan(s); }
-  void upload(const Scene& scene, const MemoryPlan& plan) override { inner_->upload(scene, plan); }
+  void upload(const Scene& scene, const MemoryPlan& plan) override {
+    if (spec_.mode == FaultMode::Upload) throw BackendError("injected test fault while taking the scene (PENUMBRA_TEST_FAULTS)");
+    inner_->upload(scene, plan);
+  }
   void prepare(const FrameSetup& frame) override {
     cancel_ = false;
     inner_->prepare(frame);
@@ -38,6 +41,7 @@ class FaultyBackend final : public IBackend {
           inner_->render(item, out);
           ++g_corrupt_tiles;
           return;
+        case FaultMode::Upload: break;
         case FaultMode::Freeze: g_frozen = true; [[fallthrough]];
         case FaultMode::Hang:
           while (!cancel_.load()) std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -76,7 +80,8 @@ std::optional<FaultSpec> faultSpecFromEnvironment() {
     else if (key == "mode" && value == "exit") spec.mode = FaultMode::Exit;
     else if (key == "mode" && value == "freeze") spec.mode = FaultMode::Freeze;
     else if (key == "mode" && value == "corrupt") spec.mode = FaultMode::Corrupt;
-    else throw std::invalid_argument("PENUMBRA_TEST_FAULTS: use device=N,after=K,mode=throw|hang|exit|freeze|corrupt");
+    else if (key == "mode" && value == "upload") spec.mode = FaultMode::Upload;
+    else throw std::invalid_argument("PENUMBRA_TEST_FAULTS: use device=N,after=K,mode=throw|hang|exit|freeze|corrupt|upload");
     if (comma == std::string_view::npos) break;
     s.remove_prefix(comma + 1);
   }
@@ -90,6 +95,7 @@ std::string_view toString(FaultMode mode) {
     case FaultMode::Exit: return "exit the process";
     case FaultMode::Freeze: return "freeze the worker";
     case FaultMode::Corrupt: return "corrupt its tiles";
+    case FaultMode::Upload: return "fail to take the scene";
   }
   return "?";
 }
