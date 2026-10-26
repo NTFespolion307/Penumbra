@@ -337,6 +337,29 @@ script printed:
 3. Several machines: host `scenes/cornell.pen.json` with `--terminal --host`, and join from another machine as in
    [Rendering with several machines](#rendering-with-several-machines).
 
+**A large textured scene: Sponza.** For a realistic load (262,000 triangles, 69 textures, 25 materials with
+alpha-cut plants, lit by a sunny HDRI sky) download Sponza once; it is about 58 MB, so it is not in the repository.
+Run these from the repository folder:
+
+1. Download it (every file is checked against `scenes/sponza.sha256`; running it again only fills in what is
+   missing):
+   ```
+   .\scripts\get-scenes.ps1
+   ```
+   On Linux: `./scripts/get-scenes.sh`. Success: the last lines say `Ready: scenes/sponza.pen.json`.
+2. Render it from the courtyard camera (1080p; minutes on a GPU, much longer on a CPU):
+   ```
+   build/windows-msvc-release/bin/penumbra.exe --terminal scenes/sponza.pen.json --spp 1024 -o sponza.png
+   ```
+   On Linux: `build/linux-gcc-release/bin/penumbra --terminal scenes/sponza.pen.json --spp 1024 -o sponza.png`.
+   In the UI, open `scenes/sponza.pen.json` on the Render page.
+
+Sponza is Crytek's model (Cryengine Limited License Agreement) as published in the
+[Khronos glTF sample assets](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Sponza);
+the sky is [Kloofendal 48d Partly Cloudy (Pure Sky)](https://polyhaven.com/a/kloofendal_48d_partly_cloudy_puresky)
+by Greg Zaal and Jarod Guest (CC0, Poly Haven). Both are downloaded from their publishers, not redistributed here.
+The script adds a camera ("Courtyard") to a copy of the glTF, `scenes/sponza/courtyard.gltf`.
+
 **Test scenes and image comparison.** The build also makes two tools next to `penumbra`:
 
 1. Write all test scenes (the three above plus the furnace spheres and a big-texture scene) into a folder:

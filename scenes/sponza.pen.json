@@ -1,0 +1,12 @@
+{
+  "environment": {
+    "hdri": "sponza/kloofendal_48d_partly_cloudy_puresky_2k.hdr",
+    "rotation_deg": 0,
+    "strength": 1.0
+  },
+  "render": {
+    "exposure": 1.5,
+    "res": "1080p"
+  },
+  "scene": "sponza/courtyard.gltf"
+}
