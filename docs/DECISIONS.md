@@ -693,3 +693,98 @@ M9; on one GPU listed twice the driver time-slices the two contexts unevenly (D-
 M9 change only inside devices, so nothing blocks it. Until M8, the UI shows each GPU's memory tier as reported
 (always tier 0 today), and the `--vram-limit` / texture-downsize settings are added to the UI together with the
 flags in M8. Until M9, render-time estimates use the speed the cluster measured in the session, not `--benchmark`.
+
+**D-100 M10 UI choices (user, 2026-10-23).** Dear ImGui on GLFW (guide), Vulkan swapchain with an OpenGL 3.3 fallback.
+- Charts (CPU/RAM history, throughput sparkline) are drawn with ImGui's draw lists: no ImPlot.
+- IBM Plex Sans and Mono (SIL Open Font License 1.1) are bundled in `third_party/fonts/` with their license and
+  compiled into the binary, so the UI looks like the mockups on every machine.
+- Open-file dialogs: the user approved `nativefiledialog-extended`, but on Linux it links GTK or D-Bus, and a headless
+  worker (same binary) would then fail to start on a server without them. So no library: on Windows the system
+  `IFileOpenDialog`, on Linux `zenity` or `kdialog` when installed, else a file browser inside the app.
+- The 3-machine gate runs one machine's UI on a rented GPU container under a virtual display (Xvfb + a VNC server
+  with noVNC), which the user opens in a browser through the SSH tunnel on port 8080. That container's UI uses the
+  OpenGL fallback (no GPU for the display), while it renders with its GPUs as usual.
+- `--terminal`, `--worker` and every info mode never load window libraries (GLFW and ImGui's OpenGL loader open
+  them at run time only in UI mode), so workers keep starting on servers with no display libraries at all.
+- GLFW 3.4 is vendored in `third_party/glfw` too (zlib license), built with X11 only: the vcpkg glfw3 port builds the
+  whole X11 client library chain from source on Linux (autotools included), which failed on a GNU mirror timeout
+  in WSL and would slow every container build. GLFW needs only the system X11 headers (`libx11-dev libxrandr-dev
+  libxinerama-dev libxcursor-dev libxi-dev`) and opens libX11 at run time; `ldd penumbra` lists no display
+  library. Wayland desktops run the UI through XWayland. On Linux, `build.sh` builds the UI only when a display is
+  present (`--ui` / `--no-ui` to force). Checked: Windows draws with Vulkan (Intel UHD), WSL falls back to OpenGL
+  3.3 on its own (no Vulkan loader there).
+
+**D-101 How the UI is built (M10, steps 2-4).**
+- **One render path.** The UI and `--terminal` share `controller/render_job` (prepare: settings, scene package,
+  scene, disk check, film and session file; finish: output, summary, cleanup) and `HostingSession` (one host and
+  join code across renders, workers stay attached between renders, one render at a time through RenderController).
+  The UI's `RenderRunner` runs exactly that on a background thread; Stop is Ctrl+C (checkpoint, image written).
+- **Protocol 4** adds the round trip, upload rate and scene cache use to `Stats`, for the Hosts pages' Ping, Upload
+  and Scene cache; worker `Log` lines are kept per host for "Log from this host".
+- **Switching hosts or devices off** (Hosts pages) is done in the session: a disabled device's work requests are
+  dropped and a disabled host is not offered renders, so RenderController is unchanged. This machine's disabled
+  GPUs are left out of its `--devices` list. Applies to renders that start afterwards.
+- **Framing preview** (Render page): the guide's `renderPreview`, done as a direct small render on this machine's
+  CPU (a few samples, about 480 px wide), not through the scheduler: it is a UI aid and never part of an image.
+- **Textures** (preview, viewport) are ImGui 1.92 `ImTextureData` registered as user textures, so the Vulkan and
+  OpenGL backends upload them; `ImTextureData::GetTexRef()` must be used (`ImTextureRef(ptr)` is the legacy
+  `void*` ID constructor and draws the wrong texture).
+- **Test hooks** for checking pages without clicking (D-047 style, logged when active): `PENUMBRA_TEST_UI_PAGE`
+  opens a page at start, `PENUMBRA_TEST_UI_SCREENSHOT=<png>` saves the frame shown after 8 s (OpenGL) and exits.
+
+**D-102 Viewport, Settings and Join a render (M10, steps 5-6).**
+- **Live view.** RenderController keeps a downsampled copy of the film (longest side 2,048 px, box filter,
+  weighted by sample count) updated as tiles merge, so the Viewport never reads a gigapixel film to draw. Zooming
+  past it reads the visible region at full resolution from the film (`readFilm`). Tile colours are the host that
+  merged the tile (8 colours, hatched beyond); outlined tiles are leased right now.
+- **Pause** stops handing out leases (leases out finish and merge); Resume restarts the lease clocks so paused
+  time never counts as a late lease. "Save image now" writes the output from the film as it is.
+- **Join a render** runs the ordinary worker (`runWorker`, `--stay` behaviour) on a background thread with a
+  `WorkerStatus` the worker fills in for the worker screen. Hosting stops first (one machine is a controller or a
+  worker, never both) and starts again after Leave. Leave is the worker's Ctrl+C: leases are handed back.
+- **Hosting switches.** Internet hosting is the UPnP mapping switched on and off on the running host
+  (`HostingSession::setInternet`); it is off at every UI start whatever the config says. "Ask before accepting new
+  workers" asks in a dialog; no answer within 2 minutes rejects the worker. Regenerate deletes the saved join code
+  and restarts hosting, which disconnects every worker (not while rendering).
+- **This machine's devices.** The GPU switches are the same as on the Host detail page. "CPU renders too" adds
+  `cpu` to the local `--devices`; a CPU that renders keeps "threads kept free" (default 2) for the UI unless
+  `--threads` was given. Saved defaults (output folder, film folder) go to the user config file, never the join code.
+- **Busy %** counts the work item rendering now, not only finished ones: a long item (a CPU tile at many samples)
+  read 0% until it ended, then a capped spike. Stats clamps the 2 s delta to 0-100%.
+- **Test hook** `PENUMBRA_TEST_UI_JOIN="<address> <code>"` fills Join a render and presses Join once (D-047
+  style, logged). Checked on Windows: the UI joined a `--terminal --host --no-local` controller, rendered, and its
+  Leave handed the lease back (requeued).
+- **UI Vulkan and the render backends share volk's globals.** The backends' one-time Vulkan probe loads volk's
+  global instance functions from its own instance (no surface extension), so after it ran the UI's
+  `vkGetPhysicalDeviceSurface*KHR` were null and the first window resize crashed. The UI now runs the probe
+  (`gpuInventory()`) before loading its own instance functions, skips frames while the surface is 0 x 0, and
+  resets its frame indexes after a swapchain rebuild. Checked: repeated resize, maximize, minimize on Windows.
+
+**D-103 Gate fixes from the first internet run (M10, laptop UI hosting, the box over userspace Tailscale).**
+- **The controller sends its own heartbeat** every 5 s (`echo_us` 0) besides echoing the worker's. A worker
+  uploading through socat and userspace Tailscale had tens of MB of tiles in those buffers ahead of its heartbeat;
+  the echo came back after more than 30 s and the worker dropped a healthy controller (three times in one render,
+  each time losing its leases). The controller-to-worker direction carries little, so its heartbeat arrives on
+  time. Wire-compatible: workers already ignored heartbeats without an echo. Protocol version unchanged.
+- **UI outputs.** A relative output (the default `render.png`) is under the Settings output folder, default
+  Pictures/Penumbra (created at Start), not the working folder: started from Explorer that is C:\Windows\system32,
+  and the render failed with "cannot open render.penfilm: access denied".
+- **Seen, for M9:** a cheap scene (Cornell box, ~230 M samples/s on an RTX 5060 Ti) at 20K over a ~240 ms
+  internet link is upload-bound by far; its results arrive late, are reissued, and the GPU mostly waits. Larger
+  sample ranges per item for upload-bound workers belong to M9 (network throughput).
+- **`--stay` retries a controller that does not answer.** Through a relay (socat, an SSH tunnel) the TCP
+  connection always opens, so a controller that is not hosting yet looked like "closed before the controller
+  answered", which ended even a `--stay` worker (and the UI's Join). It now waits 1, 2, 4... up to 30 s and tries
+  again; a wrong join code still ends it (retrying would get the address blocked).
+- **Seen, for M9:** behind the Hyper-V firewall a connection to a port nothing listens on is dropped, not refused,
+  so the first attempt of a WSL worker waits for the OS connect timeout (about 2 minutes). A shorter connect
+  timeout belongs with the network work in M9.
+
+**D-104 M10 gate passed (2026-10-26).** Host, join and finish a 3-machine render with clicks: the laptop's UI
+(Windows 11, i7-11850H, Vulkan UI) hosted; a rented RTX 5060 Ti box (Ubuntu 24.04, its UI on Xvfb + noVNC,
+OpenGL) joined over userspace Tailscale through socat; a WSL Ubuntu 22.04 worker joined over the LAN side.
+Renders of `scenes/cornell.pen.json` at 4K finished with tiles from all three, e.g. 2048 spp in 69 s at
+246 M samples/s (box 254 items, laptop 1, WSL 0 of the CPU-slow tail), no worker dropped after D-103. Also
+checked: Viewport live view, Pause/Resume, Save image now, Stop (checkpoint + partial image), Settings, Join a
+render and Leave, window resize and fullscreen with Vulkan. The box's own join was started with the
+`PENUMBRA_TEST_UI_JOIN` hook; the laptop's Join was clicked. Tests: see the merge commit.

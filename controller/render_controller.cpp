@@ -8,7 +8,9 @@
 #include <stdexcept>
 #include <string_view>
 
+#include "core/output/output.h"
 #include "core/system/file.h"
+#include "core/system/paths.h"
 
 namespace pen {
 
@@ -113,6 +115,7 @@ void RenderController::onRequestWork(WorkerId worker, DeviceId device, int count
 }
 
 void RenderController::serveLocked() {
+  if (paused_) return;  // devices keep their requests and get work on Resume
   for (auto it = wanted_.begin(); it != wanted_.end();) {
     auto& [key, want] = *it;
     while (want > 0) {
@@ -175,6 +178,10 @@ void RenderController::requeueLostLocked(LeaseId id, const LeaseInfo& lease) {
 bool RenderController::mergeLocked(const TileResult& r) {
   try {
     film_.merge(r, r.sample_end - sample_begin_);
+    if (auto o = early_owner_.find(r.item_id); o != early_owner_.end()) {
+      if (live_w_) liveMergeLocked(r, o->second);
+      early_owner_.erase(o);
+    }
   } catch (const DiskFullError& e) {
     spdlog::error("out of disk while writing the film: {}", e.what());
     film_error_ = e.what();
@@ -266,6 +273,7 @@ void RenderController::onTileResult(WorkerId worker, TileResult&& r) {
   t.samples += r.rect.pixels() * (r.sample_end - r.sample_begin);
   t.seconds += r.render_seconds;
 
+  early_owner_[item.id] = worker;  // the live view colours each tile by the worker that merged it
   early_.emplace(item.id, std::move(r));
   mergeReadyLocked(item.tile);
   checkFinishedLocked();
@@ -370,6 +378,7 @@ double RenderController::medianSeconds(const std::deque<double>& window) {
 // A lease is late after 10x its device's median item time, so a slow device (a CPU next to fast GPUs) is not
 // taken for a hung one; a device with fewer than 3 finished items is judged by the median of all devices (D-097).
 void RenderController::reissueLateLocked() {
+  if (paused_) return;  // nothing is late while nothing is handed out
   const double overall = medianSeconds(item_seconds_);
   const auto now = Clock::now();
   bool any = false;
@@ -415,6 +424,7 @@ RenderOutcome RenderController::run(const RenderRunOptions& options) {
   std::vector<WorkerLink*> initial;
   {
     std::lock_guard lock(mutex_);
+    if (options.live_view) liveInitLocked(options.live_view);
     if (scheduler_.done()) finished_ = true;  // resumed a film that was already complete
     running_ = true;
     initial = workerSnapshotLocked();
@@ -499,9 +509,118 @@ RenderOutcome RenderController::run(const RenderRunOptions& options) {
   outcome.reissued = reissued_;
   outcome.duplicated = duplicated_;
   outcome.duplicate_wins = duplicate_wins_;
-  outcome.seconds = progressLocked().elapsed_seconds;
+  outcome.progress = progressLocked();
+  outcome.seconds = outcome.progress.elapsed_seconds;
   for (const auto& [key, tally] : tallies_) outcome.devices.push_back(tally);
   return outcome;
+}
+
+// ---------------------------------------------------------------- live view, pause, save now (UI)
+
+void RenderController::liveInitLocked(uint32_t maxSide) {
+  const FilmLayout& l = film_.layout();
+  const double k = std::min(1.0, double(maxSide) / double(std::max(l.width, l.height)));
+  live_w_ = std::max(1u, uint32_t(std::lround(l.width * k)));
+  live_h_ = std::max(1u, uint32_t(std::lround(l.height * k)));
+  live_sum_.assign(size_t(live_w_) * live_h_, Vec3f(0));
+  live_weight_.assign(live_sum_.size(), 0.0);
+  tile_owner_.assign(l.tileCount(), -1);
+  // A resumed RAM film already holds samples; disk films show their tiles as they are merged again.
+  if (!film_.inRam()) return;
+  std::vector<Vec3f> mean;
+  std::vector<uint32_t> counts;
+  for (uint32_t t = 0; t < l.tileCount(); ++t) {
+    if (!film_.tileSamples(t)) continue;
+    const TileRect rect = l.tileRect(t);
+    film_.readRect(rect, mean, &counts);
+    for (uint32_t y = rect.y0; y < rect.y1; ++y)
+      for (uint32_t x = rect.x0; x < rect.x1; ++x) {
+        const size_t i = size_t(y - rect.y0) * rect.width() + (x - rect.x0);
+        const size_t p = size_t(uint64_t(y) * live_h_ / l.height) * live_w_ + size_t(uint64_t(x) * live_w_ / l.width);
+        live_sum_[p] += mean[i] * float(counts[i]);
+        live_weight_[p] += counts[i];
+      }
+  }
+  ++live_version_;
+}
+
+// Box filter weighted by samples: the downsampled running mean equals the downsampled film, whatever the order.
+void RenderController::liveMergeLocked(const TileResult& r, WorkerId worker) {
+  const FilmLayout& l = film_.layout();
+  const float n = float(r.sample_end - r.sample_begin);
+  for (uint32_t y = r.rect.y0; y < r.rect.y1; ++y) {
+    const size_t row = size_t(uint64_t(y) * live_h_ / l.height) * live_w_;
+    for (uint32_t x = r.rect.x0; x < r.rect.x1; ++x) {
+      const size_t p = row + size_t(uint64_t(x) * live_w_ / l.width);
+      live_sum_[p] += r.mean[size_t(y - r.rect.y0) * r.rect.width() + (x - r.rect.x0)] * n;
+      live_weight_[p] += n;
+    }
+  }
+  const uint32_t tile = static_cast<uint32_t>(r.item_id >> 32);
+  if (tile < tile_owner_.size()) tile_owner_[tile] = int32_t(worker);
+  ++live_version_;
+}
+
+bool RenderController::liveView(LiveView& out, uint64_t version) const {
+  std::lock_guard lock(mutex_);
+  if (!live_w_) return false;
+  out.layout = film_.layout();
+  out.tile_owner = tile_owner_;
+  out.tile_busy.assign(out.layout.tileCount(), 0);
+  for (const auto& [id, info] : leases_)
+    if (info.item.tile < out.tile_busy.size()) out.tile_busy[info.item.tile] = 1;
+  out.workers.clear();
+  for (const auto& w : workers_) out.workers.push_back(w->info().name);
+  if (live_version_ == version && out.version == version && !out.rgb.empty()) return true;  // pixels unchanged
+  out.width = live_w_;
+  out.height = live_h_;
+  out.rgb.resize(live_sum_.size());
+  for (size_t i = 0; i < live_sum_.size(); ++i)
+    out.rgb[i] = live_weight_[i] > 0 ? live_sum_[i] * float(1.0 / live_weight_[i]) : Vec3f(0);
+  out.version = live_version_;
+  return true;
+}
+
+void RenderController::setPaused(bool paused) {
+  std::vector<WorkerLink*> links;
+  {
+    std::lock_guard lock(mutex_);
+    if (paused_ == paused || finished_) return;
+    paused_ = paused;
+    spdlog::info("render {}", paused ? "paused: no new work is handed out" : "resumed");
+    links = workerSnapshotLocked();
+    if (!paused) {
+      // Leases out while paused were not late; restart their clocks so they are not reissued at once.
+      const auto now = Clock::now();
+      for (auto& [id, info] : leases_) info.issued = now;
+      serveLocked();
+    }
+  }
+  for (WorkerLink* w : links) w->pause(paused);
+}
+
+void RenderController::readFilm(const TileRect& rect, std::vector<Vec3f>& out) const {
+  std::lock_guard lock(mutex_);
+  film_.readRect(rect, out);
+}
+
+bool RenderController::paused() const {
+  std::lock_guard lock(mutex_);
+  return paused_;
+}
+
+bool RenderController::writeImageNow(const RenderSettings& settings, std::string& error) {
+  std::lock_guard lock(mutex_);  // no merge while the image is written
+  try {
+    std::vector<std::string> notes;
+    writeOutput(film_, settings, {{"Software", "Penumbra"}, {"Incomplete", "true"}}, notes);
+    for (const auto& n : notes) spdlog::info("{}", n);
+    spdlog::info("saved the current image to {}", pathToUtf8(settings.output));
+    return true;
+  } catch (const std::exception& e) {
+    error = e.what();
+    return false;
+  }
 }
 
 }  // namespace pen

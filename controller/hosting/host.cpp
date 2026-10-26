@@ -36,7 +36,8 @@ Host::Host(const RenderSettings& settings, const std::string& code, WorkerEvents
   session_id_ = (uint64_t(rd()) << 32) | rd();
   listener_ = std::make_unique<net::Listener>(io_, settings.bind, settings.port, net::deriveJoinKey(code),
                                               [this](std::shared_ptr<net::Connection> c) { onAccept(std::move(c)); });
-  if (settings.approve_workers) approval_thread_ = std::thread([this] { approvalLoop(); });
+  approve_on_ = settings.approve_workers;
+  approval_thread_ = std::thread([this] { approvalLoop(); });
   watchdog_timer_ = std::make_unique<asio::steady_timer>(io_.context());
   asio::post(io_.context(), [this] { watchdog(); });
 }
@@ -44,11 +45,22 @@ Host::Host(const RenderSettings& settings, const std::string& code, WorkerEvents
 void Host::watchdog() {
   const auto now = Clock::now();
   std::vector<std::shared_ptr<Peer>> silent;
+  // The controller's own heartbeat (echo_us 0; workers measure the round trip only from echoes). Echoing the
+  // worker's heartbeats is not enough: on a slow upload, a worker's heartbeat waits behind the tiles already in
+  // the network's buffers (socat and userspace Tailscale hold tens of MB), its echo comes back after more than
+  // 30 s, and the worker gave up on a controller that was fine. This direction carries little, so it arrives.
+  const bool beat = now - last_beat_ >= std::chrono::seconds(5);
+  if (beat) last_beat_ = now;
+  wire::HeartbeatT hb;
+  hb.sent_us = static_cast<uint64_t>(
+      std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count());
   {
     std::lock_guard lock(mutex_);
     if (stopped_) return;
-    for (const auto& p : peers_)
+    for (const auto& p : peers_) {
       if (now - p->connection->lastReceived() > kPeerTimeout && p->connection->isOpen()) silent.push_back(p);
+      else if (beat && p->worker && p->connection->isOpen()) p->connection->send(hb);
+    }
   }
   for (const auto& p : silent) {
     spdlog::warn("{} sent nothing for 30 s (heartbeat lost); dropping it", p->worker ? p->worker->info().name
@@ -165,7 +177,7 @@ void Host::onHello(const std::shared_ptr<Peer>& peer, net::Message&& msg, uint16
     if (workers >= settings_.max_workers)
       return reject(peer, uint8_t(wire::RejectReason::SessionFull),
                     fmt::format("the session already has {} workers (--max-workers)", workers));
-    if (settings_.approve_workers) {
+    if (approve_on_) {
       approvals_.push_back(peer);
       approval_cv_.notify_one();
       return;  // join() runs once the user answers
@@ -201,12 +213,23 @@ void Host::approvalLoop() {
       approvals_.pop_front();
     }
     if (!peer || !peer->connection->isOpen()) continue;
-    std::fprintf(stderr, "\nAccept worker '%s' from %s (%s, %u cores)? [y/N] ", peer->hello.worker_name.c_str(),
-                 peer->connection->peer().c_str(), peer->hello.os.c_str(), peer->hello.logical_cores);
-    std::fflush(stderr);
-    std::string answer;
-    const bool got = static_cast<bool>(std::getline(std::cin, answer));
-    const bool yes = got && (answer == "y" || answer == "Y" || answer == "yes");
+    const std::string question = fmt::format("Accept worker '{}' from {} ({}, {} cores)?", peer->hello.worker_name,
+                                             peer->connection->peer(), peer->hello.os, peer->hello.logical_cores);
+    ApproveFn approve;
+    {
+      std::lock_guard lock(mutex_);
+      approve = approve_;
+    }
+    bool yes = false;
+    if (approve) {
+      yes = approve(question);  // the UI asks; no answer in time is a no
+    } else {
+      std::fprintf(stderr, "\n%s [y/N] ", question.c_str());
+      std::fflush(stderr);
+      std::string answer;
+      const bool got = static_cast<bool>(std::getline(std::cin, answer));
+      yes = got && (answer == "y" || answer == "Y" || answer == "yes");
+    }
     asio::post(io_.context(), [this, peer, yes] {
       if (!peer->connection->isOpen()) return;
       if (yes) join(peer);
@@ -214,6 +237,13 @@ void Host::approvalLoop() {
     });
   }
 }
+
+void Host::setApprover(ApproveFn approve) {
+  std::lock_guard lock(mutex_);
+  approve_ = std::move(approve);
+}
+
+void Host::setApproveWorkers(bool on) { approve_on_ = on; }
 
 void Host::shutdown(std::chrono::milliseconds grace) {
   {

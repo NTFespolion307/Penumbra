@@ -5,8 +5,12 @@ option(PEN_BUILD_TESTS "Build unit, smoke and lint tests" ON)
 if(PEN_BUILD_TESTS)
   list(APPEND VCPKG_MANIFEST_FEATURES "tests")
 endif()
+# The UI (Dear ImGui and GLFW, both vendored in third_party/) is built from source with the rest.
+option(PEN_ENABLE_UI "Dear ImGui user interface (M10)" ON)
 
-project(Penumbra VERSION 0.1.0 DESCRIPTION "Distributed multi-GPU path tracer" LANGUAGES CXX)
+# C for the vendored GLFW (UI); enabled here because a language enabled only in a subdirectory breaks targets
+# defined before it.
+project(Penumbra VERSION 0.1.0 DESCRIPTION "Distributed multi-GPU path tracer" LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -38,7 +42,6 @@ endif()
 # ---- Feature options (see docs/GUIDE.md "Build, dependencies and platforms") ----
 option(PEN_ENABLE_VULKAN "Vulkan RT backend and UI swapchain (built from M5)" ON)
 option(PEN_ENABLE_OPTIX "OptiX backend and denoiser (optional, M13)" OFF)
-option(PEN_ENABLE_UI "Dear ImGui user interface (built from M10)" ON)
 if(NOT DEFINED PEN_ENABLE_CUDA)
   # ON when a CUDA toolkit (nvcc) is found: on PATH, through CUDA_PATH (the Windows installer sets it) or in
   # /usr/local/cuda. Nothing links against CUDA; the driver is loaded at run time (DECISIONS D-087).
@@ -55,7 +58,7 @@ set(PEN_CUDA_ARCHS "75;80;86;89;90;120" CACHE STRING
 
 # ---- Compiler settings ----
 if(MSVC)
-  add_compile_options(/W4 /permissive- /utf-8 /Zc:__cplusplus /EHsc)
+  add_compile_options(/utf-8 "$<$<COMPILE_LANGUAGE:CXX>:/W4;/permissive-;/Zc:__cplusplus;/EHsc>")
   add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
 else()
   # No fused multiply-add contraction: the same code must produce the same bits on every host.

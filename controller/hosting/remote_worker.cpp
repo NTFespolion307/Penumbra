@@ -21,6 +21,11 @@ RemoteWorker::RemoteWorker(WorkerId id, WorkerEvents& events, SceneUploader& upl
     : id_(id), events_(events), uploader_(uploader), connection_(std::move(connection)), hello_(std::move(hello)) {
   info_.name = hello_.worker_name;
   info_.local = false;
+  info_.os = hello_.os;
+  info_.address = connection_->peer();
+  info_.logical_cores = hello_.logical_cores;
+  info_.ram_total = hello_.ram_total;
+  info_.version = fmt::format("{} (git {})", hello_.app_version, hello_.git_hash);
   for (const auto& d : hello_.devices) {
     DeviceInfo di;
     di.name = d->name;
@@ -199,6 +204,20 @@ void RemoteWorker::onMessage(net::Message&& msg) {
                         info_.name, d->device, d->busy_percent, d->vram_used / 1e9, d->vram_total / 1e9,
                         d->temperature_c > -273 ? fmt::format("{:.0f} C", d->temperature_c) : "temperature unknown",
                         d->tiles_per_s, d->samples_per_s);
+        WorkerStats stats;
+        stats.cpu_percent = m.cpu_percent;
+        stats.ram_used = m.ram_used;
+        stats.ram_total = m.ram_total;
+        stats.upload_bound = m.upload_bound;
+        stats.rtt_ms = m.rtt_ms;
+        stats.upload_bytes_per_s = m.upload_bytes_per_s;
+        stats.cache_used = m.cache_used;
+        stats.cache_limit = m.cache_limit;
+        stats.cache_scenes = m.cache_scenes;
+        for (const auto& d : m.devices)
+          stats.devices.push_back({d->device, d->busy_percent, d->vram_used, d->vram_total, d->temperature_c,
+                                   d->tiles_per_s, d->samples_per_s});
+        events_.onStats(id_, stats);
         break;
       }
       case MsgType::Log: {
@@ -206,6 +225,11 @@ void RemoteWorker::onMessage(net::Message&& msg) {
         if (m.level == wire::LogLevel::Error) spdlog::error("{}: {}", info_.name, m.text);
         else if (m.level == wire::LogLevel::Warn) spdlog::warn("{}: {}", info_.name, m.text);
         else spdlog::info("{}: {}", info_.name, m.text);
+        events_.onLog(id_,
+                      m.level == wire::LogLevel::Error  ? WorkerEvents::LogLevel::Error
+                      : m.level == wire::LogLevel::Warn ? WorkerEvents::LogLevel::Warning
+                                                        : WorkerEvents::LogLevel::Info,
+                      m.text);
         break;
       }
       case MsgType::Heartbeat: {

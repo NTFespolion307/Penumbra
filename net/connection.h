@@ -76,6 +76,7 @@ class Connection : public std::enable_shared_from_this<Connection> {
   // or something other than Penumbra dropping the connection (or a controller ignoring this address).
   bool closedBeforeReply() const { return handshake_failed_.load() && !received_.load(); }
   uint64_t queuedBytes() const { return queued_.load(); }
+  uint64_t bytesSent() const { return sent_.load(); }  // on the wire (encrypted), since the connection opened
   const std::string& peer() const { return peer_; }        // "192.168.1.20:51234"
   const std::string& peerAddress() const { return address_; }  // "192.168.1.20"
 
@@ -96,6 +97,7 @@ class Connection : public std::enable_shared_from_this<Connection> {
   std::atomic<bool> handshake_failed_{false};
   std::atomic<bool> received_{false};  // the other side has sent at least one byte
   std::atomic<uint64_t> queued_{0};
+  std::atomic<uint64_t> sent_{0};
   std::atomic<std::chrono::steady_clock::rep> last_rx_{std::chrono::steady_clock::now().time_since_epoch().count()};
   std::atomic<uint32_t> next_transfer_{1};
 

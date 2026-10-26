@@ -46,12 +46,26 @@ struct RenderOutcome {
   uint32_t duplicate_wins = 0;  // ... whose result arrived first
   double seconds = 0;
   std::vector<DeviceTally> devices;
+  RenderProgress progress;  // at the end, for the session file
 };
 
 struct RenderRunOptions {
   const std::atomic<bool>* interrupt = nullptr;                 // set by the Ctrl+C handler
   std::function<void(const RenderProgress&)> progress;          // about once per second
   std::function<void(const RenderProgress&)> after_checkpoint;  // after each periodic film checkpoint
+  uint32_t live_view = 0;  // UI viewport: keep a downsampled copy of the film, this many pixels on the long side
+};
+
+// What the UI's viewport shows (docs/GUIDE.md "Viewport page"): the film downsampled to at most `live_view` pixels on
+// the long side, sample-weighted exactly like the film, and which worker merged each tile last.
+struct LiveView {
+  uint32_t width = 0, height = 0;  // of `rgb`
+  std::vector<Vec3f> rgb;          // linear radiance, rows top-down; black where nothing merged yet
+  FilmLayout layout;               // of the full film
+  std::vector<int32_t> tile_owner;   // per film tile: the worker that merged its last chunk, -1 none
+  std::vector<uint8_t> tile_busy;    // per film tile: a lease is out for it
+  std::vector<std::string> workers;  // worker names by WorkerId
+  uint64_t version = 0;              // grows with every merge
 };
 
 // Runs one render (docs/GUIDE.md "Render lifecycle", steps 3-8; "Scheduling, leases and tiles"): hands work
@@ -78,6 +92,18 @@ class RenderController final : public WorkerEvents {
 
   RenderOutcome run(const RenderRunOptions& options);
   RenderProgress progress() const;
+
+  // UI viewport (needs RenderRunOptions::live_view): copies the live view if it changed since `version`.
+  bool liveView(LiveView& out, uint64_t version) const;
+  // Pause: no new work is handed out and workers are told to stop asking; leases in flight finish (docs/GUIDE.md
+  // "Viewport page": Pause, Resume).
+  void setPaused(bool paused);
+  bool paused() const;
+  // "Save image now": writes the film as it is to `settings.output` while the render goes on (merges wait).
+  // Returns false with the reason.
+  bool writeImageNow(const RenderSettings& settings, std::string& error);
+  // Full-resolution pixels of `rect` from the film (the viewport zoomed past the live view's resolution).
+  void readFilm(const TileRect& rect, std::vector<Vec3f>& out) const;
 
   void onReady(WorkerId worker, const std::vector<DeviceReady>& devices) override;
   void onRequestWork(WorkerId worker, DeviceId device, int count) override;
@@ -135,6 +161,16 @@ class RenderController final : public WorkerEvents {
   uint32_t reissued_ = 0;
   uint32_t duplicated_ = 0, duplicate_wins_ = 0;
   uint32_t merged_items_ = 0;
+  bool paused_ = false;
+  // Live view (UI): per downsampled pixel, the sample-weighted sum and the samples.
+  uint32_t live_w_ = 0, live_h_ = 0;
+  std::vector<Vec3f> live_sum_;
+  std::vector<double> live_weight_;
+  std::vector<int32_t> tile_owner_;
+  std::map<uint64_t, WorkerId> early_owner_;  // the worker of each accepted result until it is merged
+  uint64_t live_version_ = 0;
+  void liveMergeLocked(const TileResult& r, WorkerId worker);
+  void liveInitLocked(uint32_t maxSide);
   bool finished_ = false;
   bool out_of_disk_ = false;
   std::string failure_;     // every device failed

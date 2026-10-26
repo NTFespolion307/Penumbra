@@ -1,5 +1,7 @@
 #include "controller/hosting/upnp.h"
 
+#include <fmt/format.h>
+
 #include <miniupnpc/miniupnpc.h>
 #include <miniupnpc/upnpcommands.h>
 #include <miniupnpc/upnperrors.h>
@@ -18,6 +20,16 @@ const char kDescription[] = "Penumbra controller";
 
 UpnpMapping::UpnpMapping(uint16_t port) : port_(port) { thread_ = std::thread([this] { run(); }); }
 
+void UpnpMapping::setStatus(std::string s) {
+  std::lock_guard lock(mutex_);
+  status_ = std::move(s);
+}
+
+std::string UpnpMapping::status() const {
+  std::lock_guard lock(mutex_);
+  return status_;
+}
+
 void UpnpMapping::run() {
   int error = 0;
   UPNPDev* devices = upnpDiscover(kDiscoverMs, nullptr, nullptr, 0, 0, 2, &error);
@@ -25,6 +37,7 @@ void UpnpMapping::run() {
     spdlog::info("UPnP: no router answered, so TCP {} is not forwarded automatically. For internet workers, "
                  "forward it on the router by hand, or join over a VPN (see README)",
                  port_);
+    setStatus("no UPnP router answered: forward TCP " + std::to_string(port_) + " by hand, or use a VPN");
     return;
   }
   UPNPUrls urls{};
@@ -34,6 +47,7 @@ void UpnpMapping::run() {
   freeUPNPDevlist(devices);
   if (igd == 0) {
     spdlog::info("UPnP: no internet gateway found on the network; TCP {} is not forwarded automatically", port_);
+    setStatus("no internet gateway found: forward TCP " + std::to_string(port_) + " by hand, or use a VPN");
     return;
   }
   const std::string wanIp = wan;
@@ -43,6 +57,7 @@ void UpnpMapping::run() {
                  "so port forwarding cannot reach this machine from the internet. Use a VPN such as Tailscale for "
                  "internet workers",
                  wanIp.empty() ? "unknown" : wanIp);
+    setStatus("carrier-grade NAT: forwarding cannot work, use a VPN such as Tailscale");
     FreeUPNPUrls(&urls);
     return;
   }
@@ -52,6 +67,7 @@ void UpnpMapping::run() {
   if (rc != UPNPCOMMAND_SUCCESS) {
     spdlog::warn("UPnP: the router refused to forward TCP {} ({}); forward it by hand for internet workers", port_,
                  strupnperror(rc));
+    setStatus(std::string("the router refused (") + strupnperror(rc) + "): forward TCP " + portText + " by hand");
     FreeUPNPUrls(&urls);
     return;
   }
@@ -59,6 +75,7 @@ void UpnpMapping::run() {
   UPNP_GetExternalIPAddress(urls.controlURL, data.first.servicetype, external);
   spdlog::info("UPnP: the router forwards TCP {} to this machine ({}); internet workers join with --join {}:{}", port_,
                lan, external[0] ? external : "<your public IP>", port_);
+  setStatus(fmt::format("forwarded: {}:{}", external[0] ? external : "your public IP", port_));
   std::lock_guard lock(mutex_);
   mapped_ = true;
   control_url_ = urls.controlURL;

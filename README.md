@@ -8,7 +8,7 @@ the image. Any number of **workers**, each with one or more GPUs, join with the 
 code, render tiles and send them back. A render on one machine is the same thing with no workers, and every
 combination of machines, GPUs and backends converges to the same image.
 
-> **Status: milestone M7 (multi-GPU workers).** Penumbra renders glTF and OBJ scenes on GPUs with hardware ray
+> **Status: milestone M10 (user interface; M8 and M9 come next).** Penumbra renders glTF and OBJ scenes on GPUs with hardware ray
 > tracing (Vulkan RT), on any NVIDIA GPU through CUDA, and on the CPU (Embree), with a path tracer (next-event
 > estimation, MIS), the glTF PBR material with its common extensions and HDRI lighting, at any size up to 160K,
 > with checkpoints, `--resume` and `merge`, writing EXR, PNG, JPEG, TIFF or WebP. Every machine uses all its GPUs
@@ -16,11 +16,11 @@ combination of machines, GPUs and backends converges to the same image.
 > share, idle devices take over the last chunks of slower ones, and a GPU that fails, hangs or cannot hold the
 > scene is dropped without changing the image. Several machines render together: a controller hosts, workers on
 > the LAN or the internet join with a code (encrypted), download the scene once, and any failure of a worker, its
-> devices or the network is recovered without changing the image. Memory tiers for big scenes arrive in M8, the
-> UI in M10. Features marked *(planned, Mx)* below are not built yet. The roadmap is in
+> devices or the network is recovered without changing the image. The UI hosts, joins and runs renders with
+> clicks only: Dashboard, Hosts, Render, a live Viewport and Settings, on Windows and Linux. Memory tiers for big
+> scenes arrive in M8, measured performance in M9. Features marked *(planned, Mx)* below are not built yet. The roadmap is in
 > [`docs/GUIDE.md`](docs/GUIDE.md).
 
-<!-- A screenshot goes here once the UI exists (M10). -->
 
 **Supported GPUs:** NVIDIA first: RTX 20 series and newer through Vulkan ray tracing (tested on an RTX 5060 Ti
 under Linux), and any NVIDIA GPU from compute capability 7.5 (Turing) through CUDA with a software BVH (tested on an RTX 5070
@@ -37,10 +37,11 @@ On the GPU, an image matches the CPU's within float rounding (relMSE about 1e-8 
 4. [Running on one machine](#running-on-one-machine)
 5. [Rendering with several machines](#rendering-with-several-machines)
 6. [CLI reference](#cli-reference)
-7. [Resolutions, backends, memory and formats](#resolutions-backends-memory-and-formats)
-8. [Scenes from Blender](#scenes-from-blender)
-9. [Troubleshooting](#troubleshooting)
-10. [Updating](#updating)
+7. [Supported formats](#supported-formats)
+8. [Resolutions, backends, memory and formats](#resolutions-backends-memory-and-formats)
+9. [Scenes from Blender](#scenes-from-blender)
+10. [Troubleshooting](#troubleshooting)
+11. [Updating](#updating)
 
 ## Why you build it yourself
 
@@ -134,6 +135,14 @@ Run these in a terminal:
    ```
    `cmake --version` now prints `3.31.6` and `echo $VCPKG_ROOT` prints your vcpkg folder.
 
+Optional, the user interface (on a desktop; servers and rented containers run headless and skip this):
+
+- Install the X11 development packages the UI's window library needs:
+  ```bash
+  sudo apt install -y libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+  ```
+  `./scripts/build.sh` builds the UI when a display is present and says which it chose.
+
 Optional, the CUDA toolkit (for the CUDA backend; the toolkit only, it does not touch the driver):
 
 9. Download NVIDIA's repository key for this distribution (Ubuntu 22.04/24.04, Debian 12):
@@ -197,7 +206,9 @@ folder such as `C:\dev`: MSVC fails on paths longer than 260 characters.
    Success ends with `Built: .../Penumbra/build/linux-gcc-release/bin/penumbra`.
 
 Script options: `-Config debug` / `--debug` for a debug build, `-NoTests` / `--no-tests` to skip the tests,
-`-Clean` / `--clean` to start from an empty build folder.
+`-Clean` / `--clean` to start from an empty build folder. On Linux the user interface is built when a display is
+present (`DISPLAY` or `WAYLAND_DISPLAY`) and skipped on headless machines; `--ui` / `--no-ui` force it. Windows
+always builds it.
 
 ### Manual CMake presets
 
@@ -238,7 +249,7 @@ The binary is `build/<preset>/bin/penumbra` (`penumbra.exe` on Windows).
 | `PEN_ENABLE_VULKAN` | `ON` | Vulkan RT backend (the UI swapchain from M10). `OFF` builds a CPU-only Penumbra |
 | `PEN_ENABLE_CUDA` | `ON` if the CUDA toolkit is found | CUDA backend. Nothing links against CUDA: the driver is loaded when Penumbra starts, so the binary also runs on machines without NVIDIA |
 | `PEN_ENABLE_OPTIX` | `OFF` | OptiX backend and denoiser *(planned, M13, optional)* |
-| `PEN_ENABLE_UI` | `ON` | The user interface *(planned, M10)*; turn off for headless servers |
+| `PEN_ENABLE_UI` | `ON` | The user interface (M10); off for headless servers (`build.sh` turns it off when there is no display). `--terminal` and `--worker` never need display libraries either way |
 | `PEN_CUDA_ARCHS` | `75;80;86;89;90;120` | CUDA architectures to compile for. Newer GPUs run the embedded PTX. CUDA 13 cannot build for GTX 10-series (61) or V100 (70); for those, build with CUDA 12.x and add the architecture, e.g. `-DPEN_CUDA_ARCHS="61;75;86"` |
 | `PEN_BUILD_TESTS` | `ON` | Unit, smoke and lint tests |
 
@@ -252,7 +263,8 @@ cmake --preset linux-gcc-release -DPEN_ENABLE_CUDA=OFF -DPEN_ENABLE_UI=OFF
 
 | Command | What it does |
 | --- | --- |
-| `penumbra` | Opens the UI as controller *(planned, M10; shows a notice until then)* |
+| `penumbra` | Opens the UI as controller: it hosts on the LAN at once (see [Using the UI](#using-the-ui)) |
+| `penumbra scene.pen.json` | Opens the UI with that scene loaded on the Render page |
 | `penumbra --terminal scene.glb -o out.png` | Headless render on this machine's devices (GPUs with ray tracing, else the CPU) |
 | `penumbra --terminal scene.glb --res 720p --spp 16 -o preview.png` | Quick preview |
 | `penumbra --terminal scene.pen.json --res 4k --spp 1024 -o final.exr` | 4K final with settings from a `.pen.json` |
@@ -340,10 +352,28 @@ script printed:
    penumbra-diff a.exr b.exr
    ```
 
+### Using the UI
+
+Start `penumbra` with no arguments (or double-click it). The sidebar has five pages:
+
+| Page | What it is for |
+| --- | --- |
+| **Dashboard** | The join code and address to give workers, every connected host with its GPUs, cluster CPU, RAM and GPU use, recent events |
+| **Hosts** | One row per machine (this one first); click a row for its GPUs, temperatures, scene cache and log, and to rename, kick or switch off a host or single GPU |
+| **Render** | Open a scene (`.glb`, `.gltf`, `.obj`, `.pen.json`), check what was found in it, pick camera, resolution preset, samples, output file and format, see a quick framing preview and the time estimate, then **Start render**. A file name without a folder is saved in the output folder from Settings (default `Pictures\Penumbra`, `~/Pictures/Penumbra` on Linux) |
+| **Viewport** | The image as it renders, with each tile coloured by the host that rendered it; zoom (mouse wheel) and pan (drag), exposure, **Pause**, **Save image now**, **Stop** (keeps the checkpoint for `--resume`) |
+| **Settings** | LAN and internet hosting, "ask before accepting new workers", the join code (**Copy**, **Regenerate**), the port, this machine's devices (which GPUs render, whether the CPU renders too, CPU threads kept free for the UI), default output and film folders, **Open logs folder**, **Run diagnostics**, and **Join a render** |
+
+**Join a render** (Settings) turns this machine into a worker of another controller: enter its address and join
+code, press **Join**. Hosting on this machine stops while joined; the screen shows the controller, the scene
+download, each device's use and tiles, and the upload rate. **Leave** hands unfinished work back and hosting starts
+again. Internet hosting is off each time the UI starts; switch it on in Settings when workers come from outside
+your network.
+
 ## Rendering with several machines
 
-Headless hosting and joining work as described here (M4); the UI's Dashboard, Hosts pages and **Join a render**
-arrive in M10. Workers on another OS than the controller give the same image within relMSE 1e-10 (different math
+Hosting and joining work the same in the UI and headless; the UI's pages are described in
+[Using the UI](#using-the-ui). Workers on another OS than the controller give the same image within relMSE 1e-10 (different math
 libraries), workers on the same OS bit for bit.
 
 **Hosting.** In the UI, LAN hosting starts with the app and the Dashboard shows the join code and the address to
@@ -550,6 +580,23 @@ full text on your machine.
 3 no usable device, 4 out of disk, 5 interrupted (checkpoint written), 6 rejected by controller, 7 connection
 lost.
 
+## Supported formats
+
+**What Penumbra reads:**
+
+| What | Formats | Notes |
+| --- | --- | --- |
+| Scene | glTF 2.0: `.glb` (binary, recommended), `.gltf` (with its `.bin` and texture files); Wavefront `.obj` with `.mtl` | glTF is the main format (Blender's exporter, see [Scenes from Blender](#scenes-from-blender)); OBJ is for simple test meshes |
+| Scene settings | `.pen.json` | Wraps a scene with the HDRI, camera choice and render settings |
+| glTF extensions | `KHR_materials_transmission`, `_ior`, `_clearcoat`, `_sheen`, `_specular`, `_emissive_strength`, `_anisotropy`, `KHR_texture_transform`, `KHR_lights_punctual`, `EXT_mesh_gpu_instancing` | Other extensions log a warning and fall back to the base PBR material. `KHR_materials_volume` renders as solid glass. Draco-compressed meshes are skipped with a warning (export without Draco) |
+| Textures | PNG, JPEG, BMP, TGA, Radiance `.hdr`, OpenEXR `.exr` | sRGB or linear as glTF specifies |
+| Environment (HDRI) | Radiance `.hdr`, OpenEXR `.exr` (also PNG/JPEG, treated as low dynamic range) | Equirectangular (latitude-longitude) maps |
+
+**What Penumbra writes:** PNG (`.png`), OpenEXR (`.exr`), JPEG (`.jpg`, `.jpeg`), TIFF (`.tif`, `.tiff`) and WebP
+(`.webp`); the output file's extension picks the format. Bit depths and size limits are in
+[Output formats and limits](#output-formats-and-limits). Films (`.penfilm`) and session files (`.session.json`)
+are Penumbra's own, for `--resume` and `merge`.
+
 ## Resolutions, backends, memory and formats
 
 ### Resolution presets
@@ -674,6 +721,7 @@ Start with `penumbra --diagnose` and include its output in any bug report.
 | Linux: "CMake 3.26 or newer is required" | Install the official CMake as in [Prerequisites](#prerequisites); check `which cmake` points to `/opt/cmake/bin/cmake`. |
 | No Vulkan ray tracing, or the GPU is not listed | Update the GPU driver; `penumbra --list-devices` and `--diagnose` show each GPU and what it is missing. In Docker, the container needs `-e NVIDIA_DRIVER_CAPABILITIES=all`. NVIDIA GPUs without ray tracing render through CUDA when the build has it (`--diagnose` shows "CUDA build"); other GPUs without it are skipped and the CPU renders. |
 | CUDA not found | At build time: install the CUDA toolkit and rebuild (CMake prints `CUDA=ON`); without it Penumbra still builds with Vulkan and CPU. At run time: `penumbra --diagnose` shows the driver and each GPU. "The driver supports CUDA 12.x, this build needs CUDA 13.x": update the NVIDIA driver (580+), or build with a CUDA 12 toolkit. "compute capability ... is older than this build's oldest target": see `PEN_CUDA_ARCHS`. |
+| The UI window stays black, flickers or does not open | The UI draws with Vulkan and falls back to OpenGL 3.3 by itself when Vulkan cannot show a window; the log says which (`UI: drawing with ...`). To force OpenGL, start it with the environment variable `PENUMBRA_UI_RENDERER=opengl` (PowerShell: `$env:PENUMBRA_UI_RENDERER="opengl"; penumbra`). On a machine with no display at all, use `--terminal` or `--worker`. |
 | Worker: "could not join: the connection closed before the controller answered" (exit code 6) | Something closed the connection before the controller said anything: the address or port is not the controller's, a firewall, proxy or relay on the way drops it (on a rented container, check the relay in [Rented GPU containers](#rented-gpu-containers-vastai-runpod-and-similar)), or the controller is ignoring this address after more than 5 wrong codes (wait 10 minutes or restart the controller). |
 | Worker: "could not join: the controller did not accept the join code" (exit code 6) | The code differs from the one the controller printed; copy it again (case and dashes do not matter). After more than 5 wrong codes in a minute the controller ignores that address for 10 minutes: wait, or restart the controller. |
 | Worker: "the controller rejected this worker: ... runs Penumbra ... (git ...)" (exit code 6) | The two machines run different builds. Run `git pull` and rebuild on both ([Updating](#updating)); the git hashes must match. |

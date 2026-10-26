@@ -1,6 +1,6 @@
 # Penumbra wire protocol
 
-Protocol version **3** (`kProtocolVersion` in `core/version.h`). Version 2 added scene packages (`SceneHave`, `SceneChunk`, package fields in `SceneOffer`); version 3 added skipped devices to `WorkerReady` (M7). The schema is `net/schema/penumbra.fbs`; this
+Protocol version **4** (`kProtocolVersion` in `core/version.h`). Version 2 added scene packages (`SceneHave`, `SceneChunk`, package fields in `SceneOffer`); version 3 added skipped devices to `WorkerReady` (M7); version 4 added the round trip, upload rate and scene cache use to `Stats` (M10). The schema is `net/schema/penumbra.fbs`; this
 file explains it and must change in the same commit as the schema. Any change to a message bumps the protocol
 version.
 
@@ -54,8 +54,8 @@ magic "PNBR" (4 bytes) | protocol version u16 | message type u16 | flags u16 | p
 | `Cancel` | 30 | C → W | `all`, or lease ids. Version 1 controllers only send `all` (stop, Ctrl+C, end of render). |
 | `Pause` | 31 | C → W | `paused` true: stop requesting work; false: continue (the guide's `Pause` / `Resume`). |
 | `RenderComplete` | 32 | C → W | The render is over. Workers without `--stay` say `Bye` and exit 0. |
-| `Stats` | 40 | W → C | Every 2 s: CPU %, RAM used/total, upload-bound flag; per device busy %, VRAM, temperature (< -273 = unknown), tiles/s, samples/s. |
-| `Heartbeat` | 41 | both | The worker sends one every 5 s (its clock in µs); the controller answers at once with its own clock and the worker's value as `echo_us`. The echo is the controller's heartbeat and gives the worker the round trip: above 50 ms each device keeps 3 items in flight instead of 2. Either side drops the connection after 30 s without receiving anything, and the controller requeues that worker's leases. |
+| `Stats` | 40 | W → C | Every 2 s: CPU %, RAM used/total, upload-bound flag; per device busy %, VRAM, temperature (< -273 = unknown), tiles/s, samples/s. Protocol 4: the last heartbeat round trip (ms), upload bytes/s, and the scene cache's used bytes, limit and number of scenes (the UI's Hosts pages). |
+| `Heartbeat` | 41 | both | The worker sends one every 5 s (its clock in µs); the controller answers at once with its own clock and the worker's value as `echo_us`. The echo gives the worker the round trip: above 50 ms each device keeps 3 items in flight instead of 2. The controller also sends its own heartbeat to every worker every 5 s (`echo_us` 0, ignored for the round trip): on a slow upload the worker's heartbeat waits behind tiles already in the network's buffers, and its echo alone could come back after 30 s (D-103). Either side drops the connection after 30 s without receiving anything, and the controller requeues that worker's leases. |
 | `Log` | 42 | W → C | Level and text, shown in the controller's log. |
 | `Bye` | 50 | both | Polite disconnect with a reason; the sender then closes its side. |
 | `Kick` | 51 | C → W | Forced disconnect with a reason (worker exits with code 6). Sent after 3 rejected tile results. |

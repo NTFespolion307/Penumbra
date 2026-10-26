@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <atomic>
 #include <condition_variable>
 #include <deque>
 #include <functional>
@@ -34,6 +35,12 @@ class Host {
   ~Host();
 
   uint16_t port() const;
+
+  // --approve-workers in the UI: asks `approve` (on its own thread, may block for the answer) instead of the
+  // terminal; and the setting switched on or off while hosting. Workers already connected stay.
+  using ApproveFn = std::function<bool(const std::string& question)>;
+  void setApprover(ApproveFn approve);
+  void setApproveWorkers(bool on);
   // Waits up to `grace` for workers to disconnect after RenderComplete, then closes everything and stops.
   void shutdown(std::chrono::milliseconds grace);
 
@@ -46,7 +53,7 @@ class Host {
   void reject(const std::shared_ptr<Peer>& peer, uint8_t reason, const std::string& text);
   bool blockedLocked(const std::string& address, std::chrono::steady_clock::time_point now);
   void approvalLoop();
-  void watchdog();  // every second on the network thread: drops peers silent for 30 s
+  void watchdog();  // every second on the network thread: drops peers silent for 30 s, sends heartbeats
 
   RenderSettings settings_;
   WorkerEvents& events_;
@@ -56,6 +63,7 @@ class Host {
   net::IoThread io_;
   std::unique_ptr<net::Listener> listener_;
   std::unique_ptr<asio::steady_timer> watchdog_timer_;
+  std::chrono::steady_clock::time_point last_beat_{};  // the controller's own heartbeat, every 5 s
   std::mutex mutex_;
   std::vector<std::shared_ptr<Peer>> peers_;
   bool stopped_ = false;
@@ -68,6 +76,8 @@ class Host {
   std::thread approval_thread_;
   std::condition_variable approval_cv_;
   std::deque<std::weak_ptr<Peer>> approvals_;
+  ApproveFn approve_;                 // guarded by mutex_
+  std::atomic<bool> approve_on_{false};
 };
 
 }  // namespace pen

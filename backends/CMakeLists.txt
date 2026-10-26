@@ -89,7 +89,6 @@ if(PEN_ENABLE_CUDA)
     list(APPEND _pen_nvcc_host -allow-unsupported-compiler)
   endif()
 
-  add_executable(pen-embed-binary "${PROJECT_SOURCE_DIR}/tools/embed_binary.cpp")
   foreach(_shader pathtrace_cuda parity)
     if(_shader STREQUAL "pathtrace_cuda")
       set(_name kPathtraceFatbin)

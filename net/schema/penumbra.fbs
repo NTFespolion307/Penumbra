@@ -168,6 +168,12 @@ table Stats {
   ram_total:ulong;
   upload_bound:bool;
   devices:[DeviceStats];
+  // protocol 4 (M10, for the Hosts pages):
+  rtt_ms:float;           // last heartbeat round trip measured by the worker; 0 = not yet
+  upload_bytes_per_s:double;
+  cache_used:ulong;       // scene cache: bytes of complete packages
+  cache_limit:ulong;
+  cache_scenes:uint;
 }
 
 table Heartbeat {

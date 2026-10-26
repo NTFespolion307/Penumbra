@@ -10,6 +10,9 @@
 #include "apps/penumbra/modes/info.h"
 #include "apps/penumbra/platform.h"
 #include "apps/penumbra/progress.h"
+#if defined(PEN_HAS_UI)
+#include "apps/penumbra/ui/ui.h"
+#endif
 #include "controller/solo_render.h"
 #include "worker/client/worker_client.h"
 #include "core/exit_codes.h"
@@ -29,6 +32,7 @@ int notYet(std::string_view what, std::string_view milestone) {
   return pen::toInt(pen::ExitCode::BadArguments);
 }
 
+#if !defined(PEN_HAS_UI)
 int runUiPlaceholder(bool fromExplorer) {
   const std::string text = fmt::format(
       "{}\n\nThe Penumbra UI is built in milestone M10.\nFor now, run Penumbra from a terminal, for example:\n\n"
@@ -38,12 +42,17 @@ int runUiPlaceholder(bool fromExplorer) {
   if (fromExplorer) pen::app::showMessage("Penumbra", text, false);
   return pen::toInt(pen::ExitCode::BadArguments);
 }
+#endif
 
 int dispatch(const Invocation& inv, bool fromExplorer) {
   pen::LocalRenderOptions render;
   render.progress = pen::app::makeProgressPrinter(inv.settings.progress);
   switch (inv.mode) {
+#if defined(PEN_HAS_UI)
+    case Mode::Ui: (void)fromExplorer; return pen::ui::run(inv.settings);
+#else
     case Mode::Ui: return runUiPlaceholder(fromExplorer);
+#endif
     case Mode::Terminal:
       spdlog::info("render: {}", pen::cli::describe(inv.settings));
       render.interrupt = &pen::app::installInterruptHandler();
