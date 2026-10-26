@@ -1,0 +1,46 @@
+
+  "nodes": [
+    {
+      "scale": [
+        0.00800000037997961,
+        0.00800000037997961,
+        0.00800000037997961
+      ],
+      "mesh": 0
+    },
+    {
+      "name": "Courtyard",
+      "camera": 0,
+      "translation": [
+        -8.0,
+        2.0,
+        -0.4
+      ],
+      "rotation": [
+        0.0923,
+        -0.70106,
+        0.0923,
+        0.70106
+      ]
+    }
+  ],
+  "cameras": [
+    {
+      "name": "Courtyard",
+      "type": "perspective",
+      "perspective": {
+        "yfov": 0.9,
+        "znear": 0.05
+      }
+    }
+  ],
+  "scenes": [
+    {
+      "nodes": [
+        0,
+        1
+      ]
+    }
+  ],
+  "scene": 0
+}

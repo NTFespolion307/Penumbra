@@ -14,3 +14,6 @@ CMakeUserPresets.json
 *.penpkg
 *.session.json
 /renders/
+
+# Downloaded by scripts/get-scenes (large; checked against scenes/sponza.sha256)
+/scenes/sponza/
