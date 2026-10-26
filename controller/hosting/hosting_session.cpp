@@ -97,6 +97,25 @@ void HostingSession::stopHosting(std::chrono::milliseconds grace) {
   addEvent(SessionEvent::Level::Info, "hosting stopped");
 }
 
+void HostingSession::setInternet(bool on) {
+  std::lock_guard lock(mutex_);
+  if (!host_) return;
+  if (on && !upnp_) upnp_ = std::make_unique<UpnpMapping>(host_->port());
+  if (!on) upnp_.reset();  // removes the mapping
+}
+
+std::string HostingSession::internetStatus() const {
+  std::lock_guard lock(mutex_);
+  return upnp_ ? upnp_->status() : std::string("off");
+}
+
+void HostingSession::setApproval(bool on, std::function<bool(const std::string&)> approve) {
+  std::lock_guard lock(mutex_);
+  if (!host_) return;
+  host_->setApprover(std::move(approve));
+  host_->setApproveWorkers(on);
+}
+
 bool HostingSession::hosting() const {
   std::lock_guard lock(mutex_);
   return host_ != nullptr;
@@ -184,6 +203,39 @@ std::optional<RenderProgress> HostingSession::progress() const {
   std::shared_lock rl(render_mutex_);
   if (!render_) return std::nullopt;
   return render_->progress();
+}
+
+bool HostingSession::liveView(LiveView& out, uint64_t version) const {
+  std::shared_lock rl(render_mutex_);
+  return render_ && render_->liveView(out, version);
+}
+
+bool HostingSession::setPaused(bool paused) {
+  std::shared_lock rl(render_mutex_);
+  if (!render_) return false;
+  render_->setPaused(paused);
+  return true;
+}
+
+bool HostingSession::paused() const {
+  std::shared_lock rl(render_mutex_);
+  return render_ && render_->paused();
+}
+
+bool HostingSession::writeImageNow(const RenderSettings& settings, std::string& error) {
+  std::shared_lock rl(render_mutex_);
+  if (!render_) {
+    error = "no render is running";
+    return false;
+  }
+  return render_->writeImageNow(settings, error);
+}
+
+bool HostingSession::readFilm(const TileRect& rect, std::vector<Vec3f>& out) const {
+  std::shared_lock rl(render_mutex_);
+  if (!render_) return false;
+  render_->readFilm(rect, out);
+  return true;
 }
 
 void HostingSession::attach(WorkerId id) {

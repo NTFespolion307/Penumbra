@@ -7,7 +7,9 @@
 #include <cmath>
 #include <cstring>
 #include <fmt/format.h>
+#include <cstdlib>
 #include <fstream>
+#include <spdlog/spdlog.h>
 
 #include "apps/penumbra/ui/file_dialog.h"
 #include "apps/penumbra/ui/pages.h"
@@ -44,6 +46,7 @@ void openScene(UiState& ui, const std::filesystem::path& path) {
   copyTo(rp.scene_path, sizeof(rp.scene_path), pathToUtf8(path));
   rp.loading = std::async(std::launch::async, inspectScene, path);
   rp.start_error.clear();
+  rp.from_command_line = false;
   const std::string p = pathToUtf8(std::filesystem::absolute(path));
   std::erase(rp.recent, p);
   rp.recent.insert(rp.recent.begin(), p);
@@ -63,7 +66,9 @@ void sceneLoaded(UiState& ui) {
   RenderPage& rp = ui.render;
   rp.info = std::make_shared<SceneInfo>(rp.loading.get());
   if (!rp.info->error.empty()) return;
-  RenderSettings form = rp.info->settings;
+  // A scene from the command line keeps the command line's settings on top of its .pen.json (already resolved).
+  RenderSettings form = rp.from_command_line ? ui.settings : rp.info->settings;
+  rp.from_command_line = false;
   rp.form = form;
   copyTo(rp.output, sizeof(rp.output), pathToUtf8(form.output));
   rp.preset = presetIndex(form);
@@ -88,17 +93,6 @@ void updatePreview(RenderPage& rp) {
   rp.preview_h = aspect >= 16.0 / 9.0 ? std::max(16u, uint32_t(480 / aspect)) : 270u;
   rp.preview = std::async(std::launch::async, [scene = rp.info->scene, s = rp.form, w = rp.preview_w,
                                                h = rp.preview_h] { return renderPreview(*scene, s, w, h, 8); });
-}
-
-// This machine's devices as a --devices value, without the ones switched off on the Hosts page ("" = none).
-std::string localDevices(const UiState& ui) {
-  if (ui.disabled_hosts.count(0)) return "";
-  const auto& gpus = gpuInventory().gpus;
-  if (gpus.empty()) return "cpu";
-  std::string list;
-  for (uint32_t i = 0; i < gpus.size(); ++i)
-    if (!ui.disabled_devices.count({0u, i})) list += (list.empty() ? "" : ",") + std::to_string(i);
-  return list;
 }
 
 struct FormatChoice {
@@ -395,7 +389,10 @@ void initRenderPage(UiState& ui) {
   rp.preset = presetIndex(rp.form);
   const std::filesystem::path given =
       !ui.settings.scene_description.empty() ? ui.settings.scene_description : ui.settings.scene;
-  if (!given.empty()) openScene(ui, given);
+  if (!given.empty()) {
+    openScene(ui, given);
+    rp.from_command_line = true;
+  }
 }
 
 void drawRender(Model& model, UiState& ui) {
@@ -470,9 +467,21 @@ void drawRender(Model& model, UiState& ui) {
     else if (localDevices(ui).empty() && model.hostsOnline() <= 1) why = "This machine's devices are off and no worker is connected";
   }
   ImGui::NewLine();
-  if (primaryButton("Start render", why.empty())) {
+  // Test only (D-047 style): PENUMBRA_TEST_UI_START presses Start once the scene is ready, for viewport checks.
+  static const bool autoStart = [] {
+    const char* v = std::getenv("PENUMBRA_TEST_UI_START");
+    if (v && *v) spdlog::warn("TEST HOOK ACTIVE (PENUMBRA_TEST_UI_START): starting the render when the scene is ready");
+    return v && *v;
+  }();
+  static bool autoStarted = false;
+  const bool autoGo = autoStart && !autoStarted && why.empty();
+  if (autoGo) autoStarted = true;
+  if (primaryButton("Start render", why.empty()) || autoGo) {
     s.scene = rp.info->settings.scene;
     s.scene_description = rp.info->settings.scene_description;
+    // A rendering CPU leaves the Settings page's threads free for the UI (unless --threads chose).
+    if (s.threads == 0)
+      s.threads = uint32_t(std::max(1, int(usableCpuThreads()) - ui.cpu_reserve));
     if (ui.runner->start(s, localDevices(ui), rp.start_error)) ui.page = Page::Viewport;
   }
   ImGui::SameLine(0, px(16));

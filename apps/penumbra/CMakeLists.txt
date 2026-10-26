@@ -61,7 +61,7 @@ if(PEN_ENABLE_UI)
   endforeach()
 
   add_library(penumbra_ui STATIC ui/app.cpp ui/file_dialog.cpp ui/model.cpp ui/page_dashboard.cpp ui/page_hosts.cpp
-                                ui/page_render.cpp ui/render_runner.cpp ui/scene_info.cpp ui/texture.cpp ui/theme.cpp
+                                ui/page_render.cpp ui/page_settings.cpp ui/page_viewport.cpp ui/render_runner.cpp ui/scene_info.cpp ui/texture.cpp ui/theme.cpp
                                 ui/widgets.cpp ui/gfx_gl.cpp ${_font_sources})
   if(WIN32)
     target_link_libraries(penumbra_ui PRIVATE ole32 shell32 uuid)  # the system file dialogs (COM)

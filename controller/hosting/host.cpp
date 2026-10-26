@@ -36,7 +36,8 @@ Host::Host(const RenderSettings& settings, const std::string& code, WorkerEvents
   session_id_ = (uint64_t(rd()) << 32) | rd();
   listener_ = std::make_unique<net::Listener>(io_, settings.bind, settings.port, net::deriveJoinKey(code),
                                               [this](std::shared_ptr<net::Connection> c) { onAccept(std::move(c)); });
-  if (settings.approve_workers) approval_thread_ = std::thread([this] { approvalLoop(); });
+  approve_on_ = settings.approve_workers;
+  approval_thread_ = std::thread([this] { approvalLoop(); });
   watchdog_timer_ = std::make_unique<asio::steady_timer>(io_.context());
   asio::post(io_.context(), [this] { watchdog(); });
 }
@@ -165,7 +166,7 @@ void Host::onHello(const std::shared_ptr<Peer>& peer, net::Message&& msg, uint16
     if (workers >= settings_.max_workers)
       return reject(peer, uint8_t(wire::RejectReason::SessionFull),
                     fmt::format("the session already has {} workers (--max-workers)", workers));
-    if (settings_.approve_workers) {
+    if (approve_on_) {
       approvals_.push_back(peer);
       approval_cv_.notify_one();
       return;  // join() runs once the user answers
@@ -201,12 +202,23 @@ void Host::approvalLoop() {
       approvals_.pop_front();
     }
     if (!peer || !peer->connection->isOpen()) continue;
-    std::fprintf(stderr, "\nAccept worker '%s' from %s (%s, %u cores)? [y/N] ", peer->hello.worker_name.c_str(),
-                 peer->connection->peer().c_str(), peer->hello.os.c_str(), peer->hello.logical_cores);
-    std::fflush(stderr);
-    std::string answer;
-    const bool got = static_cast<bool>(std::getline(std::cin, answer));
-    const bool yes = got && (answer == "y" || answer == "Y" || answer == "yes");
+    const std::string question = fmt::format("Accept worker '{}' from {} ({}, {} cores)?", peer->hello.worker_name,
+                                             peer->connection->peer(), peer->hello.os, peer->hello.logical_cores);
+    ApproveFn approve;
+    {
+      std::lock_guard lock(mutex_);
+      approve = approve_;
+    }
+    bool yes = false;
+    if (approve) {
+      yes = approve(question);  // the UI asks; no answer in time is a no
+    } else {
+      std::fprintf(stderr, "\n%s [y/N] ", question.c_str());
+      std::fflush(stderr);
+      std::string answer;
+      const bool got = static_cast<bool>(std::getline(std::cin, answer));
+      yes = got && (answer == "y" || answer == "Y" || answer == "yes");
+    }
     asio::post(io_.context(), [this, peer, yes] {
       if (!peer->connection->isOpen()) return;
       if (yes) join(peer);
@@ -214,6 +226,13 @@ void Host::approvalLoop() {
     });
   }
 }
+
+void Host::setApprover(ApproveFn approve) {
+  std::lock_guard lock(mutex_);
+  approve_ = std::move(approve);
+}
+
+void Host::setApproveWorkers(bool on) { approve_on_ = on; }
 
 void Host::shutdown(std::chrono::milliseconds grace) {
   {

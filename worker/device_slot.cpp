@@ -1,9 +1,24 @@
 #include "worker/device_slot.h"
 
+#include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <exception>
 
 namespace pen {
+
+namespace {
+int64_t nowMicros() {
+  return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
+}  // namespace
+
+double DeviceSlot::busySeconds() const {
+  const int64_t start = render_start_us_.load();
+  const int64_t current = start < 0 ? 0 : std::max<int64_t>(0, nowMicros() - start);
+  return double(busy_us_.load() + uint64_t(current)) * 1e-6;
+}
 
 DeviceSlot::DeviceSlot(uint32_t id, IBackend& backend, Callbacks callbacks, int inFlight)
     : id_(id), backend_(backend), cb_(std::move(callbacks)), in_flight_(inFlight) {}
@@ -60,12 +75,15 @@ void DeviceSlot::run() {
     lock.unlock();
     TileResult result;
     result.device = id_;
-    const auto start = std::chrono::steady_clock::now();
+    const int64_t start = nowMicros();
+    render_start_us_ = start;
     try {
       backend_.render(item, result);
-      busy_us_ += static_cast<uint64_t>(
-          std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count());
+      // Added before the start is cleared: busySeconds() may count this item twice for a moment (Stats clamps).
+      busy_us_ += static_cast<uint64_t>(nowMicros() - start);
+      render_start_us_ = -1;
     } catch (const std::exception& e) {
+      render_start_us_ = -1;
       lock.lock();
       std::vector<LeaseId> lost{item.lease};
       for (const WorkItem& q : queue_) lost.push_back(q.lease);

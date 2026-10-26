@@ -263,7 +263,7 @@ cmake --preset linux-gcc-release -DPEN_ENABLE_CUDA=OFF -DPEN_ENABLE_UI=OFF
 
 | Command | What it does |
 | --- | --- |
-| `penumbra` | Opens the UI as controller: it hosts on the LAN at once, and its Dashboard and Hosts pages show every connected machine *(the Viewport and Settings pages are being built in M10)* |
+| `penumbra` | Opens the UI as controller: it hosts on the LAN at once (see [Using the UI](#using-the-ui)) |
 | `penumbra scene.pen.json` | Opens the UI with that scene loaded on the Render page |
 | `penumbra --terminal scene.glb -o out.png` | Headless render on this machine's devices (GPUs with ray tracing, else the CPU) |
 | `penumbra --terminal scene.glb --res 720p --spp 16 -o preview.png` | Quick preview |
@@ -352,10 +352,28 @@ script printed:
    penumbra-diff a.exr b.exr
    ```
 
+### Using the UI
+
+Start `penumbra` with no arguments (or double-click it). The sidebar has five pages:
+
+| Page | What it is for |
+| --- | --- |
+| **Dashboard** | The join code and address to give workers, every connected host with its GPUs, cluster CPU, RAM and GPU use, recent events |
+| **Hosts** | One row per machine (this one first); click a row for its GPUs, temperatures, scene cache and log, and to rename, kick or switch off a host or single GPU |
+| **Render** | Open a scene (`.glb`, `.gltf`, `.obj`, `.pen.json`), check what was found in it, pick camera, resolution preset, samples, output file and format, see a quick framing preview and the time estimate, then **Start render** |
+| **Viewport** | The image as it renders, with each tile coloured by the host that rendered it; zoom (mouse wheel) and pan (drag), exposure, **Pause**, **Save image now**, **Stop** (keeps the checkpoint for `--resume`) |
+| **Settings** | LAN and internet hosting, "ask before accepting new workers", the join code (**Copy**, **Regenerate**), the port, this machine's devices (which GPUs render, whether the CPU renders too, CPU threads kept free for the UI), default output and film folders, **Open logs folder**, **Run diagnostics**, and **Join a render** |
+
+**Join a render** (Settings) turns this machine into a worker of another controller: enter its address and join
+code, press **Join**. Hosting on this machine stops while joined; the screen shows the controller, the scene
+download, each device's use and tiles, and the upload rate. **Leave** hands unfinished work back and hosting starts
+again. Internet hosting is off each time the UI starts; switch it on in Settings when workers come from outside
+your network.
+
 ## Rendering with several machines
 
-Headless hosting and joining work as described here (M4); the UI's Dashboard, Hosts pages and **Join a render**
-arrive in M10. Workers on another OS than the controller give the same image within relMSE 1e-10 (different math
+Hosting and joining work the same in the UI and headless; the UI's pages are described in
+[Using the UI](#using-the-ui). Workers on another OS than the controller give the same image within relMSE 1e-10 (different math
 libraries), workers on the same OS bit for bit.
 
 **Hosting.** In the UI, LAN hosting starts with the app and the Dashboard shows the join code and the address to

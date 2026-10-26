@@ -20,4 +20,9 @@ std::optional<std::filesystem::path> saveFileDialog(const std::string& title, co
 // Whether a dialog can be shown at all on this machine.
 bool fileDialogsAvailable();
 
+// Opens a folder in the system's file browser (Settings: "Open logs folder").
+void openFolder(const std::filesystem::path& folder);
+// Runs this program again with `args` and returns what it printed (Settings: "Run diagnostics").
+std::string runSelf(const std::string& args);
+
 }  // namespace pen::ui

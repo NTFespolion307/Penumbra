@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <atomic>
 #include <condition_variable>
 #include <deque>
 #include <functional>
@@ -34,6 +35,12 @@ class Host {
   ~Host();
 
   uint16_t port() const;
+
+  // --approve-workers in the UI: asks `approve` (on its own thread, may block for the answer) instead of the
+  // terminal; and the setting switched on or off while hosting. Workers already connected stay.
+  using ApproveFn = std::function<bool(const std::string& question)>;
+  void setApprover(ApproveFn approve);
+  void setApproveWorkers(bool on);
   // Waits up to `grace` for workers to disconnect after RenderComplete, then closes everything and stops.
   void shutdown(std::chrono::milliseconds grace);
 
@@ -68,6 +75,8 @@ class Host {
   std::thread approval_thread_;
   std::condition_variable approval_cv_;
   std::deque<std::weak_ptr<Peer>> approvals_;
+  ApproveFn approve_;                 // guarded by mutex_
+  std::atomic<bool> approve_on_{false};
 };
 
 }  // namespace pen

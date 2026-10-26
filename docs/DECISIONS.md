@@ -731,3 +731,26 @@ flags in M8. Until M9, render-time estimates use the speed the cluster measured 
   `void*` ID constructor and draws the wrong texture).
 - **Test hooks** for checking pages without clicking (D-047 style, logged when active): `PENUMBRA_TEST_UI_PAGE`
   opens a page at start, `PENUMBRA_TEST_UI_SCREENSHOT=<png>` saves the frame shown after 8 s (OpenGL) and exits.
+
+**D-102 Viewport, Settings and Join a render (M10, steps 5-6).**
+- **Live view.** RenderController keeps a downsampled copy of the film (longest side 2,048 px, box filter,
+  weighted by sample count) updated as tiles merge, so the Viewport never reads a gigapixel film to draw. Zooming
+  past it reads the visible region at full resolution from the film (`readFilm`). Tile colours are the host that
+  merged the tile (8 colours, hatched beyond); outlined tiles are leased right now.
+- **Pause** stops handing out leases (leases out finish and merge); Resume restarts the lease clocks so paused
+  time never counts as a late lease. "Save image now" writes the output from the film as it is.
+- **Join a render** runs the ordinary worker (`runWorker`, `--stay` behaviour) on a background thread with a
+  `WorkerStatus` the worker fills in for the worker screen. Hosting stops first (one machine is a controller or a
+  worker, never both) and starts again after Leave. Leave is the worker's Ctrl+C: leases are handed back.
+- **Hosting switches.** Internet hosting is the UPnP mapping switched on and off on the running host
+  (`HostingSession::setInternet`); it is off at every UI start whatever the config says. "Ask before accepting new
+  workers" asks in a dialog; no answer within 2 minutes rejects the worker. Regenerate deletes the saved join code
+  and restarts hosting, which disconnects every worker (not while rendering).
+- **This machine's devices.** The GPU switches are the same as on the Host detail page. "CPU renders too" adds
+  `cpu` to the local `--devices`; a CPU that renders keeps "threads kept free" (default 2) for the UI unless
+  `--threads` was given. Saved defaults (output folder, film folder) go to the user config file, never the join code.
+- **Busy %** counts the work item rendering now, not only finished ones: a long item (a CPU tile at many samples)
+  read 0% until it ended, then a capped spike. Stats clamps the 2 s delta to 0-100%.
+- **Test hook** `PENUMBRA_TEST_UI_JOIN="<address> <code>"` fills Join a render and presses Join once (D-047
+  style, logged). Checked on Windows: the UI joined a `--terminal --host --no-local` controller, rendered, and its
+  Leave handed the lease back (requeued).

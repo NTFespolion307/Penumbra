@@ -1,7 +1,11 @@
 #pragma once
 
+#include <atomic>
 #include <chrono>
+#include <deque>
 #include <future>
+#include <mutex>
+#include <thread>
 #include <map>
 #include <memory>
 #include <optional>
@@ -15,6 +19,7 @@
 #include "apps/penumbra/ui/scene_info.h"
 #include "apps/penumbra/ui/texture.h"
 #include "core/settings/render_settings.h"
+#include "worker/client/worker_client.h"
 
 namespace pen::ui {
 
@@ -36,6 +41,36 @@ struct RenderPage {
   ImageTexture preview_tex;
   std::vector<std::string> recent;  // recent scenes, newest first (user data folder)
   std::string start_error;
+  bool from_command_line = false;  // the loading scene came with the command line: keep its settings (--spp, --res...)
+};
+
+// The Settings page's hosting switches and the defaults being edited.
+struct SettingsPage {
+  bool lan = true;       // LAN hosting starts with the app (docs/GUIDE.md "Render lifecycle", step 2)
+  bool internet = false;  // UPnP; opt-in
+  bool approve = false;   // ask before accepting new workers
+  int port = 7420;
+  char out_dir[1024] = {};
+  char film_dir[1024] = {};
+  std::string diagnostics;  // the last "Run diagnostics" output
+  std::string note;         // the last action's result
+};
+
+// Join a render: this app as a worker of another controller (docs/GUIDE.md "Settings page").
+struct JoinState {
+  char address[256] = {};
+  char code[32] = {};
+  std::thread thread;
+  std::atomic<bool> leave{false};
+  std::atomic<bool> running{false};
+  WorkerStatus status;
+  std::string ended;  // why the last join ended
+};
+
+// "Ask before accepting new workers": the host's question, waiting for the UI's answer.
+struct Approval {
+  std::string question;
+  std::promise<bool> answer;
 };
 
 // What the pages share: the current page, choices made on them, and where the session listens.
@@ -52,6 +87,12 @@ struct UiState {
   std::set<std::pair<WorkerId, uint32_t>> disabled_devices;
   RenderRunner* runner = nullptr;
   RenderPage render;
+  SettingsPage settings_page;
+  JoinState join;
+  bool cpu_too = false;  // this machine's CPU renders next to its GPUs
+  int cpu_reserve = 2;   // CPU threads kept free for the UI
+  std::mutex approvals_mutex;
+  std::deque<std::shared_ptr<Approval>> approvals;
   std::string name(const HostRow& h) const {
     auto it = renamed.find(h.id);
     return it == renamed.end() ? h.name : it->second;
@@ -62,8 +103,20 @@ void drawDashboard(Model& model, UiState& ui);
 void drawHosts(Model& model, UiState& ui);
 void drawHostDetail(Model& model, UiState& ui);
 void drawRender(Model& model, UiState& ui);
+void drawViewport(Model& model, UiState& ui);
 // Loads the recent scenes list, and opens `scene` (from the command line) if given.
 void initRenderPage(UiState& ui);
+void drawSettings(Model& model, UiState& ui);
+// Join a render: the worker screen that replaces the pages while this machine is another controller's worker.
+void drawJoined(Model& model, UiState& ui);
+bool joined(const UiState& ui);
+void leaveJoin(UiState& ui);  // waits for the worker to leave
+// Hosting with the Settings page's switches (LAN, internet, approval, port); restarts it when it runs.
+void startHosting(HostingSession& session, UiState& ui);
+// The "Accept this worker?" dialog, drawn over any page.
+void drawApprovals(UiState& ui);
+// This machine's devices as a --devices value (Hosts and Settings switches), "" = none.
+std::string localDevices(const UiState& ui);
 
 // Page header: title, subtitle and an optional right-aligned note.
 void pageHeader(const char* title, const char* subtitle, const char* note = nullptr);

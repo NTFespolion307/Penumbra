@@ -9,7 +9,9 @@
 #include <GLFW/glfw3.h>
 
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -62,24 +64,6 @@ std::string workerAddress(uint16_t port) {
   return vpn.empty() ? fmt::format("port {}", port) : vpn;
 }
 
-// LAN hosting starts with the app (docs/GUIDE.md "Render lifecycle", step 2); internet hosting (UPnP) is opt-in
-// in Settings. The join code is the saved one, created on first use, never the config file.
-void startLanHosting(HostingSession& session, UiState& ui) {
-  try {
-    bool created = false;
-    const std::string code = net::loadOrCreateJoinCode(paths::userDataDir() / "join_code.txt", created);
-    RenderSettings s = ui.settings;
-    s.no_upnp = true;  // LAN only until internet hosting is switched on
-    session.startHosting(s, code);
-    ui.join_code = net::formatJoinCode(code);
-    ui.hosting_error.clear();
-  } catch (const std::exception& e) {
-    ui.hosting_error = fmt::format("Not hosting: {}", e.what());
-    spdlog::error("UI: cannot host: {}", e.what());
-    session.addEvent(SessionEvent::Level::Error, ui.hosting_error);
-  }
-}
-
 void glfwError(int code, const char* text) { spdlog::debug("GLFW error {}: {}", code, text); }
 
 // A full-width sidebar entry, 44 px high, highlighted when current (mockup "nav").
@@ -107,7 +91,8 @@ void drawSidebar(State& st, const Model& model) {
   ImGui::PopStyleVar(2);
   ImGui::Indent(12 * s);
   text(fonts().sans_semibold, size::kTitle, color::kText, "Penumbra");
-  text(fonts().sans, size::kSmall, color::kTextSecondary, "Controller \xC2\xB7 %s", st.host_name.c_str());
+  text(fonts().sans, size::kSmall, color::kTextSecondary, "%s \xC2\xB7 %s", joined(st.ui) ? "Worker" : "Controller",
+       st.host_name.c_str());
   ImGui::Unindent(12 * s);
   ImGui::Dummy(ImVec2(0, 12 * s));
   ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 4 * s));  // mockup: 4 px between entries
@@ -126,13 +111,15 @@ void drawSidebar(State& st, const Model& model) {
   ImGui::Dummy(ImVec2(0, 12 * s));
   ImGui::Indent(12 * s);
   {
-    const bool hosting = !st.ui.join_code.empty();
+    const bool hosting = !st.ui.join_code.empty() || joined(st.ui);
     const ImVec2 dot = ImGui::GetCursorScreenPos();
     const float r = 4 * s, line = size::kSmall * s;
     ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(dot.x + r, dot.y + line / 2 + 1), r,
                                                 hosting ? color::kOk : color::kDanger);
     ImGui::SetCursorScreenPos(ImVec2(dot.x + 16 * s, dot.y));
-    text(fonts().sans, size::kSmall, color::kTextSecondary, "%s", hosting ? "Hosting on LAN" : "Not hosting");
+    const char* state = joined(st.ui) ? "Joined a render" : !hosting ? "Not hosting"
+                        : st.ui.settings_page.internet ? "Hosting on LAN and internet" : "Hosting on LAN";
+    text(fonts().sans, size::kSmall, color::kTextSecondary, "%s", state);
     text(fonts().mono, size::kSmall, color::kTextSecondary, "%u host%s \xC2\xB7 %u GPU%s", model.hostsOnline(),
          model.hostsOnline() == 1 ? "" : "s", model.gpuCount(), model.gpuCount() == 1 ? "" : "s");
   }
@@ -148,16 +135,19 @@ void drawPage(State& st, Model& model) {
   ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 0);
   ImGui::BeginChild("page", ImVec2(0, 0), ImGuiChildFlags_AlwaysUseWindowPadding);
   ImGui::PopStyleVar(2);
-  switch (st.ui.page) {
-    case Page::Dashboard: drawDashboard(model, st.ui); break;
-    case Page::Hosts: drawHosts(model, st.ui); break;
-    case Page::HostDetail: drawHostDetail(model, st.ui); break;
-    case Page::Render: drawRender(model, st.ui); break;
-    case Page::Viewport: pageHeader("Viewport", "The render in progress"); break;
-    case Page::Settings:
-      pageHeader("Settings", "Hosting, defaults and this machine. Join a render turns this machine into a worker.");
-      break;
+  if (joined(st.ui)) {
+    drawJoined(model, st.ui);  // a worker of another controller: no pages until Leave
+  } else {
+    switch (st.ui.page) {
+      case Page::Dashboard: drawDashboard(model, st.ui); break;
+      case Page::Hosts: drawHosts(model, st.ui); break;
+      case Page::HostDetail: drawHostDetail(model, st.ui); break;
+      case Page::Render: drawRender(model, st.ui); break;
+      case Page::Viewport: drawViewport(model, st.ui); break;
+      case Page::Settings: drawSettings(model, st.ui); break;
+    }
   }
+  drawApprovals(st.ui);
   ImGui::EndChild();
   ImGui::PopStyleColor();
 }
@@ -265,8 +255,22 @@ int run(const RenderSettings& settings) {
   st.renderer = win.gfx->name();
   spdlog::info("UI: drawing with {}, content scale {:.2f}", st.renderer, scale);
 
+  // LAN hosting starts with the app (docs/GUIDE.md "Render lifecycle", step 2); internet hosting (UPnP) is opt-in
+  // in Settings. The join code is the saved one, created on first use, never the config file.
   HostingSession session;
-  startLanHosting(session, st.ui);
+  st.ui.settings_page.port = settings.port;
+  st.ui.settings_page.internet = false;  // opt-in in the UI whatever the config says
+  st.ui.settings_page.approve = settings.approve_workers;
+  if (!settings.film_dir.empty())
+    std::snprintf(st.ui.settings_page.film_dir, sizeof(st.ui.settings_page.film_dir), "%s",
+                  pathToUtf8(settings.film_dir).c_str());
+  {
+    const std::filesystem::path out = settings.output.parent_path().empty()
+                                          ? std::filesystem::current_path() : settings.output.parent_path();
+    std::snprintf(st.ui.settings_page.out_dir, sizeof(st.ui.settings_page.out_dir), "%s",
+                  pathToUtf8(out).c_str());
+  }
+  startHosting(session, st.ui);
   Model model(session);
   RenderRunner runner(session);  // after the session: a running render stops before the session goes
   st.ui.runner = &runner;
@@ -284,6 +288,9 @@ int run(const RenderSettings& settings) {
     else if (p == "viewport") st.ui.page = Page::Viewport;
     else if (p == "settings") st.ui.page = Page::Settings;
   }
+  if (const char* j = std::getenv("PENUMBRA_TEST_UI_JOIN"); j && *j) {
+    st.ui.page = Page::Settings;  // Join a render is on the Settings page
+  }
 
   // Test only: PENUMBRA_TEST_UI_SCREENSHOT=<file.png> saves the frame shown 8 s after start (OpenGL; set
   // PENUMBRA_UI_RENDERER=opengl) and exits, so pages can be checked without clicking (D-047 style).
@@ -294,6 +301,7 @@ int run(const RenderSettings& settings) {
   }
   const auto started = std::chrono::steady_clock::now();
   bool captured = false;
+  bool was_joined = false;
 
   const ImVec4 bg = ImGui::ColorConvertU32ToFloat4(color::kBackground);
   const float clear[4] = {bg.x, bg.y, bg.z, 1.0f};
@@ -302,6 +310,10 @@ int run(const RenderSettings& settings) {
     // responsive at little CPU cost. Input wakes the loop at once.
     glfwWaitEventsTimeout(0.1);
     if (glfwGetWindowAttrib(win.glfw, GLFW_ICONIFIED)) continue;
+    // Join a render stopped hosting; after Leave (or a lost controller) this machine hosts again.
+    const bool now_joined = joined(st.ui);
+    if (was_joined && !now_joined && st.ui.settings_page.lan) startHosting(session, st.ui);
+    was_joined = now_joined;
     if (model.update()) {
       if (session.hosting()) st.ui.worker_address = workerAddress(session.port());
       session.setDisabled(st.ui.disabled_hosts, st.ui.disabled_devices);
@@ -327,6 +339,13 @@ int run(const RenderSettings& settings) {
     }
   }
 
+  leaveJoin(st.ui);  // a joined worker hands its leases back before the app goes
+  {
+    // Unanswered approval questions are a no.
+    std::lock_guard lock(st.ui.approvals_mutex);
+    for (auto& a : st.ui.approvals) a->answer.set_value(false);
+    st.ui.approvals.clear();
+  }
   win.gfx.reset();
   ImGui::DestroyContext();
   glfwDestroyWindow(win.glfw);

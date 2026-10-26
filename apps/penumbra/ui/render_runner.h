@@ -27,6 +27,11 @@ class RenderRunner {
   // Like Ctrl+C: no new work, a checkpoint, and the current image is written; resumable later.
   void stop();
 
+  // Exposure is applied after the film (docs/GUIDE.md "Settings changes"), so it may change during a render: the
+  // viewport shows it at once and the output uses the latest value.
+  void setExposure(double ev) { exposure_ = ev; }
+  double exposure() const { return exposure_.load(); }
+
   State state() const { return state_.load(); }
   bool busy() const { return state_ == State::Preparing || state_ == State::Rendering; }
   // The outcome text (where the image went, or why it failed); empty while running.
@@ -40,6 +45,7 @@ class RenderRunner {
   std::thread thread_;
   std::atomic<State> state_{State::Idle};
   std::atomic<bool> stop_{false};
+  std::atomic<double> exposure_{0.0};
   RenderSettings settings_;
   mutable std::mutex mutex_;
   std::string message_;

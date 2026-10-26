@@ -19,14 +19,18 @@ class UpnpMapping {
   ~UpnpMapping();
   UpnpMapping(const UpnpMapping&) = delete;
   UpnpMapping& operator=(const UpnpMapping&) = delete;
+  // One line for the UI: "asking the router", "forwarded: 203.0.113.5:7420", "no UPnP router", ...
+  std::string status() const;
 
  private:
   void run();
 
   uint16_t port_;
   std::thread thread_;
-  std::mutex mutex_;
+  mutable std::mutex mutex_;
   bool mapped_ = false;
+  std::string status_ = "asking the router";
+  void setStatus(std::string s);
   std::string control_url_, service_type_;
 };
 

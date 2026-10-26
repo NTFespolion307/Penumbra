@@ -43,8 +43,9 @@ class DeviceSlot {
   uint32_t id() const { return id_; }
   // Items to keep in flight (2, or 3 on links with a long round trip); applies from the next request.
   void setInFlight(int n) { in_flight_ = n; }
-  // Time spent inside IBackend::render, for the busy % in Stats.
-  double busySeconds() const { return busy_us_.load() * 1e-6; }
+  // Time spent inside IBackend::render, for the busy % in Stats, including the item rendering now (a long item
+  // would otherwise read 0% until it ends).
+  double busySeconds() const;
 
  private:
   void run();
@@ -59,6 +60,7 @@ class DeviceSlot {
   bool finished_ = false;
   bool rendering_ = false;
   std::atomic<uint64_t> busy_us_{0};
+  std::atomic<int64_t> render_start_us_{-1};  // steady clock, while IBackend::render runs; -1 otherwise
   std::thread thread_;
 };
 

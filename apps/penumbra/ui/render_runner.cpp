@@ -22,6 +22,7 @@ bool RenderRunner::start(const RenderSettings& settings, const std::string& loca
   }
   if (thread_.joinable()) thread_.join();  // the previous render's thread has finished
   settings_ = settings;
+  exposure_ = settings.exposure;
   stop_ = false;
   {
     std::lock_guard lock(mutex_);
@@ -79,6 +80,7 @@ void RenderRunner::run(std::string localDevices) {
   state_ = State::Rendering;
   RenderRunOptions run;
   run.interrupt = &stop_;
+  run.live_view = 2048;  // the viewport's image (docs/GUIDE.md "above 8K a downsampled view")
   run.after_checkpoint = [&](const RenderProgress& p) {
     saveSessionProgress(job, p);
     session_.addEvent(SessionEvent::Level::Info, fmt::format("Checkpoint written \xC2\xB7 {} of {} tiles done",
@@ -91,6 +93,7 @@ void RenderRunner::run(std::string localDevices) {
     finish(State::Failed, fmt::format("The render failed: {}", e.what()));
     return;
   }
+  job.settings.exposure = exposure_;  // the viewport's latest exposure goes into the output
   const int rc = finishRender(job, outcome);
   if (rc != toInt(ExitCode::Success) && rc != toInt(ExitCode::Interrupted)) {
     finish(State::Failed, fmt::format("The image could not be written (exit code {}); the log says why", rc));

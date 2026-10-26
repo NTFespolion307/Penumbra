@@ -6,8 +6,9 @@
 #include "core/system/paths.h"
 
 #if defined(_WIN32)
-#include <shobjidl.h>
 #include <windows.h>
+#include <shellapi.h>
+#include <shobjidl.h>
 #endif
 
 namespace pen::ui {
@@ -124,6 +125,37 @@ std::optional<std::filesystem::path> openFileDialog(const std::string& title, co
 std::optional<std::filesystem::path> saveFileDialog(const std::string& title, const std::filesystem::path& suggested,
                                                     const std::vector<FileFilter>& filters) {
   return showDialog(true, title, suggested, filters);
+}
+
+void openFolder(const std::filesystem::path& folder) {
+#if defined(_WIN32)
+  ShellExecuteW(nullptr, L"open", folder.wstring().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+#else
+  const std::string cmd = "xdg-open " + quote(pathToUtf8(folder)) + " >/dev/null 2>&1 &";
+  (void)std::system(cmd.c_str());
+#endif
+}
+
+std::string runSelf(const std::string& args) {
+#if defined(_WIN32)
+  wchar_t exe[MAX_PATH] = {};
+  GetModuleFileNameW(nullptr, exe, MAX_PATH);
+  const std::string cmd = "\"\"" + pathToUtf8(exe) + "\" " + args + " 2>&1\"";
+  FILE* p = _popen(cmd.c_str(), "r");
+#else
+  const std::string cmd = quote(pathToUtf8(std::filesystem::read_symlink("/proc/self/exe"))) + " " + args + " 2>&1";
+  FILE* p = popen(cmd.c_str(), "r");
+#endif
+  if (!p) return "could not run penumbra " + args;
+  std::string out;
+  char buf[4096];
+  while (size_t n = fread(buf, 1, sizeof(buf), p)) out.append(buf, n);
+#if defined(_WIN32)
+  _pclose(p);
+#else
+  pclose(p);
+#endif
+  return out;
 }
 
 bool fileDialogsAvailable() {

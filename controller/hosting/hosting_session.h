@@ -64,6 +64,11 @@ class HostingSession final : public WorkerEvents {
   bool hosting() const;
   uint16_t port() const;
   std::string code() const;  // canonical; empty when not hosting
+  // Internet hosting (docs/GUIDE.md "Internet workers"): the UPnP port mapping on or off while hosting.
+  void setInternet(bool on);
+  std::string internetStatus() const;  // "off", or the UPnP outcome
+  // Ask before accepting new workers; `approve` answers the question (the UI's dialog).
+  void setApproval(bool on, std::function<bool(const std::string&)> approve);
 
   // Runs one render to the end (blocking) on `localDevices` (none with --no-local) and every connected worker.
   // Throws what RenderController::run throws (every device failed, every worker left).
@@ -71,6 +76,12 @@ class HostingSession final : public WorkerEvents {
                        const RenderRunOptions& run);
   // The current render's progress, or nothing between renders.
   std::optional<RenderProgress> progress() const;
+  // The current render's live view, pause and "save image now" (UI viewport); false between renders.
+  bool liveView(LiveView& out, uint64_t version) const;
+  bool setPaused(bool paused);
+  bool paused() const;
+  bool writeImageNow(const RenderSettings& settings, std::string& error);
+  bool readFilm(const TileRect& rect, std::vector<Vec3f>& out) const;
 
   std::vector<HostView> hosts();          // connected first, then the recently gone
   std::vector<SessionEvent> events() const;  // oldest first, at most kMaxEvents

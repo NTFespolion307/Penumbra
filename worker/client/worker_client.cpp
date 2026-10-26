@@ -115,6 +115,13 @@ class Worker {
   void sendStats();
   bool uploadBound() const { return conn_ && conn_->queuedBytes() > kUploadBoundBytes; }
   int leave(const std::string& reason, int exitCode);
+  // Updates the UI's view of this worker, when there is one.
+  template <class F>
+  void status(F&& f) {
+    if (!opt_.status) return;
+    std::lock_guard lock(opt_.status->mutex);
+    f(*opt_.status);
+  }
 
   WorkerOptions opt_;
   RenderSettings local_;
@@ -175,6 +182,10 @@ int Worker::connect() {
   }
   const net::JoinKey key = net::deriveJoinKey(*code);
   spdlog::info("connecting to {}:{}", addr.host, addr.port);
+  status([&](WorkerStatus& st) {
+    st.phase = "Connecting";
+    st.controller = fmt::format("{}:{}", addr.host, addr.port);
+  });
   const auto deadline = Clock::now() + kConnectRetry;
   auto backoff = std::chrono::seconds(1);
   bool told = false;
@@ -277,11 +288,16 @@ int Worker::run() {
     const DeviceInfo d = devices_[i]->info();
     spdlog::info("device {}: {} (backend {}, {} threads)", i, d.name, toString(d.backend), d.threads);
   }
+  status([&](WorkerStatus& st) {
+    st.devices.clear();
+    for (const auto& dev : devices_) st.devices.push_back({dev->info().name, std::string(toString(dev->info().backend)), 0, 0});
+  });
   for (;;) {
     if (const int rc = connect(); rc >= 0) return rc;
     const int rc = session();
     if (rc != kReconnect) return rc;
     spdlog::info("reconnecting to the controller (--stay)");
+    status([](WorkerStatus& st) { st.phase = "Reconnecting"; });
   }
 }
 
@@ -371,16 +387,22 @@ int Worker::handle(net::Message& msg) {
         const auto m = net::decode<wire::WelcomeT>(msg.payload);
         welcomed_ = true;
         spdlog::info("joined the controller as worker {} (\"{}\"); waiting for a render", m.worker_id, name_);
+        status([](WorkerStatus& st) {
+          st.phase = "Waiting for a render";
+          st.error.clear();
+        });
         break;
       }
       case MsgType::Reject: {
         const auto m = net::decode<wire::RejectT>(msg.payload);
         spdlog::error("the controller rejected this worker: {}", m.text);
+        status([&](WorkerStatus& st) { st.error = "Rejected by the controller: " + m.text; });
         return toInt(ExitCode::RejectedByController);
       }
       case MsgType::Kick: {
         const auto m = net::decode<wire::KickT>(msg.payload);
         spdlog::error("the controller removed this worker: {}", m.reason);
+        status([&](WorkerStatus& st) { st.error = "Removed by the controller: " + m.reason; });
         stopSlots(true);
         return toInt(ExitCode::RejectedByController);
       }
@@ -413,6 +435,7 @@ int Worker::handle(net::Message& msg) {
         scene_.reset();
         if (local_.stay) {
           spdlog::info("render complete; waiting for the next render (--stay)");
+          status([](WorkerStatus& st) { st.phase = "Render complete; waiting for the next render"; });
           break;
         }
         spdlog::info("render complete");
@@ -498,6 +521,11 @@ void Worker::onSceneOffer(const wire::SceneOfferT& m) {
   render_ = s;
   settings_hash_ = m.settings_hash;
   package_hash_ = m.package_hash;
+  status([&](WorkerStatus& st) {
+    st.phase = "Render offered";
+    st.scene = pathToUtf8(s.scene.filename());
+    for (auto& d : st.devices) d.tiles = 0;
+  });
   spdlog::info("render offered: {}x{}, {} spp; scene {} ({} files, {})", m.film_width, m.film_height, s.spp,
                pkg.entry, pkg.files.size(), formatBytes(pkg.total_bytes));
 
@@ -559,6 +587,10 @@ void Worker::onSceneChunk(const wire::SceneChunkT& m) {
     std::_Exit(137);
   }
   const double done = double(m.index + 1) / package_->chunkCount();
+  status([&](WorkerStatus& st) {
+    st.phase = "Downloading the scene";
+    st.download = done;
+  });
   if (done >= next_progress_ && !cache_.downloadComplete()) {
     spdlog::info("downloading the scene: {:.0f}%", done * 100);
     while (next_progress_ <= done) next_progress_ += 0.25;
@@ -580,6 +612,7 @@ void Worker::finishDownload() {
 
 // Loads the scene from its cached package and builds every device (docs/GUIDE.md "Ready before work").
 void Worker::prepare(const std::filesystem::path& folder) {
+  status([](WorkerStatus& st) { st.phase = "Loading the scene and building it on each device"; });
   RenderSettings s = package_->relocate(render_, folder);
   keepLocalDeviceSettings(s, local_);
   try {
@@ -689,6 +722,7 @@ void Worker::startSlots() {
   // A skipped device keeps its slot (so device numbers stay) but never starts, so it never asks for work.
   for (uint32_t d = 0; d < slots_.size(); ++d)
     if (d >= skipped_.size() || !skipped_[d]) slots_[d]->start();
+  status([](WorkerStatus& st) { st.phase = "Rendering"; });
 }
 
 void Worker::stopSlots(bool cancel) {
@@ -802,7 +836,8 @@ void Worker::sendStats() {
     const double busy = slots_[d]->busySeconds();
     auto ds = std::make_unique<wire::DeviceStatsT>();
     ds->device = d;
-    ds->busy_percent = dt > 0 ? static_cast<float>(std::min(100.0, 100.0 * (busy - c.last_busy) / dt)) : 0.f;
+    ds->busy_percent =
+        dt > 0 ? static_cast<float>(std::clamp(100.0 * (busy - c.last_busy) / dt, 0.0, 100.0)) : 0.f;
     ds->temperature_c = -300.f;
     // NVIDIA GPUs: the driver's own usage, VRAM and temperature (NVML, D-093); else Penumbra's busy %.
     if (const auto live = queryGpuLiveStats(devices_[d]->info().uuid)) {
@@ -813,11 +848,17 @@ void Worker::sendStats() {
     }
     ds->tiles_per_s = dt > 0 ? static_cast<float>((c.tiles - c.last_tiles) / dt) : 0.f;
     ds->samples_per_s = dt > 0 ? double(c.samples - c.last_samples) / dt : 0.0;
+    status([&](WorkerStatus& st) {
+      if (d >= st.devices.size()) return;
+      st.devices[d].busy_percent = ds->busy_percent;
+      st.devices[d].tiles = c.tiles;
+    });
     c.last_busy = busy;
     c.last_tiles = c.tiles;
     c.last_samples = c.samples;
     s.devices.push_back(std::move(ds));
   }
+  status([&](WorkerStatus& st) { st.upload_bytes_per_s = s.upload_bytes_per_s; });
   conn_->send(s);
 }
 
