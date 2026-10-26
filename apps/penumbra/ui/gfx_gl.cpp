@@ -11,7 +11,6 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 
-#define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 
 // ImGui's OpenGL backend loads the GL functions itself (libGL / opengl32 at run time); these are the only GL calls

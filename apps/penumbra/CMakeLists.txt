@@ -33,6 +33,8 @@ if(PEN_ENABLE_UI)
     "${_imgui}/backends/imgui_impl_glfw.cpp" "${_imgui}/backends/imgui_impl_opengl3.cpp")
   target_include_directories(penumbra_imgui SYSTEM PUBLIC "${_imgui}" "${_imgui}/backends")
   target_link_libraries(penumbra_imgui PUBLIC glfw)
+  # No system OpenGL headers anywhere: ImGui's OpenGL backend has its own loader (Linux needs no libgl-dev).
+  target_compile_definitions(penumbra_imgui PUBLIC GLFW_INCLUDE_NONE)
   # Vendored code: none of the project's warning flags (they would only clash with /W0).
   set_target_properties(penumbra_imgui PROPERTIES COMPILE_OPTIONS "")
   target_compile_options(penumbra_imgui PRIVATE "$<IF:$<CXX_COMPILER_ID:MSVC>,/W0;/utf-8;/EHsc,-w>")
