@@ -45,11 +45,22 @@ Host::Host(const RenderSettings& settings, const std::string& code, WorkerEvents
 void Host::watchdog() {
   const auto now = Clock::now();
   std::vector<std::shared_ptr<Peer>> silent;
+  // The controller's own heartbeat (echo_us 0; workers measure the round trip only from echoes). Echoing the
+  // worker's heartbeats is not enough: on a slow upload, a worker's heartbeat waits behind the tiles already in
+  // the network's buffers (socat and userspace Tailscale hold tens of MB), its echo comes back after more than
+  // 30 s, and the worker gave up on a controller that was fine. This direction carries little, so it arrives.
+  const bool beat = now - last_beat_ >= std::chrono::seconds(5);
+  if (beat) last_beat_ = now;
+  wire::HeartbeatT hb;
+  hb.sent_us = static_cast<uint64_t>(
+      std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count());
   {
     std::lock_guard lock(mutex_);
     if (stopped_) return;
-    for (const auto& p : peers_)
+    for (const auto& p : peers_) {
       if (now - p->connection->lastReceived() > kPeerTimeout && p->connection->isOpen()) silent.push_back(p);
+      else if (beat && p->worker && p->connection->isOpen()) p->connection->send(hb);
+    }
   }
   for (const auto& p : silent) {
     spdlog::warn("{} sent nothing for 30 s (heartbeat lost); dropping it", p->worker ? p->worker->info().name

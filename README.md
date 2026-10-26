@@ -360,7 +360,7 @@ Start `penumbra` with no arguments (or double-click it). The sidebar has five pa
 | --- | --- |
 | **Dashboard** | The join code and address to give workers, every connected host with its GPUs, cluster CPU, RAM and GPU use, recent events |
 | **Hosts** | One row per machine (this one first); click a row for its GPUs, temperatures, scene cache and log, and to rename, kick or switch off a host or single GPU |
-| **Render** | Open a scene (`.glb`, `.gltf`, `.obj`, `.pen.json`), check what was found in it, pick camera, resolution preset, samples, output file and format, see a quick framing preview and the time estimate, then **Start render** |
+| **Render** | Open a scene (`.glb`, `.gltf`, `.obj`, `.pen.json`), check what was found in it, pick camera, resolution preset, samples, output file and format, see a quick framing preview and the time estimate, then **Start render**. A file name without a folder is saved in the output folder from Settings (default `Pictures\Penumbra`, `~/Pictures/Penumbra` on Linux) |
 | **Viewport** | The image as it renders, with each tile coloured by the host that rendered it; zoom (mouse wheel) and pan (drag), exposure, **Pause**, **Save image now**, **Stop** (keeps the checkpoint for `--resume`) |
 | **Settings** | LAN and internet hosting, "ask before accepting new workers", the join code (**Copy**, **Regenerate**), the port, this machine's devices (which GPUs render, whether the CPU renders too, CPU threads kept free for the UI), default output and film folders, **Open logs folder**, **Run diagnostics**, and **Join a render** |
 

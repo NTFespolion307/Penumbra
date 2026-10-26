@@ -3,6 +3,7 @@
 #include <atomic>
 #include <chrono>
 #include <deque>
+#include <filesystem>
 #include <future>
 #include <mutex>
 #include <thread>
@@ -117,6 +118,9 @@ void startHosting(HostingSession& session, UiState& ui);
 void drawApprovals(UiState& ui);
 // This machine's devices as a --devices value (Hosts and Settings switches), "" = none.
 std::string localDevices(const UiState& ui);
+
+// An output path as the UI uses it: relative paths are under the Settings output folder.
+std::filesystem::path resolveOutput(const UiState& ui, const std::filesystem::path& output);
 
 // Page header: title, subtitle and an optional right-aligned note.
 void pageHeader(const char* title, const char* subtitle, const char* note = nullptr);

@@ -759,3 +759,16 @@ flags in M8. Until M9, render-time estimates use the speed the cluster measured 
   `vkGetPhysicalDeviceSurface*KHR` were null and the first window resize crashed. The UI now runs the probe
   (`gpuInventory()`) before loading its own instance functions, skips frames while the surface is 0 x 0, and
   resets its frame indexes after a swapchain rebuild. Checked: repeated resize, maximize, minimize on Windows.
+
+**D-103 Gate fixes from the first internet run (M10, laptop UI hosting, the box over userspace Tailscale).**
+- **The controller sends its own heartbeat** every 5 s (`echo_us` 0) besides echoing the worker's. A worker
+  uploading through socat and userspace Tailscale had tens of MB of tiles in those buffers ahead of its heartbeat;
+  the echo came back after more than 30 s and the worker dropped a healthy controller (three times in one render,
+  each time losing its leases). The controller-to-worker direction carries little, so its heartbeat arrives on
+  time. Wire-compatible: workers already ignored heartbeats without an echo. Protocol version unchanged.
+- **UI outputs.** A relative output (the default `render.png`) is under the Settings output folder, default
+  Pictures/Penumbra (created at Start), not the working folder: started from Explorer that is C:\Windows\system32,
+  and the render failed with "cannot open render.penfilm: access denied".
+- **Seen, for M9:** a cheap scene (Cornell box, ~230 M samples/s on an RTX 5060 Ti) at 20K over a ~240 ms
+  internet link is upload-bound by far; its results arrive late, are reissued, and the GPU mostly waits. Larger
+  sample ranges per item for upload-bound workers belong to M9 (network throughput).

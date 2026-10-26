@@ -69,6 +69,7 @@ void sceneLoaded(UiState& ui) {
   // A scene from the command line keeps the command line's settings on top of its .pen.json (already resolved).
   RenderSettings form = rp.from_command_line ? ui.settings : rp.info->settings;
   rp.from_command_line = false;
+  form.output = resolveOutput(ui, form.output);
   rp.form = form;
   copyTo(rp.output, sizeof(rp.output), pathToUtf8(form.output));
   rp.preset = presetIndex(form);
@@ -415,7 +416,7 @@ void drawRender(Model& model, UiState& ui) {
 
   // Estimates and Start (docs/GUIDE.md "Live estimates"; "Start render: disabled with a visible reason").
   RenderSettings s = rp.form;
-  s.output = pathFromUtf8(rp.output);
+  s.output = resolveOutput(ui, pathFromUtf8(rp.output));
   std::string why;
   try {
     // The format follows the file's extension (as on the command line); the bit depth chosen in the Format list
@@ -482,6 +483,8 @@ void drawRender(Model& model, UiState& ui) {
     // A rendering CPU leaves the Settings page's threads free for the UI (unless --threads chose).
     if (s.threads == 0)
       s.threads = uint32_t(std::max(1, int(usableCpuThreads()) - ui.cpu_reserve));
+    std::error_code ec;  // the default output folder (Pictures/Penumbra) may not exist yet
+    std::filesystem::create_directories(s.output.parent_path(), ec);
     if (ui.runner->start(s, localDevices(ui), rp.start_error)) ui.page = Page::Viewport;
   }
   ImGui::SameLine(0, px(16));

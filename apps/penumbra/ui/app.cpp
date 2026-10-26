@@ -16,6 +16,7 @@
 #include <string>
 #include <string_view>
 
+#include "apps/penumbra/ui/file_dialog.h"
 #include "apps/penumbra/ui/gfx.h"
 #include "apps/penumbra/ui/model.h"
 #include "apps/penumbra/ui/pages.h"
@@ -264,10 +265,13 @@ int run(const RenderSettings& settings) {
     std::snprintf(st.ui.settings_page.film_dir, sizeof(st.ui.settings_page.film_dir), "%s",
                   pathToUtf8(settings.film_dir).c_str());
   {
-    const std::filesystem::path out = settings.output.parent_path().empty()
-                                          ? std::filesystem::current_path() : settings.output.parent_path();
+    // Relative outputs go to the Settings output folder, not the working folder: started from Explorer or the
+    // Start menu that is C:\Windows\system32, where nothing can be written. Default Pictures/Penumbra.
+    const std::filesystem::path out = settings.output.is_absolute() ? settings.output.parent_path()
+                                                                     : picturesFolder() / "Penumbra";
     std::snprintf(st.ui.settings_page.out_dir, sizeof(st.ui.settings_page.out_dir), "%s",
                   pathToUtf8(out).c_str());
+    st.ui.settings.output = resolveOutput(st.ui, settings.output);
   }
   startHosting(session, st.ui);
   Model model(session);

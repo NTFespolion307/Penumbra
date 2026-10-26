@@ -22,6 +22,8 @@ bool fileDialogsAvailable();
 
 // Opens a folder in the system's file browser (Settings: "Open logs folder").
 void openFolder(const std::filesystem::path& folder);
+// The user's Pictures folder (the UI's default output folder is Pictures/Penumbra); the home folder without one.
+std::filesystem::path picturesFolder();
 // Runs this program again with `args` and returns what it printed (Settings: "Run diagnostics").
 std::string runSelf(const std::string& args);
 

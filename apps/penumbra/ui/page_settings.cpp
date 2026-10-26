@@ -276,6 +276,11 @@ std::string localDevices(const UiState& ui) {
   return list;
 }
 
+std::filesystem::path resolveOutput(const UiState& ui, const std::filesystem::path& output) {
+  if (output.is_absolute() || !ui.settings_page.out_dir[0]) return output;
+  return pathFromUtf8(ui.settings_page.out_dir) / output;
+}
+
 void startHosting(HostingSession& session, UiState& ui) {
   if (session.hosting()) session.stopHosting(std::chrono::seconds(0));
   const SettingsPage& sp = ui.settings_page;

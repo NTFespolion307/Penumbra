@@ -8,6 +8,7 @@
 #if defined(_WIN32)
 #include <windows.h>
 #include <shellapi.h>
+#include <shlobj.h>
 #include <shobjidl.h>
 #endif
 
@@ -156,6 +157,22 @@ std::string runSelf(const std::string& args) {
   pclose(p);
 #endif
   return out;
+}
+
+std::filesystem::path picturesFolder() {
+#if defined(_WIN32)
+  PWSTR dir = nullptr;
+  std::filesystem::path out;
+  if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Pictures, 0, nullptr, &dir))) out = dir;
+  CoTaskMemFree(dir);
+  if (!out.empty()) return out;
+  const char* home = std::getenv("USERPROFILE");
+#else
+  const char* home = std::getenv("HOME");
+  if (home && *home && std::filesystem::is_directory(pathFromUtf8(home) / "Pictures"))
+    return pathFromUtf8(home) / "Pictures";
+#endif
+  return home && *home ? pathFromUtf8(home) : std::filesystem::temp_directory_path();
 }
 
 bool fileDialogsAvailable() {
