@@ -8,7 +8,7 @@ the image. Any number of **workers**, each with one or more GPUs, join with the 
 code, render tiles and send them back. A render on one machine is the same thing with no workers, and every
 combination of machines, GPUs and backends converges to the same image.
 
-> **Status: milestone M7 (multi-GPU workers).** Penumbra renders glTF and OBJ scenes on GPUs with hardware ray
+> **Status: milestone M10 (user interface; M8 and M9 come next).** Penumbra renders glTF and OBJ scenes on GPUs with hardware ray
 > tracing (Vulkan RT), on any NVIDIA GPU through CUDA, and on the CPU (Embree), with a path tracer (next-event
 > estimation, MIS), the glTF PBR material with its common extensions and HDRI lighting, at any size up to 160K,
 > with checkpoints, `--resume` and `merge`, writing EXR, PNG, JPEG, TIFF or WebP. Every machine uses all its GPUs
@@ -16,11 +16,11 @@ combination of machines, GPUs and backends converges to the same image.
 > share, idle devices take over the last chunks of slower ones, and a GPU that fails, hangs or cannot hold the
 > scene is dropped without changing the image. Several machines render together: a controller hosts, workers on
 > the LAN or the internet join with a code (encrypted), download the scene once, and any failure of a worker, its
-> devices or the network is recovered without changing the image. Memory tiers for big scenes arrive in M8, the
-> UI in M10. Features marked *(planned, Mx)* below are not built yet. The roadmap is in
+> devices or the network is recovered without changing the image. The UI hosts, joins and runs renders with
+> clicks only: Dashboard, Hosts, Render, a live Viewport and Settings, on Windows and Linux. Memory tiers for big
+> scenes arrive in M8, measured performance in M9. Features marked *(planned, Mx)* below are not built yet. The roadmap is in
 > [`docs/GUIDE.md`](docs/GUIDE.md).
 
-<!-- A screenshot goes here once the UI exists (M10). -->
 
 **Supported GPUs:** NVIDIA first: RTX 20 series and newer through Vulkan ray tracing (tested on an RTX 5060 Ti
 under Linux), and any NVIDIA GPU from compute capability 7.5 (Turing) through CUDA with a software BVH (tested on an RTX 5070

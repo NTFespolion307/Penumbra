@@ -772,3 +772,19 @@ flags in M8. Until M9, render-time estimates use the speed the cluster measured 
 - **Seen, for M9:** a cheap scene (Cornell box, ~230 M samples/s on an RTX 5060 Ti) at 20K over a ~240 ms
   internet link is upload-bound by far; its results arrive late, are reissued, and the GPU mostly waits. Larger
   sample ranges per item for upload-bound workers belong to M9 (network throughput).
+- **`--stay` retries a controller that does not answer.** Through a relay (socat, an SSH tunnel) the TCP
+  connection always opens, so a controller that is not hosting yet looked like "closed before the controller
+  answered", which ended even a `--stay` worker (and the UI's Join). It now waits 1, 2, 4... up to 30 s and tries
+  again; a wrong join code still ends it (retrying would get the address blocked).
+- **Seen, for M9:** behind the Hyper-V firewall a connection to a port nothing listens on is dropped, not refused,
+  so the first attempt of a WSL worker waits for the OS connect timeout (about 2 minutes). A shorter connect
+  timeout belongs with the network work in M9.
+
+**D-104 M10 gate passed (2026-10-26).** Host, join and finish a 3-machine render with clicks: the laptop's UI
+(Windows 11, i7-11850H, Vulkan UI) hosted; a rented RTX 5060 Ti box (Ubuntu 24.04, its UI on Xvfb + noVNC,
+OpenGL) joined over userspace Tailscale through socat; a WSL Ubuntu 22.04 worker joined over the LAN side.
+Renders of `scenes/cornell.pen.json` at 4K finished with tiles from all three, e.g. 2048 spp in 69 s at
+246 M samples/s (box 254 items, laptop 1, WSL 0 of the CPU-slow tail), no worker dropped after D-103. Also
+checked: Viewport live view, Pause/Resume, Save image now, Stop (checkpoint + partial image), Settings, Join a
+render and Leave, window resize and fullscreen with Vulkan. The box's own join was started with the
+`PENUMBRA_TEST_UI_JOIN` hook; the laptop's Join was clicked. Tests: see the merge commit.

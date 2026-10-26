@@ -132,6 +132,7 @@ class Worker {
   std::shared_ptr<net::Connection> conn_;
   Inbox inbox_;
   bool welcomed_ = false;
+  std::chrono::seconds unanswered_backoff_{1};  // --stay: wait before trying a controller that did not answer
   bool completed_ = false;  // RenderComplete received and Bye sent
 
   // The current render.
@@ -320,6 +321,17 @@ int Worker::session() {
     if (closed) {
       stopSlots(true);
       if (completed_) return toInt(ExitCode::Success);
+      if (!welcomed_ && conn_->closedBeforeReply() && local_.stay) {
+        // Through a relay (socat, an SSH tunnel) the TCP connection always opens, so a controller that is not
+        // hosting yet shows up here, not as a refused connection: an always-on worker waits for it as well.
+        spdlog::warn("the controller did not answer; trying again in {} s (--stay)", unanswered_backoff_.count());
+        const auto until = Clock::now() + unanswered_backoff_;
+        while (Clock::now() < until && !(opt_.interrupt && opt_.interrupt->load()))
+          std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        if (opt_.interrupt && opt_.interrupt->load()) return toInt(ExitCode::Interrupted);
+        unanswered_backoff_ = std::min<std::chrono::seconds>(unanswered_backoff_ * 2, kMaxBackoff);
+        return kReconnect;
+      }
       if (!welcomed_ && conn_->closedBeforeReply()) {
         spdlog::error("could not join: the connection closed before the controller answered. Check that the address "
                       "and port are the controller's, that a firewall, proxy or relay on the way passes TCP, and that "
@@ -386,6 +398,7 @@ int Worker::handle(net::Message& msg) {
       case MsgType::Welcome: {
         const auto m = net::decode<wire::WelcomeT>(msg.payload);
         welcomed_ = true;
+        unanswered_backoff_ = std::chrono::seconds(1);
         spdlog::info("joined the controller as worker {} (\"{}\"); waiting for a render", m.worker_id, name_);
         status([](WorkerStatus& st) {
           st.phase = "Waiting for a render";
