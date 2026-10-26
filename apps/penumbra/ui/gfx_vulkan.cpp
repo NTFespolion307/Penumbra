@@ -17,6 +17,8 @@
 #include <stdexcept>
 #include <vector>
 
+#include "worker/device_manager.h"
+
 namespace pen::ui {
 
 namespace {
@@ -54,12 +56,24 @@ class VulkanGfx final : public Gfx {
   void newFrame() override {
     int w = 0, h = 0;
     glfwGetFramebufferSize(window_, &w, &h);
-    if (w > 0 && h > 0 && (rebuild_ || wd_.Width != w || wd_.Height != h)) {
-      ImGui_ImplVulkan_SetMinImageCount(kMinImageCount);
-      ImGui_ImplVulkanH_CreateOrResizeWindow(instance_, physical_, device_, &wd_, queue_family_, nullptr, w, h,
-                                             kMinImageCount, 0);
-      wd_.FrameIndex = 0;
-      rebuild_ = false;
+    skip_ = w <= 0 || h <= 0;
+    if (!skip_ && (rebuild_ || !wd_.Swapchain || wd_.Width != w || wd_.Height != h)) {
+      // GLFW's size can lag the window: while minimizing or maximizing the surface may already be 0 x 0, and a
+      // swapchain cannot be created then (ImGui ignores the error and leaves no swapchain). Try again next frame.
+      VkSurfaceCapabilitiesKHR cap{};
+      vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_, surface_, &cap);
+      if (cap.currentExtent.width == 0 || cap.currentExtent.height == 0) {
+        skip_ = rebuild_ = true;
+      } else {
+        ImGui_ImplVulkan_SetMinImageCount(kMinImageCount);
+        ImGui_ImplVulkanH_CreateOrResizeWindow(instance_, physical_, device_, &wd_, queue_family_, nullptr, w, h,
+                                               kMinImageCount, 0);
+        // The new swapchain may have another image (and semaphore) count: indexes into the old one are stale.
+        wd_.FrameIndex = 0;
+        wd_.SemaphoreIndex = 0;
+        rebuild_ = !wd_.Swapchain;
+        skip_ = rebuild_;
+      }
     }
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplGlfw_NewFrame();
@@ -67,7 +81,7 @@ class VulkanGfx final : public Gfx {
 
   void render(const float clear[4]) override {
     ImDrawData* draw = ImGui::GetDrawData();
-    if (draw->DisplaySize.x <= 0 || draw->DisplaySize.y <= 0) return;  // minimized
+    if (skip_ || !wd_.Swapchain || draw->DisplaySize.x <= 0 || draw->DisplaySize.y <= 0) return;  // minimized
     for (int i = 0; i < 4; ++i) wd_.ClearValue.color.float32[i] = clear[i];
 
     VkSemaphore acquired = wd_.FrameSemaphores[wd_.SemaphoreIndex].ImageAcquiredSemaphore;
@@ -107,7 +121,8 @@ class VulkanGfx final : public Gfx {
     submit.pSignalSemaphores = &done;
     check(vkQueueSubmit(queue_, 1, &submit, fd->Fence), "vkQueueSubmit");
 
-    if (rebuild_) return;
+    // Present even when the acquire said "suboptimal": the image was acquired and must go back to the swapchain
+    // (the rebuild happens at the next frame).
     VkPresentInfoKHR present{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
     present.waitSemaphoreCount = 1;
     present.pWaitSemaphores = &done;
@@ -125,6 +140,10 @@ class VulkanGfx final : public Gfx {
   static constexpr uint32_t kMinImageCount = 2;
 
   void setup() {
+    // The render backends' one-time probe points volk's global instance functions at their own instance, which has
+    // no surface extension (vkGetPhysicalDeviceSurface*KHR become null). Run it first so the UI's load below wins;
+    // otherwise the first resize after the probe called a null pointer.
+    (void)gpuInventory();
     check(volkInitialize(), "loading the Vulkan loader");
     glfwInitVulkanLoader(vkGetInstanceProcAddr);
     if (!glfwVulkanSupported()) throw std::runtime_error("GLFW: no Vulkan support for windows");
@@ -255,6 +274,7 @@ class VulkanGfx final : public Gfx {
   bool imgui_glfw_ = false;
   bool imgui_vulkan_ = false;
   bool rebuild_ = false;
+  bool skip_ = false;  // no swapchain to draw to this frame
 };
 
 }  // namespace

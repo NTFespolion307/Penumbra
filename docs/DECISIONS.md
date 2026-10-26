@@ -754,3 +754,8 @@ flags in M8. Until M9, render-time estimates use the speed the cluster measured 
 - **Test hook** `PENUMBRA_TEST_UI_JOIN="<address> <code>"` fills Join a render and presses Join once (D-047
   style, logged). Checked on Windows: the UI joined a `--terminal --host --no-local` controller, rendered, and its
   Leave handed the lease back (requeued).
+- **UI Vulkan and the render backends share volk's globals.** The backends' one-time Vulkan probe loads volk's
+  global instance functions from its own instance (no surface extension), so after it ran the UI's
+  `vkGetPhysicalDeviceSurface*KHR` were null and the first window resize crashed. The UI now runs the probe
+  (`gpuInventory()`) before loading its own instance functions, skips frames while the surface is 0 x 0, and
+  resets its frame indexes after a swapchain rebuild. Checked: repeated resize, maximize, minimize on Windows.
