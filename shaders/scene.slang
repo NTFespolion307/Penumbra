@@ -15,8 +15,16 @@
 [[vk::binding(9, 0)]] StructuredBuffer<uint> g_indices;
 [[vk::binding(10, 0)]] StructuredBuffer<Material> g_materials;
 [[vk::binding(11, 0)]] StructuredBuffer<Texture> g_textures;
+// Texels in up to four parts of at most 2 GB each: one storage buffer may span at most 4 GB on common drivers
+// (maxStorageBufferRange), and textures can exceed that (D-109). A texture lies in one part (Texture.part).
 [[vk::binding(12, 0)]] StructuredBuffer<uint> g_texels8;     // RGBA8, R in the low byte
+[[vk::binding(25, 0)]] StructuredBuffer<uint> g_texels8_1;
+[[vk::binding(26, 0)]] StructuredBuffer<uint> g_texels8_2;
+[[vk::binding(27, 0)]] StructuredBuffer<uint> g_texels8_3;
 [[vk::binding(13, 0)]] StructuredBuffer<float4> g_texels32;
+[[vk::binding(28, 0)]] StructuredBuffer<float4> g_texels32_1;
+[[vk::binding(29, 0)]] StructuredBuffer<float4> g_texels32_2;
+[[vk::binding(30, 0)]] StructuredBuffer<float4> g_texels32_3;
 [[vk::binding(21, 0)]] StructuredBuffer<float> g_srgb_lut;   // 256 entries, as the CPU's table
 // [0] non-finite samples, [1] BVH traversals cut short by a full stack (CUDA); read back after every item.
 [[vk::binding(24, 0)]] RWStructuredBuffer<uint> g_counters;
@@ -65,8 +73,22 @@ float4 texel(Texture tex, int x, int y, bool srgb) {
   x = wrapCoord(x, int(tex.width), tex.wrap_s);
   y = wrapCoord(y, int(tex.height), tex.wrap_t);
   uint i = uint(y) * tex.width + uint(x);
-  if (tex.is_float != 0) return g_texels32[tex.offset + i];
-  uint p = g_texels8[tex.offset + i];
+  i += tex.offset;
+  if (tex.is_float != 0) {
+    switch (tex.part) {
+      case 1: return g_texels32_1[i];
+      case 2: return g_texels32_2[i];
+      case 3: return g_texels32_3[i];
+      default: return g_texels32[i];
+    }
+  }
+  uint p;
+  switch (tex.part) {
+    case 1: p = g_texels8_1[i]; break;
+    case 2: p = g_texels8_2[i]; break;
+    case 3: p = g_texels8_3[i]; break;
+    default: p = g_texels8[i]; break;
+  }
   uint r = p & 0xffu, g = (p >> 8) & 0xffu, b = (p >> 16) & 0xffu, a = p >> 24;
   if (srgb) return float4(g_srgb_lut[r], g_srgb_lut[g], g_srgb_lut[b], a / 255.0);
   return float4(r / 255.0, g / 255.0, b / 255.0, a / 255.0);

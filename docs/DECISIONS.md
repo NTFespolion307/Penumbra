@@ -863,3 +863,18 @@ ladder for real. Its license is checked from the download before anything depend
   host detail page shows each device's tier and placement while a render runs.
 - **Host acceleration structures**: probed (an acceleration-structure buffer allowed in a host-visible, not
   device-local memory type), logged per GPU and shown by `--diagnose`; not used (D-107).
+
+**D-109 Fixes from the first M8 GPU run (RTX 2060 SUPER 8 GB, Vulkan and CUDA).**
+- **Texels in parts.** Intel's New Sponza holds 4.9 GB of 8-bit texels; as one storage buffer that is past
+  `maxStorageBufferRange` (4 GB - 1 on NVIDIA, and `maxMemoryAllocationSize` is just under 4 GB), so Vulkan read
+  wrong texels for the textures past 4 GB (albedo GPU vs CPU relMSE 1.2e-3, yellow surfaces grey; the image still
+  looked plausible). Texels now go in up to 4 buffers per kind, each at most 2 GB, a texture never split
+  (`gpu::Texture.part`); the shader picks the part with a switch, so no descriptor-indexing feature is needed.
+  Limit: 8 GB of 8-bit and 8 GB of float texels per GPU (an `OutOfMemoryError` beyond).
+- **A device's first items get a grace period.** Next to the 2060 SUPER's Vulkan RT (an item in 0.14 s), the CPU's
+  first items (2 s) passed 10x the median of all devices and were all taken away: the CPU rendered 0 items
+  (render.vulkan_hybrid). Until a device finishes one item, its leases are late only after at least 30 s (scaled by
+  `PENUMBRA_TEST_TIME_SCALE`); afterwards D-097's rules apply. Hang tests (which hang after 2 items) are unchanged.
+- **Measured on the 2060 SUPER:** Intel Sponza (3.7 M triangles, 72 textures, 24 lights) is tier 0 on the real 8 GB
+  card, "scene 5.5 GB of 7.3 GB VRAM"; the RTX 2060 SUPER's driver allows acceleration structures in host memory
+  (probe).

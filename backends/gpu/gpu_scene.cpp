@@ -1,6 +1,9 @@
 #include "backends/gpu/gpu_scene.h"
 
+#include <fmt/format.h>
+
 #include "core/image/image.h"
+#include "core/settings/parse.h"
 #include "core/shading/bsdf.h"
 
 namespace pen {
@@ -74,8 +77,18 @@ void appendTable(std::vector<gpu::AliasEntry>& out, const AliasTable& t) {
 
 void packTextures(const Scene& scene, const std::vector<uint32_t>& halvings, GpuScene& g) {
   g.textures.clear();
-  g.texels8.clear();
-  g.texels32.clear();
+  for (auto& part : g.texels8) part.clear();
+  for (auto& part : g.texels32) part.clear();
+  // The part a texture of `texels` elements of `bytes` each goes in: the current one, or the next when it would grow
+  // past kTexelPartBytes (a texture is never split).
+  uint32_t cur8 = 0, cur32 = 0;
+  const auto partFor = [](const auto& parts, uint32_t& cur, size_t texels, size_t bytes) -> uint32_t {
+    if (!parts[cur].empty() && (parts[cur].size() + texels) * bytes > kTexelPartBytes) ++cur;
+    if (cur >= kTexelParts)
+      throw OutOfMemoryError(fmt::format("the textures need more than {} parts of {} on one GPU", kTexelParts,
+                                         formatBytes(kTexelPartBytes)));
+    return cur;
+  };
   for (size_t ti = 0; ti < scene.textures.size(); ++ti) {
     Texture small;
     const bool halve = ti < halvings.size() && halvings[ti] > 0;
@@ -89,14 +102,17 @@ void packTextures(const Scene& scene, const std::vector<uint32_t>& halvings, Gpu
     gt.wrap_t = static_cast<uint32_t>(t.wrap_t);
     gt.nearest = t.nearest ? 1 : 0;
     if (t.is_float) {
-      gt.offset = static_cast<uint32_t>(g.texels32.size());
-      for (size_t i = 0; i + 3 < t.hdr.size(); i += 4)
-        g.texels32.push_back({t.hdr[i], t.hdr[i + 1], t.hdr[i + 2], t.hdr[i + 3]});
+      gt.part = partFor(g.texels32, cur32, t.hdr.size() / 4, sizeof(Vec4f));
+      auto& out = g.texels32[gt.part];
+      gt.offset = static_cast<uint32_t>(out.size());
+      for (size_t i = 0; i + 3 < t.hdr.size(); i += 4) out.push_back({t.hdr[i], t.hdr[i + 1], t.hdr[i + 2], t.hdr[i + 3]});
     } else {
-      gt.offset = static_cast<uint32_t>(g.texels8.size());
+      gt.part = partFor(g.texels8, cur8, t.ldr.size() / 4, sizeof(uint32_t));
+      auto& out = g.texels8[gt.part];
+      gt.offset = static_cast<uint32_t>(out.size());
       for (size_t i = 0; i + 3 < t.ldr.size(); i += 4)
-        g.texels8.push_back(uint32_t(t.ldr[i]) | (uint32_t(t.ldr[i + 1]) << 8) | (uint32_t(t.ldr[i + 2]) << 16) |
-                            (uint32_t(t.ldr[i + 3]) << 24));
+        out.push_back(uint32_t(t.ldr[i]) | (uint32_t(t.ldr[i + 1]) << 8) | (uint32_t(t.ldr[i + 2]) << 16) |
+                      (uint32_t(t.ldr[i + 3]) << 24));
     }
     g.textures.push_back(gt);
   }

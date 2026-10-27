@@ -3,6 +3,7 @@
 // The scene flattened into the arrays the GPU shaders read (shaders/scene.slang, lights.slang), shared by the
 // Vulkan and CUDA backends so both upload the same bytes.
 
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -11,6 +12,11 @@
 #include "core/math/vec.h"
 
 namespace pen {
+
+// Texels go in up to kTexelParts buffers per kind, each at most kTexelPartBytes: a storage buffer may span at most
+// 4 GB on common drivers, and one allocation should stay below 4 GB too (D-109).
+inline constexpr size_t kTexelParts = 4;
+inline constexpr uint64_t kTexelPartBytes = uint64_t(2) << 30;
 
 struct GpuScene {
   std::vector<gpu::Instance> instances;
@@ -22,8 +28,8 @@ struct GpuScene {
   std::vector<uint32_t> indices;
   std::vector<gpu::Material> materials;
   std::vector<gpu::Texture> textures;
-  std::vector<uint32_t> texels8;
-  std::vector<Vec4f> texels32;
+  std::array<std::vector<uint32_t>, kTexelParts> texels8;
+  std::array<std::vector<Vec4f>, kTexelParts> texels32;
   std::vector<gpu::EmissiveTriangle> emissive;
   std::vector<int32_t> emissive_offset;
   std::vector<gpu::AliasEntry> light_table;
@@ -37,7 +43,8 @@ struct GpuScene {
 
 GpuScene flattenScene(const Scene& scene);
 // (Re)fills g.textures, g.texels8 and g.texels32, each texture halved halvings[i] times (memory tier 2; empty: full
-// size). flattenScene packs them at full size.
+// size). flattenScene packs them at full size. Throws OutOfMemoryError when the textures need more than
+// kTexelParts x kTexelPartBytes of one kind.
 void packTextures(const Scene& scene, const std::vector<uint32_t>& halvings, GpuScene& g);
 
 // The per-render constants (camera, integrator, light and environment summaries).

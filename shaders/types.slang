@@ -57,6 +57,7 @@ struct Texture {
   uint wrap_t;
   uint nearest;
   uint offset;
+  uint part;
 };
 
 struct Primitive {

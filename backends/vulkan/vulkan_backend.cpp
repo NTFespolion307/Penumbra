@@ -255,7 +255,9 @@ class VulkanBackend final : public IBackend {
 constexpr int kHungGraceSeconds = 10;
 
 // Descriptor bindings (shaders/*.slang).
-constexpr uint32_t kBindTlas = 0, kBindFrame = 1, kBindOut = 23, kBindCounters = 24, kBindCount = 25;
+constexpr uint32_t kBindTlas = 0, kBindFrame = 1, kBindOut = 23, kBindCounters = 24, kBindCount = 31;
+// Texel parts (D-109): part 0 at 12 (8-bit) and 13 (float), parts 1-3 at 25-27 and 28-30 (shaders/scene.slang).
+constexpr uint32_t kBindTexels8[kTexelParts] = {12, 25, 26, 27}, kBindTexels32[kTexelParts] = {13, 28, 29, 30};
 
 VulkanBackend::VulkanBackend(uint32_t physicalIndex) {
   InstanceState& st = instanceState();
@@ -634,8 +636,10 @@ void VulkanBackend::upload(const Scene& scene, const Placement& placement) {
   scene_buffers_[9] = deviceBuffer(g.indices, kAsInput);
   scene_buffers_[10] = deviceBuffer(g.materials);
   scene_buffers_[11] = deviceBuffer(g.textures);
-  scene_buffers_[12] = movableBuffer(g.texels8, inRam);
-  scene_buffers_[13] = movableBuffer(g.texels32, inRam);
+  for (size_t p = 0; p < kTexelParts; ++p) {
+    scene_buffers_[kBindTexels8[p]] = movableBuffer(g.texels8[p], inRam);
+    scene_buffers_[kBindTexels32[p]] = movableBuffer(g.texels32[p], inRam);
+  }
   scene_buffers_[14] = deviceBuffer(g.emissive);
   scene_buffers_[15] = deviceBuffer(g.emissive_offset);
   scene_buffers_[16] = deviceBuffer(g.light_table);

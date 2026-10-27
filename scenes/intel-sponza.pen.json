@@ -1,0 +1,12 @@
+{
+  "camera": "PhysCamera001",
+  "environment": {
+    "hdri": "intel-sponza/main_sponza/textures/kloppenheim_05_4k.hdr",
+    "rotation_deg": 0,
+    "strength": 1.0
+  },
+  "render": {
+    "res": "1080p"
+  },
+  "scene": "intel-sponza/main_sponza/NewSponza_Main_glTF_003.gltf"
+}

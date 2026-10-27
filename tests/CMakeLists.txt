@@ -315,7 +315,7 @@ foreach(_b IN LISTS _pen_gpu_backends)
                "-DARGS_B=--backend|${_b}|--vram-limit|10M" -DMAXRELMSE=0 "-DEXPECT_LOG=tier 1, scene")
   pen_gpu_test(${_b} tier2_vs_cpu pair bigtex.pen.json "--res|240x240|--spp|1024" "-DARGS_A=--backend|cpu"
                "-DARGS_B=--backend|${_b}|--vram-limit|10M|--ram-limit|30M" -DMAXRELMSE=1e-3 -DTEXTURE_HALVINGS=1
-               "-DEXPECT_LOG=tier 2, [^\n]*1 texture\(s\) downsized \(at most 1/2 per side\)")
+               "-DEXPECT_LOG=tier 2, [^\n]*1 texture.s. downsized .at most 1/2 per side.")
   pen_gpu_test(${_b} tier3_skip pair bigtex.pen.json "--res|240x240|--spp|16" "-DARGS_A=--backend|cpu"
                "-DARGS_B=--devices|0:${_b},cpu|--vram-limit|1K" -DMAXRELMSE=0 "-DEXPECT_LOG=memory tier 3")
   pen_gpu_test(${_b} no_downsize pair bigtex.pen.json "--res|240x240|--spp|16" "-DARGS_A=--backend|cpu"

@@ -610,8 +610,11 @@ void CudaBackend::upload(const Scene& scene, const Placement& placement) {
   bindArray(render_, "g_indices", g.indices);
   bindArray(render_, "g_materials", g.materials);
   bindArray(render_, "g_textures", g.textures);
-  bindMovable(render_, "g_texels8", g.texels8, inRam);
-  bindMovable(render_, "g_texels32", g.texels32, inRam);
+  for (size_t p = 0; p < kTexelParts; ++p) {  // D-109
+    const std::string suffix = p == 0 ? "" : fmt::format("_{}", p);
+    bindMovable(render_, "g_texels8" + suffix, g.texels8[p], inRam);
+    bindMovable(render_, "g_texels32" + suffix, g.texels32[p], inRam);
+  }
   bindArray(render_, "g_emissive", g.emissive);
   bindArray(render_, "g_emissive_offset", g.emissive_offset);
   bindArray(render_, "g_light_table", g.light_table);

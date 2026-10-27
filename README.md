@@ -362,6 +362,28 @@ the sky is [Kloofendal 48d Partly Cloudy (Pure Sky)](https://polyhaven.com/a/klo
 by Greg Zaal and Jarod Guest (CC0, Poly Haven). Both are downloaded from their publishers, not redistributed here.
 The script adds a camera ("Courtyard") to a copy of the glTF, `scenes/sponza/courtyard.gltf`.
 
+**A heavy production scene: Intel's New Sponza.** The modern remake of Sponza: 4K PBR textures (72 of them, about
+4.5 GB once loaded), photogrammetry geometry, 24 lights, 6 cameras and an HDRI sky. It is a 4 GB download (2.8 GB
+is kept; the 3ds Max, FBX and USD versions in the archive are left out) and it is the scene the memory tiers
+are tested with: on an 8 GB GPU its textures do not all fit in VRAM.
+
+1. Download it (checked against its SHA-256):
+   ```
+   .\scripts\get-scenes.ps1 -Scene intel-sponza
+   ```
+   On Linux: `./scripts/get-scenes.sh intel-sponza`. Success: the last lines say `Ready: scenes/intel-sponza.pen.json`.
+2. Render it:
+   ```
+   build/windows-msvc-release/bin/penumbra.exe --terminal scenes/intel-sponza.pen.json --spp 1024 -o intel-sponza.png
+   ```
+   Other views: add `--camera PhysCamera002` (up to `PhysCamera006`).
+
+Sponza 2022 by Frank Meinl and Anton Kaplanyan ([Intel Sample Library](https://www.intel.com/content/www/us/en/developer/topic-technology/graphics-research/samples.html)),
+CC BY 4.0, "for personal use and educational use, limited commercial use for marketing and print purposes";
+reference photos by Katica Putica and Princino.photo. The full credits and license are in
+`scenes/intel-sponza/main_sponza/credits_license.txt` after the download. Downloaded from Intel, not
+redistributed here.
+
 **Test scenes and image comparison.** The build also makes two tools next to `penumbra`:
 
 1. Write all test scenes (the three above plus the furnace spheres and a big-texture scene) into a folder:
