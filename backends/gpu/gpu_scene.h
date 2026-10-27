@@ -36,6 +36,9 @@ struct GpuScene {
 };
 
 GpuScene flattenScene(const Scene& scene);
+// (Re)fills g.textures, g.texels8 and g.texels32, each texture halved halvings[i] times (memory tier 2; empty: full
+// size). flattenScene packs them at full size.
+void packTextures(const Scene& scene, const std::vector<uint32_t>& halvings, GpuScene& g);
 
 // The per-render constants (camera, integrator, light and environment summaries).
 gpu::Frame makeGpuFrame(const FrameSetup& frame, const Scene& scene);

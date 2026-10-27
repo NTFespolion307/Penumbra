@@ -23,6 +23,8 @@ struct GpuRow {
   float temperature_c = -300;   // < -273 unknown
   float tiles_per_s = 0;
   bool usage_from_driver = false;  // NVML; else Penumbra's busy %
+  int tier = -1;                   // memory tier in the current render, -1 between renders
+  std::string placement;           // "tier 1, scene 6.1 GB of 7.2 GB VRAM, textures 2.4 GB in RAM" or why skipped
 };
 
 // One host: this machine (id 0) or a worker that joined.

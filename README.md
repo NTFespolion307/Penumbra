@@ -668,7 +668,7 @@ and the CPU only when no GPU qualifies or `--devices` lists `cpu`. Every choice 
 `penumbra --list-devices` numbers the GPUs as `--devices` takes them: ray-tracing GPUs first, then NVIDIA GPUs
 that only CUDA can use; GPUs that cannot render are listed with the reason.
 
-### Multi-GPU and memory tiers *(memory tiers planned, M8)*
+### Multi-GPU and memory tiers
 
 A worker (and the controller's own machine) uses all its GPUs at once, one slot per GPU; each GPU pulls its own
 work, so fast GPUs do more of the frame. Backends mix freely on one host (`--devices 0:vulkan,1:cuda,cpu`), and
@@ -678,9 +678,22 @@ that fails or stops answering mid-render is removed and its work goes to the oth
 the render, and the image is the same. On NVIDIA GPUs the worker reports usage, VRAM and temperature from the
 driver (NVML); `penumbra --list-devices` shows them too.
 
-Each GPU picks a memory tier for the scene *(M8)*: **0** everything in VRAM; **1** textures in RAM (1.2–2×
-slower); **2** textures downsized (disable with `--no-texture-downsize`); **3** GPU skipped. Override the budget
-with `--vram-limit` and `--ram-limit`. A GPU that runs out of memory never crashes the render.
+Each GPU picks a memory tier for the scene from what it really needs and what is free:
+
+| Tier | Where the scene lives | Speed |
+| --- | --- | --- |
+| **0** | Everything in VRAM | Full speed |
+| **1** | Geometry in VRAM; textures and the HDRI in RAM, read over PCIe | Typically 1.2–2× slower; same image |
+| **2** | As 1, with the largest textures halved until they fit (the log says how much) | As 1; slightly softer textures |
+| **3** | The geometry does not fit: this GPU sits the render out, the others render | — |
+
+The VRAM budget is the GPU's free VRAM minus 10% (`--vram-limit 6G` sets a lower one); RAM for textures is 75% of
+the machine's RAM less the scene itself (`--ram-limit`), shared by the machine's GPUs. `--no-texture-downsize`
+makes a GPU that would need tier 2 skip the render instead. Each GPU's choice is in the log and on the Hosts page,
+for example `tier 1, scene 6.1 GB of 7.2 GB VRAM, textures 2.4 GB in RAM`. If memory runs out anyway (another
+program took VRAM after the start), the GPU drops one tier and tries again: running out of memory never crashes
+the render. `penumbra --diagnose` also says whether a GPU's driver could keep acceleration structures in RAM (not
+used: such a GPU is tier 3).
 
 ### Output formats and limits
 

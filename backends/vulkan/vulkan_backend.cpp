@@ -12,6 +12,7 @@
 #include <fmt/format.h>
 #include <functional>
 #include <mutex>
+#include <optional>
 
 #include "backends/gpu/gpu_scene.h"
 #include "core/shading/bsdf.h"
@@ -165,15 +166,18 @@ class VulkanBackend final : public IBackend {
   ~VulkanBackend() override;
 
   DeviceInfo info() const override { return info_; }
-  MemoryPlan plan(const SceneStats& stats) override;
-  void upload(const Scene& scene, const MemoryPlan& plan) override;
+  uint64_t vramBudget() override;
+  SceneFootprint measure(const Scene& scene) override;
+  void upload(const Scene& scene, const Placement& placement) override;
   void prepare(const FrameSetup& frame) override;
   void render(const WorkItem& item, TileResult& out) override;
   void cancel() override { cancel_ = true; }
   std::vector<float> runParity(uint32_t count);
+  bool hostAccelerationStructures() const { return host_as_; }
 
  private:
-  enum class Memory { Device, Upload, Readback };
+  // Host: pinned RAM the GPU reads over PCIe (memory tiers 1 and 2), never device-local memory.
+  enum class Memory { Device, Upload, Readback, Host };
 
   Buffer createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, Memory memory);
   void destroy(Buffer& b);
@@ -183,6 +187,22 @@ class VulkanBackend final : public IBackend {
   Buffer deviceBuffer(const std::vector<T>& v, VkBufferUsageFlags usage = 0) {
     return deviceBuffer(v.data(), v.size() * sizeof(T), usage);
   }
+  // A storage buffer in pinned RAM (Memory::Host) filled with `bytes`, or in VRAM when `inRam` is false.
+  template <class T>
+  Buffer movableBuffer(const std::vector<T>& v, bool inRam) {
+    if (!inRam) return deviceBuffer(v);
+    Buffer b = createBuffer(v.size() * sizeof(T), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, Memory::Host);
+    if (!v.empty()) {
+      std::memcpy(b.mapped, v.data(), v.size() * sizeof(T));
+      vmaFlushAllocation(vma_, b.alloc, 0, VK_WHOLE_SIZE);
+    }
+    return b;
+  }
+  // One mesh's triangles as acceleration-structure geometry (`pos`, `idx`: buffer addresses, 0 when only sizes are
+  // wanted); advances the vertex and index bases. Returns the triangle count.
+  uint32_t meshGeometry(const Scene& scene, size_t m, VkDeviceAddress pos, VkDeviceAddress idx, uint32_t& vertexBase,
+                        uint32_t& indexBase, std::vector<VkAccelerationStructureGeometryKHR>& geoms,
+                        std::vector<VkAccelerationStructureBuildRangeInfoKHR>& ranges, std::vector<uint32_t>& counts);
   void submitAndWait(const std::function<void(VkCommandBuffer)>& record);
   void releaseScene();
   void buildAccelerationStructures(const Scene& scene);
@@ -202,7 +222,7 @@ class VulkanBackend final : public IBackend {
   VkPhysicalDeviceRayTracingPipelinePropertiesKHR rt_props_{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR};
   VkPhysicalDeviceAccelerationStructurePropertiesKHR as_props_{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR};
   DeviceInfo info_;
-  uint64_t vram_budget_ = 0;
+  bool host_as_ = false;  // acceleration structures could live in host memory (probe only, D-107)
 
   // Scene
   std::vector<Buffer> scene_buffers_;  // indexed by binding (some unused)
@@ -212,6 +232,7 @@ class VulkanBackend final : public IBackend {
   VkAccelerationStructureKHR tlas_ = VK_NULL_HANDLE;
   bool scene_ready_ = false;
   const Scene* scene_ = nullptr;  // owned by the caller while the backend renders it
+  std::optional<GpuScene> pending_;  // flattened by measure(), uploaded by upload()
 
   // Frame and item
   Buffer frame_buffer_, out_buffer_, counter_buffer_;
@@ -278,12 +299,23 @@ VulkanBackend::VulkanBackend(uint32_t physicalIndex) {
   qci.queueFamilyIndex = queue_family_;
   qci.queueCount = 1;
   qci.pQueuePriorities = &priority;
+  // VK_EXT_memory_budget when the driver has it: the live VRAM budget then counts other programs' use too
+  // (docs/GUIDE.md "Budget"); without it VMA estimates.
+  std::vector<const char*> extensions(std::begin(kDeviceExtensions), std::end(kDeviceExtensions));
+  uint32_t en = 0;
+  vkEnumerateDeviceExtensionProperties(physical_, nullptr, &en, nullptr);
+  std::vector<VkExtensionProperties> available(en);
+  vkEnumerateDeviceExtensionProperties(physical_, nullptr, &en, available.data());
+  const bool memoryBudget = std::any_of(available.begin(), available.end(), [](const VkExtensionProperties& e) {
+    return std::strcmp(e.extensionName, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME) == 0;
+  });
+  if (memoryBudget) extensions.push_back(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
   VkDeviceCreateInfo dci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
   dci.pNext = &features;
   dci.queueCreateInfoCount = 1;
   dci.pQueueCreateInfos = &qci;
-  dci.enabledExtensionCount = static_cast<uint32_t>(std::size(kDeviceExtensions));
-  dci.ppEnabledExtensionNames = kDeviceExtensions;
+  dci.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
+  dci.ppEnabledExtensionNames = extensions.data();
   check(vkCreateDevice(physical_, &dci, nullptr, &device_), "vkCreateDevice");
   volkLoadDeviceTable(&vk_, device_);
   vk_.vkGetDeviceQueue(device_, queue_family_, 0, &queue_);
@@ -292,7 +324,8 @@ VulkanBackend::VulkanBackend(uint32_t physicalIndex) {
   fns.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
   fns.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
   VmaAllocatorCreateInfo aci{};
-  aci.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+  aci.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT |
+              (memoryBudget ? VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT : 0);
   aci.physicalDevice = physical_;
   aci.device = device_;
   aci.instance = st.instance;
@@ -318,7 +351,28 @@ VulkanBackend::VulkanBackend(uint32_t physicalIndex) {
   info_.memory_bytes = gpu.vram_bytes;
   info_.hardware_rt = true;
   info_.uuid = gpu.uuid;
-  vram_budget_ = gpu.vram_bytes / 10 * 9;  // docs/GUIDE.md "Budget": free VRAM minus 10% (M8 reads the live budget)
+
+  // Host acceleration-structure probe: a buffer for acceleration structures may use a memory type that is not
+  // device-local. Reported only (D-107).
+  {
+    VkBufferCreateInfo bci{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    bci.size = 65536;
+    bci.usage = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+    VkBuffer probe = VK_NULL_HANDLE;
+    if (vk_.vkCreateBuffer(device_, &bci, nullptr, &probe) == VK_SUCCESS) {
+      VkMemoryRequirements req{};
+      vk_.vkGetBufferMemoryRequirements(device_, probe, &req);
+      VkPhysicalDeviceMemoryProperties mp{};
+      vkGetPhysicalDeviceMemoryProperties(physical_, &mp);
+      for (uint32_t i = 0; i < mp.memoryTypeCount; ++i)
+        if ((req.memoryTypeBits & (1u << i)) && !(mp.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) &&
+            (mp.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT))
+          host_as_ = true;
+      vk_.vkDestroyBuffer(device_, probe, nullptr);
+    }
+    spdlog::info("{}: acceleration structures in host memory: {} (probe; not used, a GPU short of VRAM for the "
+                 "geometry is memory tier 3)", gpu.name, host_as_ ? "supported" : "not supported");
+  }
 
   frame_buffer_ = createBuffer(sizeof(gpu::Frame), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, Memory::Upload);
   counter_buffer_ = createBuffer(16, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, Memory::Readback);
@@ -355,8 +409,21 @@ Buffer VulkanBackend::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, 
     aci.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
   if (memory == Memory::Readback)
     aci.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+  if (memory == Memory::Host) {
+    // RAM the GPU reads over PCIe: host-visible types that are not device-local (on resizable-BAR GPUs some
+    // host-visible types are VRAM, which tier 1 is meant to spare).
+    aci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+    aci.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    const VkPhysicalDeviceMemoryProperties* mp = nullptr;
+    vmaGetMemoryProperties(vma_, &mp);
+    for (uint32_t i = 0; i < mp->memoryTypeCount; ++i)
+      if (!(mp->memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) aci.memoryTypeBits |= 1u << i;
+  }
   VmaAllocationInfo ai{};
   const VkResult r = vmaCreateBuffer(vma_, &bci, &aci, &b.buffer, &b.alloc, &ai);
+  if (r == VK_ERROR_OUT_OF_DEVICE_MEMORY || r == VK_ERROR_OUT_OF_HOST_MEMORY)
+    throw OutOfMemoryError(fmt::format("Vulkan: cannot allocate {} {} on {}: {}", formatBytes(b.size),
+                                       memory == Memory::Host ? "of pinned RAM" : "of VRAM", info_.name, vkResultText(r)));
   if (r != VK_SUCCESS)
     throw BackendError(fmt::format("Vulkan: cannot allocate {} on {}: {}", formatBytes(b.size), info_.name, vkResultText(r)));
   b.mapped = ai.pMappedData;
@@ -405,30 +472,129 @@ Buffer VulkanBackend::deviceBuffer(const void* data, size_t bytes, VkBufferUsage
   Buffer dst = createBuffer(bytes, usage | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                             Memory::Device);
   if (bytes == 0) return dst;
-  Buffer staging = createBuffer(bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, Memory::Upload);
-  std::memcpy(staging.mapped, data, bytes);
-  vmaFlushAllocation(vma_, staging.alloc, 0, VK_WHOLE_SIZE);
-  submitAndWait([&](VkCommandBuffer c) {
-    VkBufferCopy region{0, 0, bytes};
-    vk_.vkCmdCopyBuffer(c, staging.buffer, dst.buffer, 1, &region);
-  });
+  // Staged through one small buffer, part by part: upload memory can be device-local (resizable BAR), and a
+  // staging copy of a multi-gigabyte texture buffer would need that much again.
+  constexpr size_t kChunk = size_t(64) << 20;
+  Buffer staging = createBuffer(std::min(bytes, kChunk), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, Memory::Upload);
+  try {
+    for (size_t off = 0; off < bytes; off += kChunk) {
+      const size_t n = std::min(kChunk, bytes - off);
+      std::memcpy(staging.mapped, static_cast<const uint8_t*>(data) + off, n);
+      vmaFlushAllocation(vma_, staging.alloc, 0, VK_WHOLE_SIZE);
+      submitAndWait([&](VkCommandBuffer c) {
+        VkBufferCopy region{0, off, n};
+        vk_.vkCmdCopyBuffer(c, staging.buffer, dst.buffer, 1, &region);
+      });
+    }
+  } catch (...) {
+    destroy(staging);
+    destroy(dst);
+    throw;
+  }
   destroy(staging);
   return dst;
 }
 
 // ---------------------------------------------------------------- memory plan and scene
 
-MemoryPlan VulkanBackend::plan(const SceneStats& stats) {
-  // Geometry is uploaded once as attributes and once inside the acceleration structures (about 2x).
-  const uint64_t need = stats.geometry_bytes * 3 + stats.texture_bytes;
-  if (need > vram_budget_)
-    throw BackendError(fmt::format("the scene needs about {} of GPU memory, {} has {} usable; memory tiers (textures "
-                                   "in RAM) arrive in M8",
-                                   formatBytes(need), info_.name, formatBytes(vram_budget_)));
-  MemoryPlan p;
-  p.tier = 0;
-  p.summary = fmt::format("tier 0, scene about {} of {} in VRAM", formatBytes(need), formatBytes(vram_budget_));
-  return p;
+uint64_t VulkanBackend::vramBudget() {
+  // The largest device-local heap: what the driver budgets for this process minus what it already uses
+  // (VK_EXT_memory_budget through VMA; an estimate without it), less the 10% margin (docs/GUIDE.md "Budget").
+  const VkPhysicalDeviceMemoryProperties* mp = nullptr;
+  vmaGetMemoryProperties(vma_, &mp);
+  std::vector<VmaBudget> budgets(mp->memoryHeapCount);
+  vmaGetHeapBudgets(vma_, budgets.data());
+  uint64_t best = 0;
+  for (uint32_t h = 0; h < mp->memoryHeapCount; ++h) {
+    if (!(mp->memoryHeaps[h].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)) continue;
+    const uint64_t free = budgets[h].budget > budgets[h].usage ? budgets[h].budget - budgets[h].usage : 0;
+    best = std::max(best, free);
+  }
+  return best / 10 * 9;
+}
+
+uint32_t VulkanBackend::meshGeometry(const Scene& scene, size_t m, VkDeviceAddress pos, VkDeviceAddress idx,
+                                     uint32_t& vertexBase, uint32_t& indexBase,
+                                     std::vector<VkAccelerationStructureGeometryKHR>& geoms,
+                                     std::vector<VkAccelerationStructureBuildRangeInfoKHR>& ranges,
+                                     std::vector<uint32_t>& counts) {
+  uint32_t total = 0;
+  for (const MeshPrimitive& p : scene.meshes[m].primitives) {
+    VkAccelerationStructureGeometryKHR g{VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR};
+    g.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
+    g.flags = scene.materials[p.material].usesAlpha() ? 0 : VK_GEOMETRY_OPAQUE_BIT_KHR;
+    auto& tri = g.geometry.triangles;
+    tri.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
+    tri.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
+    tri.vertexData.deviceAddress = pos ? pos + VkDeviceAddress(vertexBase) * sizeof(Vec3f) : 0;
+    tri.vertexStride = sizeof(Vec3f);
+    tri.maxVertex = p.positions.empty() ? 0 : static_cast<uint32_t>(p.positions.size() - 1);
+    tri.indexType = VK_INDEX_TYPE_UINT32;
+    tri.indexData.deviceAddress = idx ? idx + VkDeviceAddress(indexBase) * sizeof(uint32_t) : 0;
+    geoms.push_back(g);
+    ranges.push_back({p.triangleCount(), 0, 0, 0});
+    counts.push_back(p.triangleCount());
+    total += p.triangleCount();
+    vertexBase += static_cast<uint32_t>(p.positions.size());
+    indexBase += static_cast<uint32_t>(p.indices.size());
+  }
+  return total;
+}
+
+SceneFootprint VulkanBackend::measure(const Scene& scene) {
+  pending_ = flattenScene(scene);
+  const GpuScene& g = *pending_;
+  const auto bytes = [](const auto& v) { return std::max<uint64_t>(16, v.size() * sizeof(v[0])); };
+  SceneFootprint fp;
+  fp.fixed = bytes(g.instances) + bytes(g.primitives) + bytes(g.positions) + bytes(g.normals) + bytes(g.tangents) +
+             bytes(g.uvs) + bytes(g.colors) + bytes(g.indices) + bytes(g.materials) + bytes(g.textures) +
+             bytes(g.emissive) + bytes(g.emissive_offset) + bytes(g.light_table) + bytes(g.lights) +
+             bytes(g.env_tables) + bytes(g.sheen_table) + bytes(g.srgb_table);
+  fp.environment = bytes(*g.env_map) + bytes(*g.env_weights);
+  for (const Texture& t : scene.textures) fp.textures.push_back({t.width, t.height, t.is_float ? 16u : 4u});
+
+  // Acceleration structures: the driver's own sizes. Every BLAS stays; the scratch buffer is freed after each
+  // build, so only the largest one counts.
+  const VkDeviceSize asAlign = 256;
+  uint64_t scratch = 0, instances = 0;
+  uint32_t vertexBase = 0, indexBase = 0;
+  std::vector<bool> hasGeometry(scene.meshes.size(), false);
+  for (size_t m = 0; m < scene.meshes.size(); ++m) {
+    std::vector<VkAccelerationStructureGeometryKHR> geoms;
+    std::vector<VkAccelerationStructureBuildRangeInfoKHR> ranges;
+    std::vector<uint32_t> counts;
+    if (meshGeometry(scene, m, 0, 0, vertexBase, indexBase, geoms, ranges, counts) == 0) continue;
+    hasGeometry[m] = true;
+    VkAccelerationStructureBuildGeometryInfoKHR build{VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR};
+    build.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+    build.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+    build.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+    build.geometryCount = static_cast<uint32_t>(geoms.size());
+    build.pGeometries = geoms.data();
+    VkAccelerationStructureBuildSizesInfoKHR sizes{VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR};
+    vk_.vkGetAccelerationStructureBuildSizesKHR(device_, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &build,
+                                                counts.data(), &sizes);
+    fp.fixed += alignUp(sizes.accelerationStructureSize, asAlign);
+    scratch = std::max<uint64_t>(scratch, sizes.buildScratchSize);
+  }
+  for (const Instance& s : scene.instances) instances += hasGeometry[s.mesh] ? 1 : 0;
+  VkAccelerationStructureGeometryKHR tg{VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR};
+  tg.geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
+  tg.geometry.instances.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
+  VkAccelerationStructureBuildGeometryInfoKHR tb{VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR};
+  tb.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+  tb.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+  tb.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+  tb.geometryCount = 1;
+  tb.pGeometries = &tg;
+  const uint32_t count = static_cast<uint32_t>(instances);
+  VkAccelerationStructureBuildSizesInfoKHR ts{VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR};
+  vk_.vkGetAccelerationStructureBuildSizesKHR(device_, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &tb, &count, &ts);
+  fp.fixed += alignUp(ts.accelerationStructureSize, asAlign) +
+              std::max<uint64_t>(16, instances * sizeof(VkAccelerationStructureInstanceKHR)) +
+              std::max<uint64_t>(scratch, ts.buildScratchSize) +
+              as_props_.minAccelerationStructureScratchOffsetAlignment;
+  return fp;
 }
 
 void VulkanBackend::releaseScene() {
@@ -445,12 +611,16 @@ void VulkanBackend::releaseScene() {
   scene_ready_ = false;
 }
 
-void VulkanBackend::upload(const Scene& scene, const MemoryPlan&) {
+void VulkanBackend::upload(const Scene& scene, const Placement& placement) {
   const auto t0 = std::chrono::steady_clock::now();
   vk_.vkDeviceWaitIdle(device_);
   releaseScene();
 
-  const GpuScene g = flattenScene(scene);
+  if (!pending_) pending_ = flattenScene(scene);
+  GpuScene g = std::move(*pending_);
+  pending_.reset();
+  if (!placement.halvings.empty()) packTextures(scene, placement.halvings, g);  // tier 2
+  const bool inRam = placement.movable_in_ram;                                  // tiers 1 and 2
 
   constexpr VkBufferUsageFlags kAsInput = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
   scene_buffers_.resize(kBindCount);
@@ -464,17 +634,17 @@ void VulkanBackend::upload(const Scene& scene, const MemoryPlan&) {
   scene_buffers_[9] = deviceBuffer(g.indices, kAsInput);
   scene_buffers_[10] = deviceBuffer(g.materials);
   scene_buffers_[11] = deviceBuffer(g.textures);
-  scene_buffers_[12] = deviceBuffer(g.texels8);
-  scene_buffers_[13] = deviceBuffer(g.texels32);
+  scene_buffers_[12] = movableBuffer(g.texels8, inRam);
+  scene_buffers_[13] = movableBuffer(g.texels32, inRam);
   scene_buffers_[14] = deviceBuffer(g.emissive);
   scene_buffers_[15] = deviceBuffer(g.emissive_offset);
   scene_buffers_[16] = deviceBuffer(g.light_table);
   scene_buffers_[17] = deviceBuffer(g.lights);
-  scene_buffers_[18] = deviceBuffer(*g.env_map);
+  scene_buffers_[18] = movableBuffer(*g.env_map, inRam);
   scene_buffers_[19] = deviceBuffer(g.env_tables);
   scene_buffers_[20] = deviceBuffer(g.sheen_table);
   scene_buffers_[21] = deviceBuffer(g.srgb_table);
-  scene_buffers_[22] = deviceBuffer(*g.env_weights);
+  scene_buffers_[22] = movableBuffer(*g.env_weights, inRam);
 
   buildAccelerationStructures(scene);
   scene_ = &scene;
@@ -493,30 +663,10 @@ void VulkanBackend::buildAccelerationStructures(const Scene& scene) {
   blas_buffers_.resize(scene.meshes.size());
   uint32_t vertexBase = 0, indexBase = 0;
   for (size_t m = 0; m < scene.meshes.size(); ++m) {
-    const Mesh& mesh = scene.meshes[m];
     std::vector<VkAccelerationStructureGeometryKHR> geoms;
     std::vector<VkAccelerationStructureBuildRangeInfoKHR> ranges;
     std::vector<uint32_t> counts;
-    uint32_t total = 0;
-    for (const MeshPrimitive& p : mesh.primitives) {
-      VkAccelerationStructureGeometryKHR g{VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR};
-      g.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
-      g.flags = scene.materials[p.material].usesAlpha() ? 0 : VK_GEOMETRY_OPAQUE_BIT_KHR;
-      auto& tri = g.geometry.triangles;
-      tri.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
-      tri.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
-      tri.vertexData.deviceAddress = posAddr + VkDeviceAddress(vertexBase) * sizeof(Vec3f);
-      tri.vertexStride = sizeof(Vec3f);
-      tri.maxVertex = p.positions.empty() ? 0 : static_cast<uint32_t>(p.positions.size() - 1);
-      tri.indexType = VK_INDEX_TYPE_UINT32;
-      tri.indexData.deviceAddress = idxAddr + VkDeviceAddress(indexBase) * sizeof(uint32_t);
-      geoms.push_back(g);
-      ranges.push_back({p.triangleCount(), 0, 0, 0});
-      counts.push_back(p.triangleCount());
-      total += p.triangleCount();
-      vertexBase += static_cast<uint32_t>(p.positions.size());
-      indexBase += static_cast<uint32_t>(p.indices.size());
-    }
+    const uint32_t total = meshGeometry(scene, m, posAddr, idxAddr, vertexBase, indexBase, geoms, ranges, counts);
     if (total == 0) continue;  // nothing to hit: its instances are left out of the TLAS
 
     VkAccelerationStructureBuildGeometryInfoKHR build{VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR};
@@ -898,6 +1048,15 @@ std::vector<float> runVulkanParity(uint32_t physicalIndex, uint32_t count) {
 }
 
 const VulkanProbe& probeVulkan() { return instanceState().probe; }
+
+std::string probeHostAccelerationStructures(uint32_t physicalIndex) {
+  try {
+    VulkanBackend b(physicalIndex);
+    return b.hostAccelerationStructures() ? "supported" : "not supported";
+  } catch (const std::exception& e) {
+    return std::string("probe failed: ") + e.what();
+  }
+}
 
 std::unique_ptr<IBackend> createVulkanBackend(uint32_t physicalIndex) {
   return std::make_unique<VulkanBackend>(physicalIndex);

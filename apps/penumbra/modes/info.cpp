@@ -88,8 +88,13 @@ int diagnose() {
   const VulkanProbe& probe = probeVulkan();
   if (!probe.loader_found) row("Vulkan", probe.error);
   for (const VulkanGpu& g : probe.gpus)
+  {
     row("Vulkan", fmt::format("{} ({}, {} VRAM, driver {}): {}", g.name, g.type, formatBytes(g.vram_bytes), g.driver,
                               g.ray_tracing ? "ray tracing OK" : "no ray tracing, missing " + g.missing));
+    if (g.ray_tracing)
+      row("Vulkan", fmt::format("{}: acceleration structures in host memory {}", g.name,
+                                probeHostAccelerationStructures(g.physical_index)));
+  }
 #else
   row("Vulkan", "not built (PEN_ENABLE_VULKAN=OFF)");
 #endif

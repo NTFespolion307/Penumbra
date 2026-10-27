@@ -834,3 +834,32 @@ D-082). (2) Host acceleration structures: probe and report only (`--diagnose`, p
 does not fit in VRAM is tier 3. (3) Intel's New Sponza (with curtains and ivy) joins `scripts/get-scenes` as an
 optional download and is M8's real-world scene: its high-resolution textures do not fit in 8 GB, so it walks the
 ladder for real. Its license is checked from the download before anything depends on it.
+
+**D-108 Memory budget and fallback (M8 steps 1-6).**
+- **The ladder is one pure function** (`core/render/memory_placement`): a device's exact footprint (geometry and
+  acceleration structures that must stay in VRAM; the environment map and weights, movable, never downsized; each
+  texture, movable and downsizable) against its budgets gives tier 0 (all in VRAM), 1 (textures and environment
+  in pinned RAM), 2 (as 1, or in VRAM when it has more room, with the largest texture halved until it fits,
+  deterministic) or 3 (the geometry does not fit, the textures fit nowhere with `--no-texture-downsize`, or memory
+  ran out at every tier). Unit-tested without a GPU.
+- **Exact sizes, live budgets.** Backends measure the real footprint before uploading: Vulkan asks the driver for
+  acceleration-structure sizes (every BLAS plus the largest build scratch), CUDA builds its BVH on the CPU first; the
+  flattened arrays are kept for the upload. The VRAM budget is read live (Vulkan: `VK_EXT_memory_budget` through
+  VMA when the driver has it; CUDA: `cuMemGetInfo`) minus 10%, or `--vram-limit` when smaller. Pinned RAM is one
+  pool per host (`--ram-limit`, default 75% of RAM, less the scene the worker holds), shared by its GPUs.
+- **Tier 1** puts the texel buffers, the environment map and its weights in host memory the GPU reads over PCIe:
+  Vulkan host-visible types that are not device-local (on resizable-BAR GPUs some host-visible types are VRAM),
+  CUDA `cuMemHostAlloc` mapped (never managed memory). Shaders do not change; the image is bit-identical to tier 0.
+- **Tier 2** halves textures with one shared function (`downsized`, 2x2 means of the stored values); the CPU applies
+  it too (its placement or the test hook `PENUMBRA_TEST_TEXTURE_HALVINGS=k`), so GPU tier-2 renders are checked
+  against the CPU with the same textures.
+- **No out-of-memory crash.** A failed allocation is an `OutOfMemoryError`; the worker gives the tier up, returns its
+  RAM to the pool and asks the ladder again one tier lower. Fault mode `oom` injects it (`PENUMBRA_TEST_FAULTS=
+  device=N,mode=oom,after=T`: fails at tiers up to T).
+- **Uploads are staged in 64 MB parts** through one buffer, so a multi-gigabyte texture buffer needs no staging
+  copy as large (upload memory can be device-local on resizable-BAR GPUs).
+- **The placement log** is the device summary the controller already logs per device ("tier 1, scene 6.1 GB of
+  7.2 GB VRAM, textures 2.4 GB in RAM"); the tier was already on the wire, so the protocol is unchanged. The UI's
+  host detail page shows each device's tier and placement while a render runs.
+- **Host acceleration structures**: probed (an acceleration-structure buffer allowed in a host-visible, not
+  device-local memory type), logged per GPU and shown by `--diagnose`; not used (D-107).

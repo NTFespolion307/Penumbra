@@ -22,8 +22,7 @@ class NullBackend final : public IBackend {
     if (const char* d = std::getenv("PENUMBRA_TEST_NULL_DELAY_MS")) delay_ms_ = std::atoi(d);
   }
   DeviceInfo info() const override { return info_; }
-  MemoryPlan plan(const SceneStats&) override { return {0, "tier 0, test backend (no scene upload)"}; }
-  void upload(const Scene&, const MemoryPlan&) override {}
+  void upload(const Scene&, const Placement&) override {}
   void prepare(const FrameSetup&) override { cancel_ = false; }
   void cancel() override { cancel_ = true; }
 

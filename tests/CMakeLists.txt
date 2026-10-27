@@ -9,6 +9,7 @@ add_executable(penumbra_unit_tests
   unit/test_cli.cpp
   unit/test_config.cpp
   unit/test_film.cpp
+  unit/test_memory.cpp
   unit/test_net.cpp
   unit/test_package.cpp
   unit/test_parse.cpp
@@ -306,6 +307,22 @@ foreach(_b IN LISTS _pen_gpu_backends)
                "-DEXPECT_LOG=duplicated to device" -DSMALL_CHUNKS=1 -DMIN_GPUS=2)
   set_tests_properties(render.${_b}_multi_gpu render.${_b}_multi_gpu_fail render.${_b}_multi_gpu_hang
                        PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:")
+  # M8 (D-108): the memory tier ladder on bigtex (one 2048x2048 texture, ~17 MB on the GPU). Tier 1 moves the same
+  # bytes to RAM: bit-identical. Tier 2 halves the texture once (10 MB of VRAM, 30 MB of RAM less the scene itself):
+  # the CPU halving it the same way must agree. Tier 3 and a forbidden downsize skip the GPU; the CPU finishes, so
+  # the image is the CPU's. An injected out-of-memory at tier 0 lands at tier 1, same bits.
+  pen_gpu_test(${_b} tier1_bits pair bigtex.pen.json "--res|240x240|--spp|64" "-DARGS_A=--backend|${_b}"
+               "-DARGS_B=--backend|${_b}|--vram-limit|10M" -DMAXRELMSE=0 "-DEXPECT_LOG=tier 1, scene")
+  pen_gpu_test(${_b} tier2_vs_cpu pair bigtex.pen.json "--res|240x240|--spp|1024" "-DARGS_A=--backend|cpu"
+               "-DARGS_B=--backend|${_b}|--vram-limit|10M|--ram-limit|30M" -DMAXRELMSE=1e-3 -DTEXTURE_HALVINGS=1
+               "-DEXPECT_LOG=tier 2, [^\n]*1 texture\(s\) downsized \(at most 1/2 per side\)")
+  pen_gpu_test(${_b} tier3_skip pair bigtex.pen.json "--res|240x240|--spp|16" "-DARGS_A=--backend|cpu"
+               "-DARGS_B=--devices|0:${_b},cpu|--vram-limit|1K" -DMAXRELMSE=0 "-DEXPECT_LOG=memory tier 3")
+  pen_gpu_test(${_b} no_downsize pair bigtex.pen.json "--res|240x240|--spp|16" "-DARGS_A=--backend|cpu"
+               "-DARGS_B=--devices|0:${_b},cpu|--vram-limit|10M|--ram-limit|30M|--no-texture-downsize" -DMAXRELMSE=0
+               "-DEXPECT_LOG=memory tier 3[^\n]*--no-texture-downsize")
+  pen_gpu_test(${_b} oom_retry faults bigtex.pen.json "--res|240x240|--spp|64|--backend|${_b}" -DREF_DEVICES=0
+               -DFAULT_DEVICES=0 "-DFAULTS=device=0,mode=oom" "-DEXPECT_LOG=out of memory at tier 0")
 endforeach()
 if(PEN_ENABLE_CUDA)
   # Traversal step counts exist only in the software BVH.

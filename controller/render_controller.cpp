@@ -89,8 +89,15 @@ uint32_t RenderController::restoreFromFilm() {
 
 // ---------------------------------------------------------------- worker events
 
+std::vector<DeviceReady> RenderController::deviceReadiness(WorkerId worker) const {
+  std::lock_guard lock(mutex_);
+  const auto it = ready_.find(worker);
+  return it == ready_.end() ? std::vector<DeviceReady>{} : it->second;
+}
+
 void RenderController::onReady(WorkerId worker, const std::vector<DeviceReady>& devices) {
   std::lock_guard lock(mutex_);
+  ready_[worker] = devices;
   const WorkerInfo info = workers_[worker]->info();
   for (const DeviceReady& d : devices) {
     const std::string name = d.device < info.devices.size() ? info.devices[d.device].name : "?";

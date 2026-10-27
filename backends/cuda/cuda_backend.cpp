@@ -12,6 +12,7 @@
 #include <fmt/format.h>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <string_view>
 #include <thread>
 
@@ -211,7 +212,8 @@ PEN_CUDA_FIELD(TlasNode, "TlasNode", count);
   X(cuDeviceTotalMem) X(cuDeviceGetUuid) X(cuDevicePrimaryCtxRetain) X(cuDevicePrimaryCtxRelease)             \
   X(cuCtxPushCurrent) X(cuCtxPopCurrent) X(cuCtxSynchronize) X(cuModuleLoadDataEx) X(cuModuleUnload)          \
   X(cuModuleGetFunction) X(cuModuleGetGlobal) X(cuMemAlloc) X(cuMemFree) X(cuMemcpyHtoD) X(cuMemcpyDtoH)      \
-  X(cuMemsetD8) X(cuLaunchKernel) X(cuGetErrorName) X(cuGetErrorString) X(cuMemGetInfo) X(cuStreamQuery)
+  X(cuMemsetD8) X(cuLaunchKernel) X(cuGetErrorName) X(cuGetErrorString) X(cuMemGetInfo) X(cuStreamQuery)       \
+  X(cuMemHostAlloc) X(cuMemFreeHost) X(cuMemHostGetDevicePointer)
 
 struct Driver {
 #define PEN_CU_MEMBER(name) decltype(&::name) name = nullptr;
@@ -344,6 +346,7 @@ struct Module {
 struct DeviceBuffer {
   CUdeviceptr ptr = 0;
   size_t bytes = 0;
+  void* host = nullptr;  // pinned RAM mapped into the GPU's address space (memory tiers 1 and 2), else null
 };
 
 // ---------------------------------------------------------------- backend
@@ -354,8 +357,9 @@ class CudaBackend final : public IBackend {
   ~CudaBackend() override;
 
   DeviceInfo info() const override { return info_; }
-  MemoryPlan plan(const SceneStats& stats) override;
-  void upload(const Scene& scene, const MemoryPlan& plan) override;
+  uint64_t vramBudget() override;
+  SceneFootprint measure(const Scene& scene) override;
+  void upload(const Scene& scene, const Placement& placement) override;
   void prepare(const FrameSetup& frame) override;
   void render(const WorkItem& item, TileResult& out) override;
   void cancel() override { cancel_ = true; }
@@ -369,12 +373,24 @@ class CudaBackend final : public IBackend {
   Module loadModule(const unsigned char* image, const char* kernel, uint32_t globalsSize);
   void unloadModule(Module& m);
   DeviceBuffer allocate(size_t bytes);
+  // Pinned RAM the GPU reads over PCIe (cuMemHostAlloc, mapped): explicit on both OSes, never managed memory,
+  // which Windows cannot oversubscribe (docs/GUIDE.md "Platform gotchas").
+  DeviceBuffer allocateHost(size_t bytes);
   void release(DeviceBuffer& b);
   // Uploads an array and points the named StructuredBuffer at it ({T* data; size_t count} in the block).
   template <class T>
   void bindArray(Module& m, std::string_view name, const std::vector<T>& v) {
     DeviceBuffer b = allocate(v.size() * sizeof(T));
     if (!v.empty()) check(cu_.cuMemcpyHtoD(b.ptr, v.data(), v.size() * sizeof(T)), "cuMemcpyHtoD");
+    setBuffer(m, name, b.ptr, v.size());
+    scene_buffers_.push_back(b);
+  }
+  // As bindArray, in pinned RAM when `inRam` (textures and the environment at memory tiers 1 and 2).
+  template <class T>
+  void bindMovable(Module& m, std::string_view name, const std::vector<T>& v, bool inRam) {
+    if (!inRam) return bindArray(m, name, v);
+    DeviceBuffer b = allocateHost(v.size() * sizeof(T));
+    if (!v.empty()) std::memcpy(b.host, v.data(), v.size() * sizeof(T));
     setBuffer(m, name, b.ptr, v.size());
     scene_buffers_.push_back(b);
   }
@@ -388,8 +404,9 @@ class CudaBackend final : public IBackend {
   CUdevice device_ = 0;
   CUcontext ctx_ = nullptr;
   DeviceInfo info_;
-  uint64_t vram_budget_ = 0;
   Module render_;
+  std::optional<GpuScene> pending_;  // flattened by measure(), uploaded by upload()
+  std::optional<GpuBvh> pending_bvh_;
   std::vector<DeviceBuffer> scene_buffers_;
   DeviceBuffer frame_buffer_, out_buffer_, counter_buffer_;
   uint64_t out_capacity_ = 0;
@@ -420,7 +437,6 @@ CudaBackend::CudaBackend(uint32_t ordinal) : cu_(driverState().cu) {
   info_.memory_bytes = gpu.vram_bytes;
   info_.hardware_rt = false;
   info_.uuid = gpu.uuid;
-  vram_budget_ = gpu.vram_bytes / 10 * 9;  // as the Vulkan backend until M8 reads the live budget
   CtxScope scope(cu_, ctx_);
   render_ = loadModule(kPathtraceFatbin, "render", L::kGlobalsSize);
   frame_buffer_ = allocate(sizeof(gpu::Frame));
@@ -470,14 +486,32 @@ DeviceBuffer CudaBackend::allocate(size_t bytes) {
   DeviceBuffer b;
   b.bytes = std::max<size_t>(bytes, 16);  // never null, so empty arrays still have a valid pointer
   const CUresult r = cu_.cuMemAlloc(&b.ptr, b.bytes);
+  if (r == CUDA_ERROR_OUT_OF_MEMORY)
+    throw OutOfMemoryError(fmt::format("CUDA: cannot allocate {} of VRAM on {}: {}", formatBytes(b.bytes),
+                                       info_.name, errorText(cu_, r)));
   if (r != CUDA_SUCCESS)
     throw BackendError(fmt::format("CUDA: cannot allocate {} on {}: {}", formatBytes(b.bytes), info_.name,
                                    errorText(cu_, r)));
   return b;
 }
 
+DeviceBuffer CudaBackend::allocateHost(size_t bytes) {
+  DeviceBuffer b;
+  b.bytes = std::max<size_t>(bytes, 16);
+  CUresult r = cu_.cuMemHostAlloc(&b.host, b.bytes, CU_MEMHOSTALLOC_DEVICEMAP);
+  if (r == CUDA_SUCCESS) {
+    r = cu_.cuMemHostGetDevicePointer(&b.ptr, b.host, 0);
+    if (r != CUDA_SUCCESS) cu_.cuMemFreeHost(b.host);
+  }
+  if (r != CUDA_SUCCESS)
+    throw OutOfMemoryError(fmt::format("CUDA: cannot pin {} of RAM for {}: {}", formatBytes(b.bytes), info_.name,
+                                       errorText(cu_, r)));
+  return b;
+}
+
 void CudaBackend::release(DeviceBuffer& b) {
-  if (b.ptr) cu_.cuMemFree(b.ptr);
+  if (b.host) cu_.cuMemFreeHost(b.host);
+  else if (b.ptr) cu_.cuMemFree(b.ptr);
   b = DeviceBuffer{};
 }
 
@@ -517,17 +551,30 @@ void CudaBackend::writeGlobals(Module& m) {
 
 // ---------------------------------------------------------------- scene
 
-MemoryPlan CudaBackend::plan(const SceneStats& stats) {
-  // Geometry is uploaded as attributes and again as BVH triangles (48 bytes each) plus nodes: about 3x.
-  const uint64_t need = stats.geometry_bytes * 3 + stats.texture_bytes;
-  if (need > vram_budget_)
-    throw BackendError(fmt::format("the scene needs about {} of GPU memory, {} has {} usable; memory tiers (textures "
-                                   "in RAM) arrive in M8",
-                                   formatBytes(need), info_.name, formatBytes(vram_budget_)));
-  MemoryPlan p;
-  p.tier = 0;
-  p.summary = fmt::format("tier 0, scene about {} of {} in VRAM", formatBytes(need), formatBytes(vram_budget_));
-  return p;
+uint64_t CudaBackend::vramBudget() {
+  // Free VRAM now (other programs' use included), less the 10% margin (docs/GUIDE.md "Budget").
+  CtxScope scope(cu_, ctx_);
+  size_t free = 0, total = 0;
+  check(cu_.cuMemGetInfo(&free, &total), "cuMemGetInfo");
+  return uint64_t(free) / 10 * 9;
+}
+
+SceneFootprint CudaBackend::measure(const Scene& scene) {
+  // The BVH is built on the CPU, so its exact size is known before anything goes to the GPU.
+  pending_ = flattenScene(scene);
+  pending_bvh_ = buildGpuBvh(scene);
+  const GpuScene& g = *pending_;
+  const GpuBvh& bvh = *pending_bvh_;
+  const auto bytes = [](const auto& v) { return std::max<uint64_t>(16, v.size() * sizeof(v[0])); };
+  SceneFootprint fp;
+  fp.fixed = bytes(g.instances) + bytes(g.primitives) + bytes(g.positions) + bytes(g.normals) + bytes(g.tangents) +
+             bytes(g.uvs) + bytes(g.colors) + bytes(g.indices) + bytes(g.materials) + bytes(g.textures) +
+             bytes(g.emissive) + bytes(g.emissive_offset) + bytes(g.light_table) + bytes(g.lights) +
+             bytes(g.env_tables) + bytes(g.sheen_table) + bytes(g.srgb_table) + bytes(bvh.nodes) + bytes(bvh.tris) +
+             bytes(bvh.blas) + bytes(bvh.tlas) + bytes(bvh.tlas_index) + bytes(bvh.tri_map);
+  fp.environment = bytes(*g.env_map) + bytes(*g.env_weights);
+  for (const Texture& t : scene.textures) fp.textures.push_back({t.width, t.height, t.is_float ? 16u : 4u});
+  return fp;
 }
 
 void CudaBackend::releaseScene() {
@@ -536,14 +583,20 @@ void CudaBackend::releaseScene() {
   scene_ready_ = false;
 }
 
-void CudaBackend::upload(const Scene& scene, const MemoryPlan&) {
+void CudaBackend::upload(const Scene& scene, const Placement& placement) {
   const auto t0 = std::chrono::steady_clock::now();
   CtxScope scope(cu_, ctx_);
   check(cu_.cuCtxSynchronize(), "cuCtxSynchronize");
   releaseScene();
 
-  const GpuScene g = flattenScene(scene);
-  const GpuBvh bvh = buildGpuBvh(scene);
+  if (!pending_) pending_ = flattenScene(scene);
+  if (!pending_bvh_) pending_bvh_ = buildGpuBvh(scene);
+  GpuScene g = std::move(*pending_);
+  const GpuBvh bvh = std::move(*pending_bvh_);
+  pending_.reset();
+  pending_bvh_.reset();
+  if (!placement.halvings.empty()) packTextures(scene, placement.halvings, g);  // tier 2
+  const bool inRam = placement.movable_in_ram;                                  // tiers 1 and 2
   const double bvhSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
   for (const std::string& n : bvh.notes) spdlog::info("{}: {}", info_.name, n);
 
@@ -557,15 +610,15 @@ void CudaBackend::upload(const Scene& scene, const MemoryPlan&) {
   bindArray(render_, "g_indices", g.indices);
   bindArray(render_, "g_materials", g.materials);
   bindArray(render_, "g_textures", g.textures);
-  bindArray(render_, "g_texels8", g.texels8);
-  bindArray(render_, "g_texels32", g.texels32);
+  bindMovable(render_, "g_texels8", g.texels8, inRam);
+  bindMovable(render_, "g_texels32", g.texels32, inRam);
   bindArray(render_, "g_emissive", g.emissive);
   bindArray(render_, "g_emissive_offset", g.emissive_offset);
   bindArray(render_, "g_light_table", g.light_table);
   bindArray(render_, "g_lights", g.lights);
-  bindArray(render_, "g_env_map", *g.env_map);
+  bindMovable(render_, "g_env_map", *g.env_map, inRam);
   bindArray(render_, "g_env_rows", g.env_tables);
-  bindArray(render_, "g_env_weights", *g.env_weights);
+  bindMovable(render_, "g_env_weights", *g.env_weights, inRam);
   bindArray(render_, "g_sheen_table", g.sheen_table);
   bindArray(render_, "g_srgb_lut", g.srgb_table);
   bindArray(render_, "g_bvh_nodes", bvh.nodes);

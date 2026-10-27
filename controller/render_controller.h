@@ -106,6 +106,8 @@ class RenderController final : public WorkerEvents {
   void readFilm(const TileRect& rect, std::vector<Vec3f>& out) const;
 
   void onReady(WorkerId worker, const std::vector<DeviceReady>& devices) override;
+  // What `worker`'s devices reported when they took the scene (memory tier, placement), empty before that.
+  std::vector<DeviceReady> deviceReadiness(WorkerId worker) const;
   void onRequestWork(WorkerId worker, DeviceId device, int count) override;
   void onTileResult(WorkerId worker, TileResult&& result) override;
   void onRelease(WorkerId worker, std::span<const LeaseId> leases) override;
@@ -153,6 +155,7 @@ class RenderController final : public WorkerEvents {
   std::map<DeviceKey, int> wanted_;                   // devices waiting for this many more items
   std::map<uint64_t, TileResult> early_;              // results waiting for an earlier chunk of their tile
   std::map<WorkerId, uint32_t> rejects_;              // invalid results per worker
+  std::map<WorkerId, std::vector<DeviceReady>> ready_;  // each worker's devices: memory tier and placement
   std::deque<double> item_seconds_;                   // recent item durations, for hang detection
   std::map<DeviceKey, std::deque<double>> device_seconds_;  // the same per device (D-097)
   uint32_t live_devices_ = 0;

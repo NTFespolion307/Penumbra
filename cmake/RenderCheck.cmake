@@ -43,6 +43,11 @@ endif()
 if(SMALL_CHUNKS OR MODE STREQUAL "network")
   set(ENV{PENUMBRA_TEST_CHUNK_BUDGET} 4194304)
 endif()
+# TEXTURE_HALVINGS=k: CPU renders halve every texture k times, as a GPU at memory tier 2 does (M8, D-108); GPU
+# devices ignore it.
+if(DEFINED TEXTURE_HALVINGS)
+  set(ENV{PENUMBRA_TEST_TEXTURE_HALVINGS} ${TEXTURE_HALVINGS})
+endif()
 # NO_TAIL=1: no tail duplication (D-091), so a hung device is caught by the late-lease check instead.
 if(NO_TAIL)
   set(ENV{PENUMBRA_TEST_NO_TAIL_DUPLICATION} 1)
@@ -77,7 +82,7 @@ function(reference out)
   file(SHA256 "${SCENE}" scene_hash)
   # The work-item size is part of the key: chunks are merged into the film in another order, which changes the
   # last bits (relMSE ~1e-15) though not the image.
-  string(SHA256 key "${exe_hash}|${scene_hash}|${extra}|${ARGN}|chunks=$ENV{PENUMBRA_TEST_CHUNK_BUDGET}")
+  string(SHA256 key "${exe_hash}|${scene_hash}|${extra}|${ARGN}|chunks=$ENV{PENUMBRA_TEST_CHUNK_BUDGET}|halvings=$ENV{PENUMBRA_TEST_TEXTURE_HALVINGS}")
   string(SUBSTRING "${key}" 0 24 key)
   set(cached "${WORKDIR}/refcache/${key}.exr")
   if(EXISTS "${cached}")

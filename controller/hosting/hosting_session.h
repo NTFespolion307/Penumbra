@@ -84,6 +84,9 @@ class HostingSession final : public WorkerEvents {
   bool readFilm(const TileRect& rect, std::vector<Vec3f>& out) const;
 
   std::vector<HostView> hosts();          // connected first, then the recently gone
+  // How `host`'s devices hold the current render's scene (memory tier and placement; host 0 is this machine),
+  // empty between renders or before they are ready.
+  std::vector<DeviceReady> devicePlacement(WorkerId host) const;
   std::vector<SessionEvent> events() const;  // oldest first, at most kMaxEvents
   void addEvent(SessionEvent::Level level, std::string text);
 
@@ -133,6 +136,7 @@ class HostingSession final : public WorkerEvents {
   std::set<WorkerId> disabled_hosts_;
   std::set<std::pair<WorkerId, DeviceId>> disabled_devices_;
   RenderController* render_ = nullptr;  // while render() runs
+  std::optional<WorkerId> local_render_id_;  // this machine's devices in the current render
 };
 
 }  // namespace pen

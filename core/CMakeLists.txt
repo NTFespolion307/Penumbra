@@ -23,6 +23,7 @@ add_library(penumbra_core STATIC
   package/package.cpp
   render/camera.cpp
   render/lights.cpp
+  render/memory_placement.cpp
   render/surface.cpp
   sampling/alias_table.cpp
   scene/gltf_loader.cpp

@@ -17,8 +17,10 @@ namespace pen {
 //   freeze   the device hangs and a network worker stops sending anything, heartbeats included (a dead link)
 //   corrupt  a network worker damages the device's tiles after computing their checksums
 //   upload   the device fails while taking the scene (before any item; `after` is ignored), so it is skipped
+//   oom      taking the scene runs out of memory at memory tiers up to `after` (default 0), so the device lands one
+//            tier lower (M8, D-108)
 // Unset: nothing happens.
-enum class FaultMode { Throw, Hang, Exit, Freeze, Corrupt, Upload };
+enum class FaultMode { Throw, Hang, Exit, Freeze, Corrupt, Upload, Oom };
 
 struct FaultSpec {
   uint32_t device = 0;

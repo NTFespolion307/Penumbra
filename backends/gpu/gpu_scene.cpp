@@ -72,6 +72,36 @@ void appendTable(std::vector<gpu::AliasEntry>& out, const AliasTable& t) {
 
 }  // namespace
 
+void packTextures(const Scene& scene, const std::vector<uint32_t>& halvings, GpuScene& g) {
+  g.textures.clear();
+  g.texels8.clear();
+  g.texels32.clear();
+  for (size_t ti = 0; ti < scene.textures.size(); ++ti) {
+    Texture small;
+    const bool halve = ti < halvings.size() && halvings[ti] > 0;
+    if (halve) small = downsized(scene.textures[ti], halvings[ti]);
+    const Texture& t = halve ? small : scene.textures[ti];
+    gpu::Texture gt{};
+    gt.width = t.width;
+    gt.height = t.height;
+    gt.is_float = t.is_float ? 1 : 0;
+    gt.wrap_s = static_cast<uint32_t>(t.wrap_s);
+    gt.wrap_t = static_cast<uint32_t>(t.wrap_t);
+    gt.nearest = t.nearest ? 1 : 0;
+    if (t.is_float) {
+      gt.offset = static_cast<uint32_t>(g.texels32.size());
+      for (size_t i = 0; i + 3 < t.hdr.size(); i += 4)
+        g.texels32.push_back({t.hdr[i], t.hdr[i + 1], t.hdr[i + 2], t.hdr[i + 3]});
+    } else {
+      gt.offset = static_cast<uint32_t>(g.texels8.size());
+      for (size_t i = 0; i + 3 < t.ldr.size(); i += 4)
+        g.texels8.push_back(uint32_t(t.ldr[i]) | (uint32_t(t.ldr[i + 1]) << 8) | (uint32_t(t.ldr[i + 2]) << 16) |
+                            (uint32_t(t.ldr[i + 3]) << 24));
+    }
+    g.textures.push_back(gt);
+  }
+}
+
 GpuScene flattenScene(const Scene& scene) {
   GpuScene g;
 
@@ -119,26 +149,7 @@ GpuScene flattenScene(const Scene& scene) {
 
   // ---- Materials and textures ----
   for (const Material& m : scene.materials) g.materials.push_back(material(m));
-  for (const Texture& t : scene.textures) {
-    gpu::Texture gt{};
-    gt.width = t.width;
-    gt.height = t.height;
-    gt.is_float = t.is_float ? 1 : 0;
-    gt.wrap_s = static_cast<uint32_t>(t.wrap_s);
-    gt.wrap_t = static_cast<uint32_t>(t.wrap_t);
-    gt.nearest = t.nearest ? 1 : 0;
-    if (t.is_float) {
-      gt.offset = static_cast<uint32_t>(g.texels32.size());
-      for (size_t i = 0; i + 3 < t.hdr.size(); i += 4)
-        g.texels32.push_back({t.hdr[i], t.hdr[i + 1], t.hdr[i + 2], t.hdr[i + 3]});
-    } else {
-      gt.offset = static_cast<uint32_t>(g.texels8.size());
-      for (size_t i = 0; i + 3 < t.ldr.size(); i += 4)
-        g.texels8.push_back(uint32_t(t.ldr[i]) | (uint32_t(t.ldr[i + 1]) << 8) | (uint32_t(t.ldr[i + 2]) << 16) |
-                            (uint32_t(t.ldr[i + 3]) << 24));
-    }
-    g.textures.push_back(gt);
-  }
+  packTextures(scene, {}, g);
 
   // ---- Lights ----
   for (const EmissiveTriangle& e : scene.emissive_triangles) {

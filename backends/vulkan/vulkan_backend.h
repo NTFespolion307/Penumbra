@@ -36,6 +36,11 @@ const VulkanProbe& probeVulkan();
 // A backend on one ray-tracing GPU (VulkanGpu::physical_index). Throws BackendError.
 std::unique_ptr<IBackend> createVulkanBackend(uint32_t physicalIndex);
 
+// Whether the driver can place acceleration structures in host memory (docs/GUIDE.md "Platform gotchas"): probed
+// and reported only (--diagnose and the log); a GPU whose geometry does not fit in VRAM is memory tier 3 (D-107).
+// "supported", "not supported" or why the probe failed.
+std::string probeHostAccelerationStructures(uint32_t physicalIndex);
+
 // Test only (tests/gpu/parity.cpp): runs shaders/parity.slang for `count` cases on the GPU and returns its output
 // (32 floats per case). Throws BackendError.
 std::vector<float> runVulkanParity(uint32_t physicalIndex, uint32_t count);

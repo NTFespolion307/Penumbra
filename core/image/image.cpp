@@ -1,5 +1,6 @@
 #include "core/image/image.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 
@@ -67,6 +68,41 @@ Vec4f Texture::sample(Vec2f uv, bool srgb) const {
     return Vec4f{p.x + (q.x - p.x) * t, p.y + (q.y - p.y) * t, p.z + (q.z - p.z) * t, p.w + (q.w - p.w) * t};
   };
   return mix(mix(a, b, tx), mix(c, d, tx), ty);
+}
+
+Texture downsized(const Texture& t, uint32_t halvings) {
+  Texture cur = t;
+  for (uint32_t h = 0; h < halvings && (cur.width > 1 || cur.height > 1); ++h) {
+    Texture next;
+    next.name = cur.name;
+    next.is_float = cur.is_float;
+    next.wrap_s = cur.wrap_s;
+    next.wrap_t = cur.wrap_t;
+    next.nearest = cur.nearest;
+    next.width = std::max(1u, cur.width / 2);
+    next.height = std::max(1u, cur.height / 2);
+    const size_t n = size_t(next.width) * next.height * 4;
+    if (cur.is_float) next.hdr.resize(n);
+    else next.ldr.resize(n);
+    for (uint32_t y = 0; y < next.height; ++y) {
+      const uint32_t y0 = std::min(2 * y, cur.height - 1), y1 = std::min(2 * y + 1, cur.height - 1);
+      for (uint32_t x = 0; x < next.width; ++x) {
+        const uint32_t x0 = std::min(2 * x, cur.width - 1), x1 = std::min(2 * x + 1, cur.width - 1);
+        const size_t a = (size_t(y0) * cur.width + x0) * 4, b = (size_t(y0) * cur.width + x1) * 4;
+        const size_t c = (size_t(y1) * cur.width + x0) * 4, d = (size_t(y1) * cur.width + x1) * 4;
+        const size_t o = (size_t(y) * next.width + x) * 4;
+        for (int k = 0; k < 4; ++k) {
+          if (cur.is_float)
+            next.hdr[o + k] = (cur.hdr[a + k] + cur.hdr[b + k] + cur.hdr[c + k] + cur.hdr[d + k]) * 0.25f;
+          else
+            next.ldr[o + k] = static_cast<uint8_t>(
+                (unsigned(cur.ldr[a + k]) + cur.ldr[b + k] + cur.ldr[c + k] + cur.ldr[d + k] + 2) / 4);
+        }
+      }
+    }
+    cur = std::move(next);
+  }
+  return cur;
 }
 
 }  // namespace pen

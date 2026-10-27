@@ -247,7 +247,13 @@ void drawHostDetail(Model& model, UiState& ui) {
       if (enabled) ui.disabled_devices.erase(key);
       else ui.disabled_devices.insert(key);
     }
-    secondary("%s \xC2\xB7 %s", g.backend.c_str(), h->in_render ? "Tier 0 \xC2\xB7 all in VRAM" : "tier when a render starts");
+    secondary("%s \xC2\xB7 %s", g.backend.c_str(),
+              g.tier >= 0 ? fmt::format("Tier {}", g.tier).c_str() : "tier when a render starts");
+    if (!g.placement.empty()) {
+      ImGui::PushTextWrapPos(0);
+      small("%s", g.placement.c_str());
+      ImGui::PopTextWrapPos();
+    }
     if (g.vram_total) {
       small("VRAM  %.1f / %.0f GB", g.vram_used / 1e9, g.vram_total / 1e9);
       progressBar(float(double(g.vram_used) / double(g.vram_total)), color::kInfo, 6);
