@@ -55,7 +55,7 @@ Penumbra v1 renders one still image at a time, across every device the user can 
 | 120p to 160K | 17 presets in 16:9 plus custom WxH; outputs up to 15.1 gigapixels. |
 | Build from source | Windows SmartScreen blocks unknown downloaded exes, so users build locally; README.md and build scripts are first-class deliverables. |
 
-**Non-goals for v1:** animation and motion blur; volumes and subsurface scattering; spectral rendering; macOS; AMD HIP and Intel oneAPI compute backends (AMD/Intel GPUs are covered through Vulkan RT); a scene editor; several renders at once on one controller; worker-to-worker traffic; untrusted public worker pools. **Trust model:** workers are machines the user controls. The join code keeps strangers out, but Penumbra does not try to detect a malicious worker that sends wrong pixels.
+**Non-goals for v1:** animation and motion blur; voxel volumes (OpenVDB clouds and smoke) and subsurface scattering (an atmosphere and physical sky are planned as M14, D-105); spectral rendering; macOS; AMD HIP and Intel oneAPI compute backends (AMD/Intel GPUs are covered through Vulkan RT); a scene editor; several renders at once on one controller; worker-to-worker traffic; untrusted public worker pools. **Trust model:** workers are machines the user controls. The join code keeps strangers out, but Penumbra does not try to detect a malicious worker that sends wrong pixels.
 
 ## System architecture
 
@@ -583,6 +583,8 @@ The distributed core (M3, M4) is built right after the CPU renderer and before a
 
 A milestone is done only when its gate passes on both Windows and Linux and a fresh clone builds from the README. GPU milestones (M5–M9) pass only on results from the RTX 5060 PC or the GPU server. M5 and M6 do not depend on each other and may be swapped.
 
+**M14 Atmosphere and physical sky (added by the user, D-105; done after M8 and M9, before M11).** A participating medium for the whole scene: exponential height fog (density falls off with altitude, so transmittance has a closed form and needs no voxel grid) with a Henyey-Greenstein phase function, free-flight distance sampling and next-event estimation to the sun and the environment, in the shared shading code so CPU, Vulkan and CUDA render it alike. Plus a physical sky (Rayleigh and Mie scattering, ozone; like Blender's Nishita sky) computed from the sun direction, so sky and haze always match. Set in `.pen.json` (`"atmosphere"`, `"sky"`) with the usual flag, config, UI and README rules. Gate: transmittance through a uniform medium matches the closed form; a non-absorbing medium in a uniform white environment renders uniform (furnace test); CPU, Vulkan and CUDA match (relMSE < 1e-3 at 4,096 spp) and any distribution of work matches a solo render; with no atmosphere every existing golden image is unchanged; the physical sky is close to Blender's for the same sun angle; a real-terrain mountain scene (elevation data plus aerial photos, fetched by `scripts/get-scenes`) renders at 8K with haze on the GPU server.
+
 **M4 in detail, because it carries the most new risk:** first the protocol over loopback (controller + 3 worker processes on the laptop), then TLS-PSK and join codes, then scene packages with cache and resume, then heartbeats, leases and every row of the fault table, then `--stay` and controller `--resume`, then UPnP and an internet test from the GPU server. Each step is committed and pushed separately.
 
 ## Testing and validation
@@ -622,7 +624,8 @@ None of these is built until the user approves it; they are listed so the archit
 | Blender add-on | "Render with Penumbra" button: exports `.glb` + `.pen.json`, starts a controller, shows the result in Blender. | M | M10 |
 | Batch queue `--batch jobs.json` | Several cameras, resolutions or scenes in one session; workers stay connected between jobs. | S | M12 |
 | Light groups and AOV passes | Separate passes per light for compositing. | M | Post-v1 |
-| Volumes (OpenVDB fog and smoke) | Atmosphere and effects; a large shading change. | L | Post-v1 |
+| Atmosphere and physical sky | Haze and aerial perspective (distant mountains turn blue), light shafts, a sky that matches the sun. Approved as M14 (D-105). | M | M9 |
+| Volumes (OpenVDB clouds and smoke) | Real 3D clouds and effects; voxel grids, NanoVDB, uneven-density sampling and the memory tiers. | L | M14 |
 | Scene prefetch | Start sending the scene to idle workers as soon as it is selected on the Render page, so they are already ready when Start render is clicked. | S | M4 |
 | Peer-assisted scene distribution | Workers on the same LAN fetch scene chunks from each other, so five servers in one place download the scene once from the controller instead of five times. | M | Post-v1 |
 | Vulkan compute backend (no RT cores) | Software BVH in Vulkan compute, so integrated GPUs like the laptop's Intel GPU and older AMD cards can render too; likely a few times faster than the laptop CPU. | M | Post-v1 |
@@ -642,7 +645,9 @@ These wait on the user. Build with the default and keep the alternative possible
 | Language | C++20 | Rust (weaker CUDA/OptiX tooling) |
 | Denoiser default | On for UI previews, off in `--terminal` | Always off; always on |
 | License | MIT (repo: github.com/NTFespolion307/Penumbra) | Apache-2.0; private repo |
-| Extra features | None until approved | Any row of the table above |
+| Extra features | Approved: atmosphere and physical sky (M14, D-105); the rest none until approved | Any row of the table above |
+| M14 mountain scene | Asked when M14 starts: a US range (USGS 3DEP elevation and NAIP photos, public domain, can be redistributed) | Swiss Alps (swissALTI3D and SWISSIMAGE 10 cm, sharper; swisstopo open data with attribution) |
+| M14 terrain converter | Asked when M14 starts: a C++ tool in `tools/` | A Python script (numpy, tifffile), run once, outside the build |
 
 ## Working rules for the implementing agent
 
