@@ -826,3 +826,11 @@ of test time on the laptop, one test at a time; 11 tests made up ~700 s, mostly 
   gate runs it on the laptop.
 - **Measured (laptop, i7-11850H, `ctest -j 16`):** full non-GPU suite 445 s wall with references cached, 594 s
   with an empty cache, against 995 s one at a time before; quick tier 16 s. All 170 pass.
+
+**D-107 M8 plan answers (2026-10-27, user).** (1) The gaming PC is out: the user cannot reach it from work. Every
+GPU run, including the M8 gate, uses rented boxes; `--vram-limit 8G` stands in for the 8 GB RTX 5060, and since
+rented boxes are Linux, GPU results come from Linux with the Windows build and CPU suite as before (as for M5,
+D-082). (2) Host acceleration structures: probe and report only (`--diagnose`, placement log); a GPU whose geometry
+does not fit in VRAM is tier 3. (3) Intel's New Sponza (with curtains and ivy) joins `scripts/get-scenes` as an
+optional download and is M8's real-world scene: its high-resolution textures do not fit in 8 GB, so it walks the
+ladder for real. Its license is checked from the download before anything depends on it.

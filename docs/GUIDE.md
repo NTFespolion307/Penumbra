@@ -605,7 +605,7 @@ Two invariants are tested constantly: every backend matches the CPU reference, a
 
 **Cross-machine tests** before closing M4 and M7: Windows controller with Linux workers and the reverse; a LAN worker and an internet worker in the same render.
 
-**Test machines.** The dev laptop (i7 11th gen, 32 GB, Intel integrated GPU without ray tracing) runs all CPU, unit and network tests and compiles GPU code but never validates it. The gaming PC (RTX 5060, 8 GB, Blackwell, hardware RT) runs single-GPU and low-VRAM tests. Up to five GPU servers (mostly NVIDIA, mixed models) run multi-GPU, large-resolution and internet-worker tests.
+**Test machines.** The dev laptop (i7 11th gen, 32 GB, Intel integrated GPU without ray tracing) runs all CPU, unit and network tests and compiles GPU code but never validates it. The gaming PC (RTX 5060, 8 GB, Blackwell, hardware RT) was meant for single-GPU and low-VRAM tests but is not available (D-107); rented GPU boxes take its place, with `--vram-limit` standing in for a small card. Up to five GPU servers (mostly NVIDIA, mixed models) run multi-GPU, large-resolution and internet-worker tests.
 
 **Remote GPU runs.** Register the gaming PC and the server as self-hosted GitHub Actions runners labelled `gpu-windows` and `gpu-linux`; every push to `main` runs `ctest -L gpu` there and the agent reads the Actions log. With a public repo, GPU jobs run only on pushes to `main`, never on pull requests from forks, because a fork's PR would run code on those machines. Fallback: the user runs `scripts/test-gpu.ps1` / `scripts/test-gpu.sh` and pastes the summary back.
 
