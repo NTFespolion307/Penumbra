@@ -206,7 +206,9 @@ folder such as `C:\dev`: MSVC fails on paths longer than 260 characters.
    Success ends with `Built: .../Penumbra/build/linux-gcc-release/bin/penumbra`.
 
 Script options: `-Config debug` / `--debug` for a debug build, `-NoTests` / `--no-tests` to skip the tests,
-`-Clean` / `--clean` to start from an empty build folder. On Linux the user interface is built when a display is
+`-Quick` / `--quick` to run only the quick tests (unit, smoke and lint, under a minute), `-Clean` / `--clean` to
+start from an empty build folder. The tests run several at a time, as many as the machine's cores allow; the full
+suite takes a few minutes. On Linux the user interface is built when a display is
 present (`DISPLAY` or `WAYLAND_DISPLAY`) and skipped on headless machines; `--ui` / `--no-ui` force it. Windows
 always builds it.
 

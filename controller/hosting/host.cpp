@@ -8,6 +8,7 @@
 #include <random>
 #include <thread>
 
+#include "core/system/test_hooks.h"
 #include "core/version.h"
 #include "net/join_code.h"
 
@@ -49,7 +50,7 @@ void Host::watchdog() {
   // worker's heartbeats is not enough: on a slow upload, a worker's heartbeat waits behind the tiles already in
   // the network's buffers (socat and userspace Tailscale hold tens of MB), its echo comes back after more than
   // 30 s, and the worker gave up on a controller that was fine. This direction carries little, so it arrives.
-  const bool beat = now - last_beat_ >= std::chrono::seconds(5);
+  const bool beat = now - last_beat_ >= scaledForTests(std::chrono::seconds(5));
   if (beat) last_beat_ = now;
   wire::HeartbeatT hb;
   hb.sent_us = static_cast<uint64_t>(
@@ -58,7 +59,8 @@ void Host::watchdog() {
     std::lock_guard lock(mutex_);
     if (stopped_) return;
     for (const auto& p : peers_) {
-      if (now - p->connection->lastReceived() > kPeerTimeout && p->connection->isOpen()) silent.push_back(p);
+      if (now - p->connection->lastReceived() > scaledForTests(kPeerTimeout) && p->connection->isOpen())
+        silent.push_back(p);
       else if (beat && p->worker && p->connection->isOpen()) p->connection->send(hb);
     }
   }

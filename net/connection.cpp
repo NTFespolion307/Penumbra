@@ -1,4 +1,5 @@
 #include "net/connection.h"
+#include "core/system/test_hooks.h"
 
 #include <algorithm>
 #include <charconv>
@@ -60,7 +61,7 @@ void Connection::start(Handlers handlers) {
   handlers_ = std::move(handlers);
   asio::post(socket_.get_executor(), [self = shared_from_this()] {
     // A peer that has not finished the handshake in time does not have the right code (or is not Penumbra).
-    self->handshake_timer_.expires_after(kHandshakeTimeout);
+    self->handshake_timer_.expires_after(scaledForTests(kHandshakeTimeout));
     self->handshake_timer_.async_wait([weak = std::weak_ptr<Connection>(self)](std::error_code ec) {
       auto c = weak.lock();
       if (ec || !c || c->established_) return;

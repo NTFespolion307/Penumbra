@@ -797,3 +797,32 @@ milestone M14 after M8 and M9 (before M11); level 3 stays a later, separate extr
 dependency, to be asked). Scope and gate are in GUIDE.md "M14". The mountain scene (real elevation data and aerial
 photos via `scripts/get-scenes`) is M14's showcase; its region and the converter's language are asked when M14
 starts (GUIDE.md "Open decisions").
+
+**D-106 Faster tests (M8 step 0, 2026-10-27, user request: "90% waiting on tests").** The non-GPU suite took 995 s
+of test time on the laptop, one test at a time; 11 tests made up ~700 s, mostly waiting on fixed clocks.
+- **Reference cache.** Many tests render the same solo reference first (e.g. five fault tests render the identical
+  960x540 96 spp Cornell box). `RenderCheck.cmake` keeps references in `build/.../tests/refcache`, keyed by the
+  penumbra binary's SHA-256, the scene file, every pixel-affecting argument and the work-item size (chunks merge
+  into the film in another order, which changes the last bits); comparisons stay bit-exact.
+- **`PENUMBRA_TEST_TIME_SCALE`** (test hook, logged when active, 0.01-1): heartbeats, peer timeouts (worker and
+  controller), reconnect backoff and the TLS handshake timeout are multiplied by it. Network tests use 0.2 (peer
+  timeout 6 s). Same code paths, shorter clocks; unset it is 1. `net.worker_silent` starts its workers 10 s apart
+  instead of 35 s.
+- **Side by side.** Every smoke test has its own folder and log (`out.tiff` and `out.webp` shared one
+  `out.penfilm`), every render and network test its own config file; the port clash between `device_skipped` and
+  `scale_64` (7520) is gone. Test renders use `--threads 4` and declare `PROCESSORS 4` (network tests 8: two
+  workers of 4 threads), so `ctest -j <cores>` runs several at once without oversubscribing the cores;
+  `scale_64` runs alone (`RUN_SERIAL`). `net.worker_silent` renders 64 spp instead of 256 (it tests the heartbeat
+  loss, not the samples).
+- **Tiers.** The quick tier (labels unit, smoke and lint; 123 tests, 16 s on the laptop) for everyday edits: `build.ps1 -Quick`,
+  `build.sh --quick`, or `ctest -L "^(unit|smoke|lint)$"`. The full suite runs at step commits and the gate, both OSes, as before.
+- **`net.scale_64` stays in real time.** With the timers x 0.2 it never finished (ETA over an hour; 105 s at x 1):
+  64 workers load the controller, its round trips rise, workers measure them five times as often and deepen their
+  queues (about 2 x round trip / item time), queued time counts toward the lease, leases go late and are reissued,
+  which loads the controller more. A real feedback loop for an overloaded controller with many workers; for M9
+  (scheduler and scale): damp the queue depth and keep queue time out of the late check.
+- **CI** also runs on milestone branches (`m[0-9]*`), so Linux and Windows test each pushed step in the cloud
+  while work goes on. It skips `scale_64` (label `scale`): on the 4-core runners it ran past its 900 s limit; the
+  gate runs it on the laptop.
+- **Measured (laptop, i7-11850H, `ctest -j 16`):** full non-GPU suite 445 s wall with references cached, 594 s
+  with an empty cache, against 995 s one at a time before; quick tier 16 s. All 170 pass.

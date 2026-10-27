@@ -12,9 +12,18 @@ string(REPLACE "|" ";" extra "${ARGS}")
 if(NOT "${ARGS}${ARGS_A}${ARGS_B}" MATCHES "--backend")
   list(APPEND extra --backend cpu)
 endif()
-set(common --terminal "${SCENE}" --config "${WORKDIR}/empty-config.json" --log-file "${WORKDIR}/${NAME}.log"
-           --progress plain --bit-depth 32 ${extra})
-file(WRITE "${WORKDIR}/empty-config.json" "{}\n")
+# render() uses 4 threads, as the test declares to ctest (PROCESSORS 4), so tests running side by side share the
+# cores fairly (D-106); the image does not depend on the thread count (render.threads_*).
+set(pin_threads --threads 4)
+if("${ARGS}" MATCHES "--threads")
+  set(pin_threads "")
+endif()
+# Each test has its own empty config file: tests run side by side (ctest -j), and Windows may refuse to open a file
+# another test is rewriting.
+set(cfg "${WORKDIR}/${NAME}_config.json")
+file(WRITE "${cfg}" "{}\n")
+set(common --terminal "${SCENE}" --config "${cfg}" --log-file "${WORKDIR}/${NAME}.log" --progress plain
+           --bit-depth 32 ${extra})
 
 # MIN_GPUS=N: a multi-GPU test prints "SKIPPED:" (the test's SKIP_REGULAR_EXPRESSION) on a machine with fewer
 # GPUs that can render, as `penumbra --list-devices` numbers them.
@@ -46,13 +55,41 @@ function(render out)
   if(DEFINED RENDER_ENV AND NOT RENDER_ENV STREQUAL "")
     set(env_prefix "${CMAKE_COMMAND}" -E env "${RENDER_ENV}")
   endif()
-  execute_process(COMMAND ${env_prefix} "${PENUMBRA}" ${common} -o "${out}" ${ARGN} WORKING_DIRECTORY "${WORKDIR}"
-                  RESULT_VARIABLE rc OUTPUT_VARIABLE o ERROR_VARIABLE e)
+  set(threads ${pin_threads})
+  if("${ARGN}" MATCHES "--threads")
+    set(threads "")
+  endif()
+  execute_process(COMMAND ${env_prefix} "${PENUMBRA}" ${common} -o "${out}" ${threads} ${ARGN}
+                  WORKING_DIRECTORY "${WORKDIR}" RESULT_VARIABLE rc OUTPUT_VARIABLE o ERROR_VARIABLE e)
   if(NOT rc EQUAL 0)
     message(FATAL_ERROR "render failed (exit ${rc}):\n${o}${e}")
   endif()
   message(STATUS "rendered ${out}")
   set(last_log "${o}${e}" PARENT_SCOPE)
+endfunction()
+
+# Renders the solo reference `out` (arguments as for render()), or copies it from the reference cache: many tests
+# compare against the same image (D-106). The key is the penumbra binary, the scene, every argument that can
+# change pixels and the work-item size; the log and config paths are left out. Written under a temporary name, then renamed, so tests
+# running side by side never read a half-written file.
+function(reference out)
+  file(SHA256 "${PENUMBRA}" exe_hash)
+  file(SHA256 "${SCENE}" scene_hash)
+  # The work-item size is part of the key: chunks are merged into the film in another order, which changes the
+  # last bits (relMSE ~1e-15) though not the image.
+  string(SHA256 key "${exe_hash}|${scene_hash}|${extra}|${ARGN}|chunks=$ENV{PENUMBRA_TEST_CHUNK_BUDGET}")
+  string(SUBSTRING "${key}" 0 24 key)
+  set(cached "${WORKDIR}/refcache/${key}.exr")
+  if(EXISTS "${cached}")
+    file(COPY_FILE "${cached}" "${WORKDIR}/${out}")
+    message(STATUS "reference ${out} from the cache (${key})")
+    return()
+  endif()
+  render("${out}" ${ARGN})
+  file(MAKE_DIRECTORY "${WORKDIR}/refcache")
+  string(RANDOM LENGTH 8 tmp)
+  file(COPY_FILE "${WORKDIR}/${out}" "${cached}.${tmp}")
+  file(RENAME "${cached}.${tmp}" "${cached}")
 endfunction()
 
 function(diff)
@@ -108,7 +145,7 @@ elseif(MODE STREQUAL "devices")
   endforeach()
 elseif(MODE STREQUAL "faults")
   # One device fails or hangs mid-render (PENUMBRA_TEST_FAULTS); the image must not change.
-  render("${NAME}_ref.exr" --devices ${REF_DEVICES})
+  reference("${NAME}_ref.exr" --devices ${REF_DEVICES})
   set(RENDER_ENV "PENUMBRA_TEST_FAULTS=${FAULTS}")
   render("${NAME}_fault.exr" --devices ${FAULT_DEVICES})
   if(NOT last_log MATCHES "${EXPECT_LOG}")
@@ -125,7 +162,7 @@ elseif(MODE STREQUAL "timelimit")
 elseif(MODE STREQUAL "resume")
   # Reference, then a run killed (no clean shutdown) right after a checkpoint once KILL_AFTER_ITEMS chunks are
   # merged (test hook PENUMBRA_TEST_KILL_AFTER_ITEMS, D-095), then --resume: bit-identical.
-  render("${NAME}_ref.exr")
+  reference("${NAME}_ref.exr")
   file(REMOVE "${WORKDIR}/${NAME}_cut.exr" "${WORKDIR}/${NAME}_cut.penfilm" "${WORKDIR}/${NAME}_cut.session.json")
   if(NOT DEFINED CUT_THREADS)
     set(CUT_THREADS 2)
@@ -141,7 +178,7 @@ elseif(MODE STREQUAL "resume")
   if(NOT EXISTS "${WORKDIR}/${NAME}_cut.session.json")
     message(FATAL_ERROR "no session file after the kill:\n${o}${e}")
   endif()
-  execute_process(COMMAND "${PENUMBRA}" --config "${WORKDIR}/empty-config.json" --log-file "${WORKDIR}/${NAME}.log"
+  execute_process(COMMAND "${PENUMBRA}" --config "${cfg}" --log-file "${WORKDIR}/${NAME}.log"
                           --terminal --resume "${NAME}_cut.session.json" --progress plain
                   WORKING_DIRECTORY "${WORKDIR}" RESULT_VARIABLE rc OUTPUT_VARIABLE o ERROR_VARIABLE e)
   if(NOT rc EQUAL 0)
@@ -159,7 +196,7 @@ elseif(MODE STREQUAL "resume")
 elseif(MODE STREQUAL "interrupt")
   # Ctrl+C (SIGINT): exit code 5, session kept as "interrupted", current image written; --resume finishes it
   # and matches an uninterrupted render bit for bit.
-  render("${NAME}_ref.exr")
+  reference("${NAME}_ref.exr")
   file(REMOVE "${WORKDIR}/${NAME}_int.exr" "${WORKDIR}/${NAME}_int.penfilm" "${WORKDIR}/${NAME}_int.session.json")
   execute_process(COMMAND timeout --preserve-status -s INT ${KILL_AFTER} "${PENUMBRA}" ${common} -o "${NAME}_int.exr"
                           --threads 2
@@ -174,7 +211,7 @@ elseif(MODE STREQUAL "interrupt")
   if(NOT session MATCHES "\"state\": \"interrupted\"")
     message(FATAL_ERROR "session state is not 'interrupted':\n${session}")
   endif()
-  execute_process(COMMAND "${PENUMBRA}" --config "${WORKDIR}/empty-config.json" --log-file "${WORKDIR}/${NAME}.log"
+  execute_process(COMMAND "${PENUMBRA}" --config "${cfg}" --log-file "${WORKDIR}/${NAME}.log"
                           --terminal --resume "${NAME}_int.session.json" --progress plain
                   WORKING_DIRECTORY "${WORKDIR}" RESULT_VARIABLE rc OUTPUT_VARIABLE o ERROR_VARIABLE e)
   if(NOT rc EQUAL 0)
@@ -182,10 +219,10 @@ elseif(MODE STREQUAL "interrupt")
   endif()
   diff("${NAME}_int.exr" "${NAME}_ref.exr" --exact)
 elseif(MODE STREQUAL "merge_regions")
-  render("${NAME}_ref.exr")
+  reference("${NAME}_ref.exr")
   render("${NAME}_left.exr" --region 0,0,1024,1080)
   render("${NAME}_right.exr" --region 1024,0,1920,1080)
-  execute_process(COMMAND "${PENUMBRA}" --config "${WORKDIR}/empty-config.json" --log-file "${WORKDIR}/${NAME}.log"
+  execute_process(COMMAND "${PENUMBRA}" --config "${cfg}" --log-file "${WORKDIR}/${NAME}.log"
                           --bit-depth 32 merge "${NAME}_left.penfilm" "${NAME}_right.penfilm" -o "${NAME}_merged.exr"
                   WORKING_DIRECTORY "${WORKDIR}" RESULT_VARIABLE rc OUTPUT_VARIABLE o ERROR_VARIABLE e)
   if(NOT rc EQUAL 0)
@@ -193,10 +230,10 @@ elseif(MODE STREQUAL "merge_regions")
   endif()
   diff("${NAME}_merged.exr" "${NAME}_ref.exr" --exact)
 elseif(MODE STREQUAL "merge_samples")
-  render("${NAME}_ref.exr")
+  reference("${NAME}_ref.exr")
   render("${NAME}_a.exr" --sample-range 0-3)
   render("${NAME}_b.exr" --sample-range 4-7)
-  execute_process(COMMAND "${PENUMBRA}" --config "${WORKDIR}/empty-config.json" --log-file "${WORKDIR}/${NAME}.log"
+  execute_process(COMMAND "${PENUMBRA}" --config "${cfg}" --log-file "${WORKDIR}/${NAME}.log"
                           --bit-depth 32 merge "${NAME}_a.penfilm" "${NAME}_b.penfilm" -o "${NAME}_merged.exr"
                   WORKING_DIRECTORY "${WORKDIR}" RESULT_VARIABLE rc OUTPUT_VARIABLE o ERROR_VARIABLE e)
   if(NOT rc EQUAL 0)
@@ -205,7 +242,7 @@ elseif(MODE STREQUAL "merge_samples")
   # Float rounding of the weighted mean differs slightly from one 8-sample average (docs/GUIDE.md: < 1e-6).
   diff("${NAME}_merged.exr" "${NAME}_ref.exr" --max-relmse 1e-6)
 elseif(MODE STREQUAL "region_crop")
-  render("${NAME}_ref.exr")
+  reference("${NAME}_ref.exr")
   render("${NAME}_crop.exr" --region 300,200,700,500)
   diff("${NAME}_ref.exr" "${NAME}_crop.exr" --crop 300,200,700,500 --exact)
 elseif(MODE STREQUAL "presets")
@@ -239,8 +276,17 @@ elseif(MODE STREQUAL "network")
   #                       use with --stay workers (WORKER_EXPECT=daemon)
   #   SECOND_RENDER       1: once the controller has finished, a second controller renders the same thing on the
   #                       same port (--stay workers serve both)
+  #   TIME_SCALE          network and fault timers multiplier (default 0.2; 1 = real time)
   string(REPLACE "|" ";" ref_args "${REF_ARGS}")
-  render("${NAME}_ref.exr" ${ref_args})
+  reference("${NAME}_ref.exr" ${ref_args})
+  # Network and fault timers x TIME_SCALE (default 0.2: heartbeats, 30 s peer timeout -> 6 s, backoff; D-106),
+  # inherited by every process below. An outside PENUMBRA_TEST_TIME_SCALE wins (for comparisons).
+  if(NOT DEFINED TIME_SCALE)
+    set(TIME_SCALE 0.2)
+  endif()
+  if(NOT DEFINED ENV{PENUMBRA_TEST_TIME_SCALE} AND NOT TIME_SCALE STREQUAL "1")
+    set(ENV{PENUMBRA_TEST_TIME_SCALE} ${TIME_SCALE})
+  endif()
   if(NOT DEFINED WORKER_DELAY_MS)
     set(WORKER_DELAY_MS 300)
   endif()
@@ -261,7 +307,7 @@ elseif(MODE STREQUAL "network")
   if(DEFINED CONTROLLER_KILL_MS)
     # Killed without warning (power loss), then resumed from its session file: same port and code.
     set(procs --proc "${NAME}_ctl" 0 killed ${CONTROLLER_KILL_MS} "${ctl}|${CONTROLLER_ARGS}")
-    string(REPLACE ";" "|" resume "${PENUMBRA};--terminal;--resume;${WORKDIR}/${NAME}_net.session.json;--config;${WORKDIR}/empty-config.json;--log-file;${WORKDIR}/${NAME}.log;--progress;plain")
+    string(REPLACE ";" "|" resume "${PENUMBRA};--terminal;--resume;${WORKDIR}/${NAME}_net.session.json;--config;${cfg};--log-file;${WORKDIR}/${NAME}.log;--progress;plain")
     list(APPEND procs --proc "${NAME}_resumed" "after:${NAME}_ctl" 0 0 "${resume}")
     file(REMOVE "${WORKDIR}/${NAME}_net.session.json" "${WORKDIR}/${NAME}_net.penfilm")
   else()
@@ -276,7 +322,7 @@ elseif(MODE STREQUAL "network")
     list(APPEND procs --proc "${NAME}_proxy" 0 daemon 0
          "${NETEM}|--listen|${join_port}|--to|127.0.0.1:${PORT}|${NETEM_ARGS}")
   endif()
-  set(join "--worker|--join|127.0.0.1:${join_port}|--config|${WORKDIR}/empty-config.json")
+  set(join "--worker|--join|127.0.0.1:${join_port}|--config|${cfg}")
   file(REMOVE "${WORKDIR}/${NAME}_w1.log")
   foreach(i RANGE 1 ${WORKERS})
     if(SHARED_CACHE)
