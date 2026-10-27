@@ -788,3 +788,12 @@ Renders of `scenes/cornell.pen.json` at 4K finished with tiles from all three, e
 checked: Viewport live view, Pause/Resume, Save image now, Stop (checkpoint + partial image), Settings, Join a
 render and Leave, window resize and fullscreen with Vulkan. The box's own join was started with the
 `PENUMBRA_TEST_UI_JOIN` hook; the laptop's Join was clicked. Tests: see the merge commit.
+
+**D-105 Volumetrics: atmosphere and physical sky become milestone M14 (2026-10-27, user decision).** Asked whether
+volumetric rendering is possible (for a photoreal mountain range: distant peaks need aerial perspective, which a
+renderer without a medium cannot show). Three levels were offered: (1) height fog with closed-form transmittance,
+(2) a physical sky from the sun direction, (3) OpenVDB clouds and smoke. The user agreed to levels 1 and 2 as a new
+milestone M14 after M8 and M9 (before M11); level 3 stays a later, separate extra (NanoVDB would be a new
+dependency, to be asked). Scope and gate are in GUIDE.md "M14". The mountain scene (real elevation data and aerial
+photos via `scripts/get-scenes`) is M14's showcase; its region and the converter's language are asked when M14
+starts (GUIDE.md "Open decisions").

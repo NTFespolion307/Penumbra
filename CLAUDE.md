@@ -83,6 +83,9 @@ M5 and M6 may be swapped.
 | M11 | Denoise, tonemap, AOVs | OIDN per tile with 32 px border, AgX/Filmic/ACES, AOVs, metadata | No seams on a 40K render; AgX close to Blender |
 | M12 | Release + README | Build scripts polished, full README audit incl. networking, batch queue, release archives | Fresh clone builds on Win 11, Ubuntu 22.04, Debian 12 from README alone |
 | M13 | OptiX (optional) | OptiX pipeline + denoiser behind `PEN_ENABLE_OPTIX` | Kept only if it beats Vulkan RT on the benchmark suite |
+| M14 | Atmosphere + physical sky | Height fog medium (free-flight sampling, NEE through it), Rayleigh/Mie sky from the sun, `.pen.json` `atmosphere`/`sky` (see GUIDE.md "M14") | Closed-form transmittance + furnace test; CPU/Vulkan/CUDA match; no change with it off; 8K real-terrain mountains on the GPU server |
+
+Order (user decisions D-099, D-105): M10 done; then M8, M9, M14, M11, M12 (M13 optional, last).
 
 M4 order: loopback protocol (controller + 3 worker processes) -> TLS-PSK + join codes -> scene packages + cache + resume
 -> heartbeats, leases, every fault-table row -> `--stay` + controller `--resume` -> UPnP + internet test. Commit and push each step.
