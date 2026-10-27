@@ -257,6 +257,7 @@ void RenderController::onTileResult(WorkerId worker, TileResult&& r) {
   }
   item_seconds_.push_back(seconds);
   if (item_seconds_.size() > kDurationWindow) item_seconds_.pop_front();
+  device_last_result_[{worker, r.device}] = Clock::now();  // it is alive (D-111)
   std::deque<double>& mine = device_seconds_[{worker, r.device}];  // also when the result turns out a duplicate
   mine.push_back(seconds);
   if (mine.size() > kDeviceDurationWindow) mine.pop_front();
@@ -388,6 +389,9 @@ double RenderController::medianSeconds(const std::deque<double>& window) {
 // taken for a hung one; a device with fewer than 3 finished items is judged by the median of all devices (D-097).
 // A device that has finished nothing yet gets at least kFirstItemsGrace: next to a fast GPU, a CPU's first items
 // took longer than 10x the GPU's median and were all taken away (D-109).
+// A device that keeps delivering is alive: its old leases wait in its queue, they are not lost. A lease is late only
+// when its device has also delivered nothing for as long; reissuing a busy device's queue fed an overloaded
+// controller more work and made every item look later still (net.scale_64, D-111).
 void RenderController::reissueLateLocked() {
   if (paused_) return;  // nothing is late while nothing is handed out
   const double overall = medianSeconds(item_seconds_);
@@ -404,6 +408,9 @@ void RenderController::reissueLateLocked() {
     if (fresh) limit = std::max(limit, std::chrono::duration<double>(scaledForTests(kFirstItemsGrace)).count());
     const double age = std::chrono::duration<double>(now - info.issued).count();
     if (age <= limit) continue;
+    if (const auto last = device_last_result_.find({info.worker, info.device}); last != device_last_result_.end() &&
+        std::chrono::duration<double>(now - last->second).count() <= limit)
+      continue;
     spdlog::warn("lease {} (tile {} chunk {}) on device {} of worker {} is late ({:.1f}s, the limit is {:.1f}s{}); "
                  "handing it out again, the first valid result wins",
                  id, info.item.tile, info.item.chunk, info.device, info.worker, age, limit,

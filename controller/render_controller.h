@@ -158,6 +158,7 @@ class RenderController final : public WorkerEvents {
   std::map<WorkerId, std::vector<DeviceReady>> ready_;  // each worker's devices: memory tier and placement
   std::deque<double> item_seconds_;                   // recent item durations, for hang detection
   std::map<DeviceKey, std::deque<double>> device_seconds_;  // the same per device (D-097)
+  std::map<DeviceKey, std::chrono::steady_clock::time_point> device_last_result_;  // when each last delivered (D-111)
   uint32_t live_devices_ = 0;
   bool hosting_ = false;
   bool running_ = false;  // run() has offered the scene; later workers get it from addWorker

@@ -895,3 +895,23 @@ CUDA 13.0, Ubuntu 24.04, a 19-core container; the gaming PC is out, D-107):
   than they are, 18k leases are reissued and the reissues load it further (the loop noted in D-106). It is a
   scheduler problem, not memory; the user chose to merge M8 and fix it first thing in M9 (damp the workers' queue
   depth, keep queue time out of the late check).
+
+**D-111 M9 in progress (2026-10-27; handoff for the next session).** The user approved the M9 plan: (1) the
+controller overload loop, (2) `--benchmark`, (3) keep GPUs > 90% busy, (4) CUDA speed (a wavefront kernel only if
+profiling shows the megakernel cannot get within ~2x), (5) network: larger sample ranges for upload-bound workers
+and a 10 s connect timeout, (6) the gate: measured numbers replace the guide's estimates; LAN workers keep GPUs
+> 90% busy. Hardware: the user rents several RTX 5090s and offers a wide range of GPUs for benchmarks; build on the
+first box only, then ship a portable bundle (binary + scenes + a run script) to the others; do all laptop work
+first and tell the user when a box is worth renting (cost matters).
+- **Done (this commit):** a device that keeps delivering results is alive, so its old leases are queued, not lost:
+  a lease is late only when its device has also delivered nothing for the late limit
+  (`device_last_result_` in `RenderController::reissueLateLocked`). Fault and hang tests pass (15/15).
+- **Found:** that rule does not fix `net.scale_64` under load (with `PENUMBRA_TEST_TIME_SCALE=0.2` on the laptop it
+  still reissued 15k leases). Root cause: the controller decompresses and merges every `TileResult` on one thread;
+  512 null devices send about 1,700 tiles/s, results queue up in the controller, devices look silent and their
+  leases are reissued. The same limit will hold back fast GPUs (5090s) on a LAN.
+- **Next, in order:** multi-threaded result decode and merge in the controller, backpressure so workers slow down
+  when it falls behind, and a measured controller tiles/s; then `--benchmark` (`controller/benchmark.{h,cpp}`:
+  each device of the host alone, repo scenes plus `scenes/sponza` / `scenes/intel-sponza` when downloaded,
+  time-limited 1080p, device samples/s, wall samples/s, busy %, Markdown for `docs/BENCHMARKS.md` plus JSON); then
+  the network items; then the GPU session (profiling, busy %, CUDA tuning) on a rented 5090 box.
