@@ -878,3 +878,20 @@ ladder for real. Its license is checked from the download before anything depend
 - **Measured on the 2060 SUPER:** Intel Sponza (3.7 M triangles, 72 textures, 24 lights) is tier 0 on the real 8 GB
   card, "scene 5.5 GB of 7.3 GB VRAM"; the RTX 2060 SUPER's driver allows acceleration structures in host memory
   (probe).
+
+**D-110 M8 gate passed (2026-10-27), with one known issue.** On a rented RTX 2060 SUPER (8 GB, Turing, driver 580,
+CUDA 13.0, Ubuntu 24.04, a 19-core container; the gaming PC is out, D-107):
+- **Every tier on a real 8 GB GPU**, Vulkan and CUDA: `tier1_bits` (bit-identical to tier 0), `tier2_vs_cpu`
+  (against the CPU with the same halved texture), `tier3_skip`, `no_downsize`, `oom_retry` (injected out-of-memory,
+  same bits); GPU suite 42/42 (the 7 multi-GPU tests skip on one GPU).
+- **Intel's New Sponza** (3.7 M triangles, 72 textures 4.9 GB, 24 lights), Vulkan 960x540 64 spp: tier 0 "5.5 GB
+  of 7.3 GB VRAM" 1.85 M samples/s; tier 1 (`--vram-limit 2G`) "533.3 MB of 2.1 GB VRAM, textures 5.0 GB in RAM"
+  0.82 M samples/s (2.3x slower); tier 2 (`--vram-limit 2G --ram-limit 6G`) 67 textures halved, 1.45 M samples/s;
+  tier 3 (`--vram-limit 300M`) the GPU skipped with its reason, the CPU finished. No crash at any step. Albedo
+  against the CPU: Vulkan relMSE 9.8e-8, CUDA 4.0e-7.
+- **Suites:** Windows (laptop) 176/176; Linux (the box) 176/177; CI for step 0 green on both OSes.
+- **Known issue, for M9:** `net.scale_64` ran past its 900 s limit on the box (it passes on the laptop in ~105 s):
+  with 64 workers on a container throttled to 19 of 80 CPUs, the controller is overloaded, items look 10x slower
+  than they are, 18k leases are reissued and the reissues load it further (the loop noted in D-106). It is a
+  scheduler problem, not memory; the user chose to merge M8 and fix it first thing in M9 (damp the workers' queue
+  depth, keep queue time out of the late check).
