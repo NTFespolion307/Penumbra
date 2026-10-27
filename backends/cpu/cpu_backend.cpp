@@ -8,6 +8,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <fmt/format.h>
 #include <limits>
 #include <spdlog/spdlog.h>
@@ -117,16 +118,23 @@ class CpuBackend final : public IBackend {
 
   DeviceInfo info() const override { return info_; }
 
-  MemoryPlan plan(const SceneStats& stats) override {
-    MemoryPlan p;
-    p.tier = 0;
-    p.summary = fmt::format("tier 0, scene {:.1f} MB in RAM", (stats.geometry_bytes + stats.texture_bytes) / 1048576.0);
-    return p;
-  }
-
-  void upload(const Scene& scene, const MemoryPlan&) override {
-    scene_ = &scene;
-    arena_->execute([&] { build(scene); });
+  void upload(const Scene& scene, const Placement& placement) override {
+    // Smaller textures, exactly as a GPU at memory tier 2 packs them, so its renders can be checked against the CPU.
+    // Test only: PENUMBRA_TEST_TEXTURE_HALVINGS=k halves every texture k times (D-047 style, logged).
+    std::vector<uint32_t> halvings = placement.halvings;
+    if (halvings.empty())
+      if (const char* v = std::getenv("PENUMBRA_TEST_TEXTURE_HALVINGS"); v && *v) {
+        spdlog::warn("TEST HOOK ACTIVE (PENUMBRA_TEST_TEXTURE_HALVINGS): every texture halved {} times", v);
+        halvings.assign(scene.textures.size(), static_cast<uint32_t>(std::strtoul(v, nullptr, 10)));
+      }
+    own_.reset();
+    if (!halvings.empty()) {
+      own_ = std::make_unique<Scene>(scene);
+      for (size_t i = 0; i < own_->textures.size() && i < halvings.size(); ++i)
+        own_->textures[i] = downsized(scene.textures[i], halvings[i]);
+    }
+    scene_ = own_ ? own_.get() : &scene;
+    arena_->execute([&] { build(*scene_); });
   }
 
   void prepare(const FrameSetup& frame) override {
@@ -244,6 +252,7 @@ class CpuBackend final : public IBackend {
   std::vector<RTCScene> blas_;
   std::vector<std::unique_ptr<AlphaGeometry>> alpha_;
   const Scene* scene_ = nullptr;
+  std::unique_ptr<Scene> own_;  // a copy with downsized textures (memory tier 2), when there is one
   FrameSetup frame_;
   DeviceInfo info_;
 };

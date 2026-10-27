@@ -121,6 +121,14 @@ bool Model::update() {
     if (r.connected) samples += r.samples_per_s;
     rows.push_back(std::move(r));
   }
+  // Memory tier and placement per device while a render runs (docs/GUIDE.md "placement log").
+  for (HostRow& r : rows)
+    for (const DeviceReady& d : session_.devicePlacement(r.id)) {
+      if (d.device >= r.gpus.size()) continue;
+      GpuRow& g = r.gpus[d.device];
+      g.tier = d.skipped ? 3 : int(d.memory_tier);
+      g.placement = d.skipped ? d.reason : d.summary;
+    }
   hosts_ = std::move(rows);
   events_ = session_.events();
 

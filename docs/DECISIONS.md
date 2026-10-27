@@ -797,3 +797,101 @@ milestone M14 after M8 and M9 (before M11); level 3 stays a later, separate extr
 dependency, to be asked). Scope and gate are in GUIDE.md "M14". The mountain scene (real elevation data and aerial
 photos via `scripts/get-scenes`) is M14's showcase; its region and the converter's language are asked when M14
 starts (GUIDE.md "Open decisions").
+
+**D-106 Faster tests (M8 step 0, 2026-10-27, user request: "90% waiting on tests").** The non-GPU suite took 995 s
+of test time on the laptop, one test at a time; 11 tests made up ~700 s, mostly waiting on fixed clocks.
+- **Reference cache.** Many tests render the same solo reference first (e.g. five fault tests render the identical
+  960x540 96 spp Cornell box). `RenderCheck.cmake` keeps references in `build/.../tests/refcache`, keyed by the
+  penumbra binary's SHA-256, the scene file, every pixel-affecting argument and the work-item size (chunks merge
+  into the film in another order, which changes the last bits); comparisons stay bit-exact.
+- **`PENUMBRA_TEST_TIME_SCALE`** (test hook, logged when active, 0.01-1): heartbeats, peer timeouts (worker and
+  controller), reconnect backoff and the TLS handshake timeout are multiplied by it. Network tests use 0.2 (peer
+  timeout 6 s). Same code paths, shorter clocks; unset it is 1. `net.worker_silent` starts its workers 10 s apart
+  instead of 35 s.
+- **Side by side.** Every smoke test has its own folder and log (`out.tiff` and `out.webp` shared one
+  `out.penfilm`), every render and network test its own config file; the port clash between `device_skipped` and
+  `scale_64` (7520) is gone. Test renders use `--threads 4` and declare `PROCESSORS 4` (network tests 8: two
+  workers of 4 threads), so `ctest -j <cores>` runs several at once without oversubscribing the cores;
+  `scale_64` runs alone (`RUN_SERIAL`). `net.worker_silent` renders 64 spp instead of 256 (it tests the heartbeat
+  loss, not the samples).
+- **Tiers.** The quick tier (labels unit, smoke and lint; 123 tests, 16 s on the laptop) for everyday edits: `build.ps1 -Quick`,
+  `build.sh --quick`, or `ctest -L "^(unit|smoke|lint)$"`. The full suite runs at step commits and the gate, both OSes, as before.
+- **`net.scale_64` stays in real time.** With the timers x 0.2 it never finished (ETA over an hour; 105 s at x 1):
+  64 workers load the controller, its round trips rise, workers measure them five times as often and deepen their
+  queues (about 2 x round trip / item time), queued time counts toward the lease, leases go late and are reissued,
+  which loads the controller more. A real feedback loop for an overloaded controller with many workers; for M9
+  (scheduler and scale): damp the queue depth and keep queue time out of the late check.
+- **CI** also runs on milestone branches (`m[0-9]*`), so Linux and Windows test each pushed step in the cloud
+  while work goes on. It skips `scale_64` (label `scale`): on the 4-core runners it ran past its 900 s limit; the
+  gate runs it on the laptop.
+- **Measured (laptop, i7-11850H, `ctest -j 16`):** full non-GPU suite 445 s wall with references cached, 594 s
+  with an empty cache, against 995 s one at a time before; quick tier 16 s. All 170 pass.
+
+**D-107 M8 plan answers (2026-10-27, user).** (1) The gaming PC is out: the user cannot reach it from work. Every
+GPU run, including the M8 gate, uses rented boxes; `--vram-limit 8G` stands in for the 8 GB RTX 5060, and since
+rented boxes are Linux, GPU results come from Linux with the Windows build and CPU suite as before (as for M5,
+D-082). (2) Host acceleration structures: probe and report only (`--diagnose`, placement log); a GPU whose geometry
+does not fit in VRAM is tier 3. (3) Intel's New Sponza (with curtains and ivy) joins `scripts/get-scenes` as an
+optional download and is M8's real-world scene: its high-resolution textures do not fit in 8 GB, so it walks the
+ladder for real. Its license is checked from the download before anything depends on it.
+
+**D-108 Memory budget and fallback (M8 steps 1-6).**
+- **The ladder is one pure function** (`core/render/memory_placement`): a device's exact footprint (geometry and
+  acceleration structures that must stay in VRAM; the environment map and weights, movable, never downsized; each
+  texture, movable and downsizable) against its budgets gives tier 0 (all in VRAM), 1 (textures and environment
+  in pinned RAM), 2 (as 1, or in VRAM when it has more room, with the largest texture halved until it fits,
+  deterministic) or 3 (the geometry does not fit, the textures fit nowhere with `--no-texture-downsize`, or memory
+  ran out at every tier). Unit-tested without a GPU.
+- **Exact sizes, live budgets.** Backends measure the real footprint before uploading: Vulkan asks the driver for
+  acceleration-structure sizes (every BLAS plus the largest build scratch), CUDA builds its BVH on the CPU first; the
+  flattened arrays are kept for the upload. The VRAM budget is read live (Vulkan: `VK_EXT_memory_budget` through
+  VMA when the driver has it; CUDA: `cuMemGetInfo`) minus 10%, or `--vram-limit` when smaller. Pinned RAM is one
+  pool per host (`--ram-limit`, default 75% of RAM, less the scene the worker holds), shared by its GPUs.
+- **Tier 1** puts the texel buffers, the environment map and its weights in host memory the GPU reads over PCIe:
+  Vulkan host-visible types that are not device-local (on resizable-BAR GPUs some host-visible types are VRAM),
+  CUDA `cuMemHostAlloc` mapped (never managed memory). Shaders do not change; the image is bit-identical to tier 0.
+- **Tier 2** halves textures with one shared function (`downsized`, 2x2 means of the stored values); the CPU applies
+  it too (its placement or the test hook `PENUMBRA_TEST_TEXTURE_HALVINGS=k`), so GPU tier-2 renders are checked
+  against the CPU with the same textures.
+- **No out-of-memory crash.** A failed allocation is an `OutOfMemoryError`; the worker gives the tier up, returns its
+  RAM to the pool and asks the ladder again one tier lower. Fault mode `oom` injects it (`PENUMBRA_TEST_FAULTS=
+  device=N,mode=oom,after=T`: fails at tiers up to T).
+- **Uploads are staged in 64 MB parts** through one buffer, so a multi-gigabyte texture buffer needs no staging
+  copy as large (upload memory can be device-local on resizable-BAR GPUs).
+- **The placement log** is the device summary the controller already logs per device ("tier 1, scene 6.1 GB of
+  7.2 GB VRAM, textures 2.4 GB in RAM"); the tier was already on the wire, so the protocol is unchanged. The UI's
+  host detail page shows each device's tier and placement while a render runs.
+- **Host acceleration structures**: probed (an acceleration-structure buffer allowed in a host-visible, not
+  device-local memory type), logged per GPU and shown by `--diagnose`; not used (D-107).
+
+**D-109 Fixes from the first M8 GPU run (RTX 2060 SUPER 8 GB, Vulkan and CUDA).**
+- **Texels in parts.** Intel's New Sponza holds 4.9 GB of 8-bit texels; as one storage buffer that is past
+  `maxStorageBufferRange` (4 GB - 1 on NVIDIA, and `maxMemoryAllocationSize` is just under 4 GB), so Vulkan read
+  wrong texels for the textures past 4 GB (albedo GPU vs CPU relMSE 1.2e-3, yellow surfaces grey; the image still
+  looked plausible). Texels now go in up to 4 buffers per kind, each at most 2 GB, a texture never split
+  (`gpu::Texture.part`); the shader picks the part with a switch, so no descriptor-indexing feature is needed.
+  Limit: 8 GB of 8-bit and 8 GB of float texels per GPU (an `OutOfMemoryError` beyond).
+- **A device's first items get a grace period.** Next to the 2060 SUPER's Vulkan RT (an item in 0.14 s), the CPU's
+  first items (2 s) passed 10x the median of all devices and were all taken away: the CPU rendered 0 items
+  (render.vulkan_hybrid). Until a device finishes one item, its leases are late only after at least 30 s (scaled by
+  `PENUMBRA_TEST_TIME_SCALE`); afterwards D-097's rules apply. Hang tests (which hang after 2 items) are unchanged.
+- **Measured on the 2060 SUPER:** Intel Sponza (3.7 M triangles, 72 textures, 24 lights) is tier 0 on the real 8 GB
+  card, "scene 5.5 GB of 7.3 GB VRAM"; the RTX 2060 SUPER's driver allows acceleration structures in host memory
+  (probe).
+
+**D-110 M8 gate passed (2026-10-27), with one known issue.** On a rented RTX 2060 SUPER (8 GB, Turing, driver 580,
+CUDA 13.0, Ubuntu 24.04, a 19-core container; the gaming PC is out, D-107):
+- **Every tier on a real 8 GB GPU**, Vulkan and CUDA: `tier1_bits` (bit-identical to tier 0), `tier2_vs_cpu`
+  (against the CPU with the same halved texture), `tier3_skip`, `no_downsize`, `oom_retry` (injected out-of-memory,
+  same bits); GPU suite 42/42 (the 7 multi-GPU tests skip on one GPU).
+- **Intel's New Sponza** (3.7 M triangles, 72 textures 4.9 GB, 24 lights), Vulkan 960x540 64 spp: tier 0 "5.5 GB
+  of 7.3 GB VRAM" 1.85 M samples/s; tier 1 (`--vram-limit 2G`) "533.3 MB of 2.1 GB VRAM, textures 5.0 GB in RAM"
+  0.82 M samples/s (2.3x slower); tier 2 (`--vram-limit 2G --ram-limit 6G`) 67 textures halved, 1.45 M samples/s;
+  tier 3 (`--vram-limit 300M`) the GPU skipped with its reason, the CPU finished. No crash at any step. Albedo
+  against the CPU: Vulkan relMSE 9.8e-8, CUDA 4.0e-7.
+- **Suites:** Windows (laptop) 176/176; Linux (the box) 176/177; CI for step 0 green on both OSes.
+- **Known issue, for M9:** `net.scale_64` ran past its 900 s limit on the box (it passes on the laptop in ~105 s):
+  with 64 workers on a container throttled to 19 of 80 CPUs, the controller is overloaded, items look 10x slower
+  than they are, 18k leases are reissued and the reissues load it further (the loop noted in D-106). It is a
+  scheduler problem, not memory; the user chose to merge M8 and fix it first thing in M9 (damp the workers' queue
+  depth, keep queue time out of the late check).

@@ -22,6 +22,7 @@
 #include "core/settings/serialize.h"
 #include "core/system/paths.h"
 #include "core/system/sysinfo.h"
+#include "core/system/test_hooks.h"
 #include "core/version.h"
 #include "net/connection.h"
 #include "net/join_code.h"
@@ -200,7 +201,7 @@ int Worker::connect() {
         // Always-on worker: wait for the controller, however long it takes (docs/GUIDE.md "--stay").
         if (!told) spdlog::warn("{}; trying again (--stay)", e.what());
         told = true;
-        const auto until = Clock::now() + backoff;
+        const auto until = Clock::now() + scaledForTests(backoff);
         while (Clock::now() < until && !(opt_.interrupt && opt_.interrupt->load()))
           std::this_thread::sleep_for(std::chrono::milliseconds(100));
         backoff = std::min<std::chrono::seconds>(backoff * 2, kMaxBackoff);
@@ -325,7 +326,7 @@ int Worker::session() {
         // Through a relay (socat, an SSH tunnel) the TCP connection always opens, so a controller that is not
         // hosting yet shows up here, not as a refused connection: an always-on worker waits for it as well.
         spdlog::warn("the controller did not answer; trying again in {} s (--stay)", unanswered_backoff_.count());
-        const auto until = Clock::now() + unanswered_backoff_;
+        const auto until = Clock::now() + scaledForTests(unanswered_backoff_);
         while (Clock::now() < until && !(opt_.interrupt && opt_.interrupt->load()))
           std::this_thread::sleep_for(std::chrono::milliseconds(100));
         if (opt_.interrupt && opt_.interrupt->load()) return toInt(ExitCode::Interrupted);
@@ -378,13 +379,13 @@ int Worker::session() {
       sendStats();
       updateInFlight();
     }
-    if (now - last_heartbeat_ >= kHeartbeatPeriod) {
+    if (now - last_heartbeat_ >= scaledForTests(kHeartbeatPeriod)) {
       last_heartbeat_ = now;
       wire::HeartbeatT hb;
       hb.sent_us = nowMicros();
       conn_->send(hb);
     }
-    if (now - conn_->lastReceived() > kPeerTimeout) conn_->close("no heartbeat from the controller for 30 s");
+    if (now - conn_->lastReceived() > scaledForTests(kPeerTimeout)) conn_->close("no heartbeat from the controller for 30 s");
   }
 }
 

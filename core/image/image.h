@@ -37,6 +37,11 @@ struct Texture {
   Vec4f texel(int x, int y, bool srgb) const;
 };
 
+// The texture halved `halvings` times (each side max(1, n / 2)), every texel the mean of the 2x2 texels it covers,
+// in the stored values: memory tier 2 (docs/GUIDE.md "Scene placement ladder"). The GPU backends and the CPU use
+// this same function, so a tier 2 render can be checked against the CPU.
+Texture downsized(const Texture& t, uint32_t halvings);
+
 float srgbToLinear(float c);
 // srgbToLinear(i / 255) for i = 0..255, as Texture lookups use it (also for GPU backends).
 const float* srgbToLinearTable();

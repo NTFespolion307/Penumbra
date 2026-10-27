@@ -7,11 +7,13 @@
   .\scripts\build.ps1                 # Release build with tests
   .\scripts\build.ps1 -Config debug   # Debug build
   .\scripts\build.ps1 -NoTests -Clean # Fresh build without running tests
+  .\scripts\build.ps1 -Quick          # Only the quick tests (unit, smoke, lint; under a minute)
 #>
 [CmdletBinding()]
 param(
   [ValidateSet('release', 'debug')] [string] $Config = 'release',
   [switch] $NoTests,
+  [switch] $Quick,
   [switch] $Clean
 )
 
@@ -104,7 +106,11 @@ try {
 
   if (-not $NoTests) {
     Step 'Running tests'
-    ctest --preset $preset -LE 'large|gpu'; Run 'Tests'  # 20K gate: ctest -L large; GPU: scripts\test-gpu.ps1
+    # Side by side: ctest counts each test's PROCESSORS against the core count (D-106). 20K gate: ctest -L large;
+    # GPU: scripts\test-gpu.ps1.
+    $jobs = [Environment]::ProcessorCount
+    if ($Quick) { ctest --preset $preset -L '^(unit|smoke|lint)$' -j $jobs; Run 'Tests' }
+    else { ctest --preset $preset -LE 'large|gpu' -j $jobs; Run 'Tests' }
   }
 
   $exe = Join-Path $root "build\$preset\bin\penumbra.exe"

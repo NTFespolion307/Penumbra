@@ -5,11 +5,13 @@
 #   ./scripts/build.sh             Release build with tests
 #   ./scripts/build.sh --debug     Debug build
 #   ./scripts/build.sh --no-tests --clean
+#   ./scripts/build.sh --quick          Only the quick tests (unit, smoke, lint; under a minute)
 #   ./scripts/build.sh --ui | --no-ui    Force the user interface on or off (default: on when a display is present)
 set -euo pipefail
 
 config=release
 tests=1
+quick=0
 clean=0
 ui=auto
 for arg in "$@"; do
@@ -17,10 +19,11 @@ for arg in "$@"; do
     --debug) config=debug ;;
     --release) config=release ;;
     --no-tests) tests=0 ;;
+    --quick) quick=1 ;;
     --clean) clean=1 ;;
     --ui) ui=1 ;;
     --no-ui) ui=0 ;;
-    -h|--help) sed -n '2,9p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
     *) echo "unknown option: $arg" >&2; exit 1 ;;
   esac
 done
@@ -113,7 +116,13 @@ cmake --build --preset "$preset"
 
 if (( tests )); then
   step "Running tests"
-  ctest --preset "$preset" -LE "large|gpu"  # 20K gate: ctest -L large; GPU: scripts/test-gpu.sh
+  # Side by side: ctest counts each test's PROCESSORS against the allowed cores (D-106). 20K gate: ctest -L large;
+  # GPU: scripts/test-gpu.sh.
+  if (( quick )); then
+    ctest --preset "$preset" -L "^(unit|smoke|lint)$" -j "$cores"
+  else
+    ctest --preset "$preset" -LE "large|gpu" -j "$cores"
+  fi
 fi
 
 exe="$root/build/$preset/bin/penumbra"

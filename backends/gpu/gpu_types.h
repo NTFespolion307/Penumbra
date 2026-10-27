@@ -62,9 +62,10 @@ struct Texture {
   uint32_t is_float;
   uint32_t wrap_s, wrap_t;  // 0 repeat, 1 clamp, 2 mirror
   uint32_t nearest;
-  uint32_t offset;  // into the RGBA8 texel buffer (uint per texel) or the float4 texel buffer
+  uint32_t offset;  // into its RGBA8 texel buffer (uint per texel) or float4 texel buffer
+  uint32_t part;    // which of the kTexelParts buffers of its kind holds it (D-109)
 };
-static_assert(sizeof(Texture) == 28);
+static_assert(sizeof(Texture) == 32);
 
 // One glTF primitive. Vertex attributes are indexed attribute_offset + local vertex index; -1 = absent.
 struct Primitive {

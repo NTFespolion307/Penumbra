@@ -8,17 +8,19 @@ the image. Any number of **workers**, each with one or more GPUs, join with the 
 code, render tiles and send them back. A render on one machine is the same thing with no workers, and every
 combination of machines, GPUs and backends converges to the same image.
 
-> **Status: milestone M10 (user interface; M8 and M9 come next).** Penumbra renders glTF and OBJ scenes on GPUs with hardware ray
+> **Status: milestone M8 (memory budget and fallback; M9 comes next).** Penumbra renders glTF and OBJ scenes on GPUs with hardware ray
 > tracing (Vulkan RT), on any NVIDIA GPU through CUDA, and on the CPU (Embree), with a path tracer (next-event
 > estimation, MIS), the glTF PBR material with its common extensions and HDRI lighting, at any size up to 160K,
 > with checkpoints, `--resume` and `merge`, writing EXR, PNG, JPEG, TIFF or WebP. Every machine uses all its GPUs
 > at once, with Vulkan, CUDA and the CPU mixed freely; work is split into tile and sample chunks that the devices
 > share, idle devices take over the last chunks of slower ones, and a GPU that fails, hangs or cannot hold the
-> scene is dropped without changing the image. Several machines render together: a controller hosts, workers on
+> scene is dropped without changing the image. Scenes bigger than a GPU's memory still render: textures move to RAM
+> or are downsized, and a GPU that cannot hold the geometry sits the render out; running out of memory never
+> crashes a render. Several machines render together: a controller hosts, workers on
 > the LAN or the internet join with a code (encrypted), download the scene once, and any failure of a worker, its
 > devices or the network is recovered without changing the image. The UI hosts, joins and runs renders with
-> clicks only: Dashboard, Hosts, Render, a live Viewport and Settings, on Windows and Linux. Memory tiers for big
-> scenes arrive in M8, measured performance in M9. Features marked *(planned, Mx)* below are not built yet. The roadmap is in
+> clicks only: Dashboard, Hosts, Render, a live Viewport and Settings, on Windows and Linux. Measured performance
+> arrives in M9, an atmosphere and physical sky in M14. Features marked *(planned, Mx)* below are not built yet. The roadmap is in
 > [`docs/GUIDE.md`](docs/GUIDE.md).
 
 
@@ -206,7 +208,9 @@ folder such as `C:\dev`: MSVC fails on paths longer than 260 characters.
    Success ends with `Built: .../Penumbra/build/linux-gcc-release/bin/penumbra`.
 
 Script options: `-Config debug` / `--debug` for a debug build, `-NoTests` / `--no-tests` to skip the tests,
-`-Clean` / `--clean` to start from an empty build folder. On Linux the user interface is built when a display is
+`-Quick` / `--quick` to run only the quick tests (unit, smoke and lint, under a minute), `-Clean` / `--clean` to
+start from an empty build folder. The tests run several at a time, as many as the machine's cores allow; the full
+suite takes a few minutes. On Linux the user interface is built when a display is
 present (`DISPLAY` or `WAYLAND_DISPLAY`) and skipped on headless machines; `--ui` / `--no-ui` force it. Windows
 always builds it.
 
@@ -359,6 +363,28 @@ Sponza is Crytek's model (Cryengine Limited License Agreement) as published in t
 the sky is [Kloofendal 48d Partly Cloudy (Pure Sky)](https://polyhaven.com/a/kloofendal_48d_partly_cloudy_puresky)
 by Greg Zaal and Jarod Guest (CC0, Poly Haven). Both are downloaded from their publishers, not redistributed here.
 The script adds a camera ("Courtyard") to a copy of the glTF, `scenes/sponza/courtyard.gltf`.
+
+**A heavy production scene: Intel's New Sponza.** The modern remake of Sponza: 4K PBR textures (72 of them, about
+4.5 GB once loaded), photogrammetry geometry, 24 lights, 6 cameras and an HDRI sky. It is a 4 GB download (2.8 GB
+is kept; the 3ds Max, FBX and USD versions in the archive are left out) and it is the scene the memory tiers
+are tested with: on an 8 GB GPU its textures do not all fit in VRAM.
+
+1. Download it (checked against its SHA-256):
+   ```
+   .\scripts\get-scenes.ps1 -Scene intel-sponza
+   ```
+   On Linux: `./scripts/get-scenes.sh intel-sponza`. Success: the last lines say `Ready: scenes/intel-sponza.pen.json`.
+2. Render it:
+   ```
+   build/windows-msvc-release/bin/penumbra.exe --terminal scenes/intel-sponza.pen.json --spp 1024 -o intel-sponza.png
+   ```
+   Other views: add `--camera PhysCamera002` (up to `PhysCamera006`).
+
+Sponza 2022 by Frank Meinl and Anton Kaplanyan ([Intel Sample Library](https://www.intel.com/content/www/us/en/developer/topic-technology/graphics-research/samples.html)),
+CC BY 4.0, "for personal use and educational use, limited commercial use for marketing and print purposes";
+reference photos by Katica Putica and Princino.photo. The full credits and license are in
+`scenes/intel-sponza/main_sponza/credits_license.txt` after the download. Downloaded from Intel, not
+redistributed here.
 
 **Test scenes and image comparison.** The build also makes two tools next to `penumbra`:
 
@@ -666,7 +692,7 @@ and the CPU only when no GPU qualifies or `--devices` lists `cpu`. Every choice 
 `penumbra --list-devices` numbers the GPUs as `--devices` takes them: ray-tracing GPUs first, then NVIDIA GPUs
 that only CUDA can use; GPUs that cannot render are listed with the reason.
 
-### Multi-GPU and memory tiers *(memory tiers planned, M8)*
+### Multi-GPU and memory tiers
 
 A worker (and the controller's own machine) uses all its GPUs at once, one slot per GPU; each GPU pulls its own
 work, so fast GPUs do more of the frame. Backends mix freely on one host (`--devices 0:vulkan,1:cuda,cpu`), and
@@ -676,9 +702,22 @@ that fails or stops answering mid-render is removed and its work goes to the oth
 the render, and the image is the same. On NVIDIA GPUs the worker reports usage, VRAM and temperature from the
 driver (NVML); `penumbra --list-devices` shows them too.
 
-Each GPU picks a memory tier for the scene *(M8)*: **0** everything in VRAM; **1** textures in RAM (1.2–2×
-slower); **2** textures downsized (disable with `--no-texture-downsize`); **3** GPU skipped. Override the budget
-with `--vram-limit` and `--ram-limit`. A GPU that runs out of memory never crashes the render.
+Each GPU picks a memory tier for the scene from what it really needs and what is free:
+
+| Tier | Where the scene lives | Speed |
+| --- | --- | --- |
+| **0** | Everything in VRAM | Full speed |
+| **1** | Geometry in VRAM; textures and the HDRI in RAM, read over PCIe | Typically 1.2–2× slower; same image |
+| **2** | As 1, with the largest textures halved until they fit (the log says how much) | As 1; slightly softer textures |
+| **3** | The geometry does not fit: this GPU sits the render out, the others render | — |
+
+The VRAM budget is the GPU's free VRAM minus 10% (`--vram-limit 6G` sets a lower one); RAM for textures is 75% of
+the machine's RAM less the scene itself (`--ram-limit`), shared by the machine's GPUs. `--no-texture-downsize`
+makes a GPU that would need tier 2 skip the render instead. Each GPU's choice is in the log and on the Hosts page,
+for example `tier 1, scene 6.1 GB of 7.2 GB VRAM, textures 2.4 GB in RAM`. If memory runs out anyway (another
+program took VRAM after the start), the GPU drops one tier and tries again: running out of memory never crashes
+the render. `penumbra --diagnose` also says whether a GPU's driver could keep acceleration structures in RAM (not
+used: such a GPU is tier 3).
 
 ### Output formats and limits
 

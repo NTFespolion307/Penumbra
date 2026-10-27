@@ -77,7 +77,7 @@ M5 and M6 may be swapped.
 | M5 | Vulkan RT backend | BLAS/TLAS, RT pipeline, Slang shaders, one GPU; decide Slang CPU target vs C++ headers | Matches CPU golden images, relMSE < 1e-3 at 4,096 spp |
 | M6 | CUDA compute backend | tinybvh CWBVH, Slang to CUDA kernels, sm_75 to sm_120 | Matches CPU golden images; `--backend cuda` runs on any NVIDIA GPU |
 | M7 | Multi-GPU workers | One slot per GPU, mixed backends per host, tail duplication, device dropout, hybrid CPU | Multi-GPU worker matches 1 GPU; a removed GPU never stops the render |
-| M8 | Memory budget + fallback | Tier 0-3 ladder, pinned RAM textures, texture downsizing, host-AS probe, placement log | `--vram-limit` tests reach every tier on the 8 GB RTX 5060; zero OOM crashes |
+| M8 | Memory budget + fallback | Tier 0-3 ladder, pinned RAM textures, texture downsizing, host-AS probe, placement log | `--vram-limit` tests reach every tier on a rented GPU box (8 GB limit, D-107); zero OOM crashes |
 | M9 | Performance + benchmarks | Profiling, megakernel vs wavefront, `--benchmark`, network throughput | Measured speeds replace estimates; LAN workers keep GPUs > 90% busy |
 | M10 | UI | Dashboard, Hosts + host detail, Render and Viewport pages, Settings, Join a render (see GUIDE.md "UI") | Host, join and finish a 3-machine render with clicks only |
 | M11 | Denoise, tonemap, AOVs | OIDN per tile with 32 px border, AgX/Filmic/ACES, AOVs, metadata | No seams on a 40K render; AgX close to Blender |
@@ -125,7 +125,7 @@ port forwarding/UPnP, VPN for CGNAT, Windows Firewall and `ufw allow 7420/tcp`, 
 | Machine | Hardware | Used for |
 |---|---|---|
 | Dev laptop (where you run) | Intel i7 11th gen, 32 GB RAM, Intel integrated GPU WITHOUT ray tracing (UI only, never renders in v1) | All coding; CPU, unit and network tests (several worker processes); compiling GPU code; renders up to 20K |
-| Gaming PC | RTX 5060, 8 GB, Blackwell sm_120, hardware RT | Single-GPU Vulkan RT + CUDA, Windows GPU tests, low-VRAM fallback, LAN worker |
+| Gaming PC | RTX 5060, 8 GB, Blackwell sm_120, hardware RT | Not available (the user works away from it, D-107): GPU work uses rented boxes only |
 | GPU servers (up to 5) | Mostly NVIDIA, mixed models | Multi-GPU, 60K-160K renders, internet-worker tests, benchmarks |
 
 - GPU servers are rented vast.ai containers/VMs, destroyed after every day: each session gets new SSH addresses
@@ -133,7 +133,7 @@ port forwarding/UPnP, VPN for CGNAT, Windows Firewall and `ufw allow 7420/tcp`, 
   files, builds or caches left on a server from an earlier day. Use only the CPUs the container's cgroup quota
   allows (not the host's core count) for build and test parallelism.
 - `PEN_CUDA_ARCHS` default `75;80;86;89;90;120`; add older archs if the server has them.
-- Never mark M5-M9 as passed without results from the gaming PC or the GPU server; reports name the machine and GPU.
+- Never mark M5-M9 as passed without results from a GPU server (the gaming PC is not available, D-107); reports name the machine and GPU.
 - Preferred: both GPU machines are self-hosted GitHub Actions runners (`gpu-windows`, `gpu-linux`) running `ctest -L gpu` on pushes to `main` only, never on pull requests from forks.
 - Fallback: `scripts/test-gpu.ps1` / `scripts/test-gpu.sh`; ask the user to run them and paste the summary.
 

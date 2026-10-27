@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <stdexcept>
+#include <fmt/format.h>
 #include <thread>
 
 #include "core/settings/parse.h"
@@ -19,10 +20,13 @@ class FaultyBackend final : public IBackend {
  public:
   FaultyBackend(std::unique_ptr<IBackend> inner, const FaultSpec& spec) : inner_(std::move(inner)), spec_(spec) {}
   DeviceInfo info() const override { return inner_->info(); }
-  MemoryPlan plan(const SceneStats& s) override { return inner_->plan(s); }
-  void upload(const Scene& scene, const MemoryPlan& plan) override {
+  uint64_t vramBudget() override { return inner_->vramBudget(); }
+  SceneFootprint measure(const Scene& scene) override { return inner_->measure(scene); }
+  void upload(const Scene& scene, const Placement& placement) override {
     if (spec_.mode == FaultMode::Upload) throw BackendError("injected test fault while taking the scene (PENUMBRA_TEST_FAULTS)");
-    inner_->upload(scene, plan);
+    if (spec_.mode == FaultMode::Oom && placement.tier <= spec_.after)
+      throw OutOfMemoryError(fmt::format("injected out of memory at tier {} (PENUMBRA_TEST_FAULTS)", placement.tier));
+    inner_->upload(scene, placement);
   }
   void prepare(const FrameSetup& frame) override {
     cancel_ = false;
@@ -41,7 +45,8 @@ class FaultyBackend final : public IBackend {
           inner_->render(item, out);
           ++g_corrupt_tiles;
           return;
-        case FaultMode::Upload: break;
+        case FaultMode::Upload:
+        case FaultMode::Oom: break;
         case FaultMode::Freeze: g_frozen = true; [[fallthrough]];
         case FaultMode::Hang:
           while (!cancel_.load()) std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -81,7 +86,8 @@ std::optional<FaultSpec> faultSpecFromEnvironment() {
     else if (key == "mode" && value == "freeze") spec.mode = FaultMode::Freeze;
     else if (key == "mode" && value == "corrupt") spec.mode = FaultMode::Corrupt;
     else if (key == "mode" && value == "upload") spec.mode = FaultMode::Upload;
-    else throw std::invalid_argument("PENUMBRA_TEST_FAULTS: use device=N,after=K,mode=throw|hang|exit|freeze|corrupt|upload");
+    else if (key == "mode" && value == "oom") spec.mode = FaultMode::Oom;
+    else throw std::invalid_argument("PENUMBRA_TEST_FAULTS: use device=N,after=K,mode=throw|hang|exit|freeze|corrupt|upload|oom");
     if (comma == std::string_view::npos) break;
     s.remove_prefix(comma + 1);
   }
@@ -96,6 +102,7 @@ std::string_view toString(FaultMode mode) {
     case FaultMode::Freeze: return "freeze the worker";
     case FaultMode::Corrupt: return "corrupt its tiles";
     case FaultMode::Upload: return "fail to take the scene";
+    case FaultMode::Oom: return "run out of memory taking the scene";
   }
   return "?";
 }

@@ -9,6 +9,7 @@ add_executable(penumbra_unit_tests
   unit/test_cli.cpp
   unit/test_config.cpp
   unit/test_film.cpp
+  unit/test_memory.cpp
   unit/test_net.cpp
   unit/test_package.cpp
   unit/test_parse.cpp
@@ -23,10 +24,14 @@ target_compile_definitions(penumbra_unit_tests PRIVATE PEN_TEST_DATA_DIR="${PEN_
 catch_discover_tests(penumbra_unit_tests PROPERTIES LABELS unit ENVIRONMENT "PENUMBRA_TEST_CHUNK_BUDGET=4194304")
 
 # ---- Smoke tests: run the real binary and check exit codes and messages ----
-set(PEN_SMOKE_COMMON "--config|${PEN_TEST_DATA}/empty-config.json|--log-file|${CMAKE_CURRENT_BINARY_DIR}/smoke.log")
+# Each runs in its own folder with its own log: they run side by side (ctest -j), and outputs such as out.tiff and
+# out.webp would otherwise share one out.penfilm (D-106).
+set(PEN_SMOKE_COMMON "--config|${PEN_TEST_DATA}/empty-config.json|--log-file|SMOKE_LOG")
 function(pen_smoke name expect args)
-  set(cmd "${CMAKE_COMMAND}" -DEXE=$<TARGET_FILE:penumbra> "-DARGS=${args}" -DEXPECT=${expect}
-          -DWORKDIR=${CMAKE_CURRENT_BINARY_DIR})
+  set(dir "${CMAKE_CURRENT_BINARY_DIR}/smoke/${name}")
+  file(MAKE_DIRECTORY "${dir}")
+  string(REPLACE "SMOKE_LOG" "${dir}/smoke.log" args "${args}")
+  set(cmd "${CMAKE_COMMAND}" -DEXE=$<TARGET_FILE:penumbra> "-DARGS=${args}" -DEXPECT=${expect} -DWORKDIR=${dir})
   if(ARGC GREATER 3)
     list(APPEND cmd "-DMATCH=${ARGV3}")
   endif()
@@ -79,7 +84,9 @@ function(pen_render_test name mode scene args)
            COMMAND "${CMAKE_COMMAND}" -DPENUMBRA=$<TARGET_FILE:penumbra> -DDIFF=$<TARGET_FILE:penumbra-diff>
                    -DWORKDIR=${CMAKE_CURRENT_BINARY_DIR} -DNAME=${name} -DSCENE=${PEN_SCENES}/${scene} "-DARGS=${args}"
                    -DMODE=${mode} ${ARGN} -P "${PROJECT_SOURCE_DIR}/cmake/RenderCheck.cmake")
-  set_tests_properties(render.${name} PROPERTIES LABELS "render;gate")
+  # Renders use every core; ctest -j counts this many, so several still run side by side without starving the
+  # timing-sensitive ones (D-106).
+  set_tests_properties(render.${name} PROPERTIES LABELS "render;gate" PROCESSORS 4)
 endfunction()
 
 # Furnace: white Lambert sphere and smooth glass sphere in a uniform white environment; every pixel within 0.5%.
@@ -145,7 +152,7 @@ function(pen_net_test name port workers scene args)
                    -DWORKDIR=${CMAKE_CURRENT_BINARY_DIR} -DNAME=net_${name}
                    -DSCENE=${PEN_SCENES}/${scene} "-DARGS=${args}" -DMODE=network -DPORT=${port}
                    -DWORKERS=${workers} ${ARGN} -P "${PROJECT_SOURCE_DIR}/cmake/RenderCheck.cmake")
-  set_tests_properties(net.${name} PROPERTIES LABELS "net;gate")
+  set_tests_properties(net.${name} PROPERTIES LABELS "net;gate" PROCESSORS 8)
 endfunction()
 # Each test has its own port so ctest -j can run them side by side.
 pen_net_test(loopback 7501 3 cornell.pen.json "--res|1080p|--scale|0.5|--spp|32" "-DREF_ARGS=--devices|cpu"
@@ -195,7 +202,7 @@ pen_net_test(device_fail 7511 2 cornell.pen.json "${PEN_NET_12}" "-DREF_ARGS=--d
              "-DWORKER_ARGS=--threads|4" "-DFIRST_WORKER_ARGS=--devices|cpu,cpu"
              "-DFIRST_WORKER_ENV=PENUMBRA_TEST_FAULTS=device=1,after=0,mode=throw"
              "-DEXPECT_LOG=device 1 of worker 0 failed and is removed")
-pen_net_test(device_skipped 7520 2 cornell.pen.json "${PEN_NET_12}" "-DREF_ARGS=--devices|cpu" "-DCONTROLLER_ARGS=--no-local"
+pen_net_test(device_skipped 7522 2 cornell.pen.json "${PEN_NET_12}" "-DREF_ARGS=--devices|cpu" "-DCONTROLLER_ARGS=--no-local"
              "-DWORKER_ARGS=--threads|4" "-DFIRST_WORKER_ARGS=--devices|cpu,cpu"
              "-DFIRST_WORKER_ENV=PENUMBRA_TEST_FAULTS=device=1,mode=upload"
              "-DEXPECT_LOG=device 1 [^\n]*is skipped for this render")
@@ -210,12 +217,13 @@ pen_net_test(tail_duplicate 7521 2 cornell.pen.json "--res|1080p|--spp|256|--bac
              "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--backend|null"
              "-DFIRST_WORKER_ENV=PENUMBRA_TEST_FAULTS=device=0,after=2,mode=hang"
              "-DEXPECT_LOG=duplicated to device [^\n]*the first valid result wins.*copy of tile [^\n]* won")
-pen_net_test(worker_silent 7514 2 cornell.pen.json "--res|1080p|--scale|0.5|--spp|256" "-DREF_ARGS=--devices|cpu"
+pen_net_test(worker_silent 7514 2 cornell.pen.json "--res|1080p|--scale|0.5|--spp|64" "-DREF_ARGS=--devices|cpu"
              "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|4" -DFIRST_WORKER_EXPECT=7
              "-DFIRST_WORKER_ENV=PENUMBRA_TEST_FAULTS=device=0,after=1,mode=freeze" "-DEXPECT_LOG=heartbeat lost"
-             -DNO_TAIL=1 -DWORKER_DELAY_MS=35000)
-# Worker 1 starts at 35 s and goes silent after one item; worker 2 joins at 70 s, after the controller has
-# dropped worker 1 (30 s), so a fast worker 2 cannot finish the render before the heartbeat loss (any speed).
+             -DNO_TAIL=1 -DWORKER_DELAY_MS=10000)
+# Network tests run with the timers x 0.2 (D-106): worker 1 starts at 10 s and goes silent after one item; worker 2
+# joins at 20 s, after the controller has dropped worker 1 (6 s), so a fast worker 2 cannot finish the render before
+# the heartbeat loss (any speed).
 pen_net_test(corrupt_tiles 7515 2 cornell.pen.json "${PEN_NET_12}" "-DREF_ARGS=--devices|cpu"
              "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|4" -DFIRST_WORKER_EXPECT=6
              "-DFIRST_WORKER_ENV=PENUMBRA_TEST_FAULTS=device=0,after=0,mode=corrupt" "-DEXPECT_LOG=kicking w1")
@@ -242,8 +250,13 @@ pen_net_test(stay_next_render 7519 1 cornell.pen.json "--res|1080p|--scale|0.25|
 pen_net_test(scale_64 7520 64 cornell.pen.json "--res|4k|--spp|4096|--backend|null" "-DREF_ARGS=--devices|cpu"
              "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--backend|null|--devices|cpu,cpu,cpu,cpu,cpu,cpu,cpu,cpu"
              "-DWORKER_ENV=PENUMBRA_TEST_NULL_DELAY_MS=300" -DWORKER_DELAY_MS=40
-             "-DEXPECT_LOG=w64/7 [^\n]*: [1-9][0-9]* items")
-set_tests_properties(net.stay_resume net.scale_64 PROPERTIES LABELS "net;gate;slow")
+             "-DEXPECT_LOG=w64/7 [^\n]*: [1-9][0-9]* items" -DTIME_SCALE=1)
+set_tests_properties(net.stay_resume PROPERTIES LABELS "net;gate;slow")
+# 64 worker processes: alone on the machine, in real time (with the timers x 0.2 the overloaded controller's round
+# trips push the workers' queue depth up, leases go late and are reissued, and it never finishes; an M9 note), and
+# skipped on CI's small runners (ctest -LE scale) where it ran past its 900 s limit; the gate runs it on the laptop
+# (D-106).
+set_tests_properties(net.scale_64 PROPERTIES LABELS "net;gate;slow;scale" RUN_SERIAL TRUE)
 
 # ---- GPU tests (M5, M6): label gpu plus vulkan or cuda, skipped by the build scripts; run with
 # scripts/test-gpu.sh (ctest -L gpu; a GPU without ray tracing: ctest -L cuda) ----
@@ -294,6 +307,22 @@ foreach(_b IN LISTS _pen_gpu_backends)
                "-DEXPECT_LOG=duplicated to device" -DSMALL_CHUNKS=1 -DMIN_GPUS=2)
   set_tests_properties(render.${_b}_multi_gpu render.${_b}_multi_gpu_fail render.${_b}_multi_gpu_hang
                        PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:")
+  # M8 (D-108): the memory tier ladder on bigtex (one 2048x2048 texture, ~17 MB on the GPU). Tier 1 moves the same
+  # bytes to RAM: bit-identical. Tier 2 halves the texture once (10 MB of VRAM, 30 MB of RAM less the scene itself):
+  # the CPU halving it the same way must agree. Tier 3 and a forbidden downsize skip the GPU; the CPU finishes, so
+  # the image is the CPU's. An injected out-of-memory at tier 0 lands at tier 1, same bits.
+  pen_gpu_test(${_b} tier1_bits pair bigtex.pen.json "--res|240x240|--spp|64" "-DARGS_A=--backend|${_b}"
+               "-DARGS_B=--backend|${_b}|--vram-limit|10M" -DMAXRELMSE=0 "-DEXPECT_LOG=tier 1, scene")
+  pen_gpu_test(${_b} tier2_vs_cpu pair bigtex.pen.json "--res|240x240|--spp|1024" "-DARGS_A=--backend|cpu"
+               "-DARGS_B=--backend|${_b}|--vram-limit|10M|--ram-limit|30M" -DMAXRELMSE=1e-3 -DTEXTURE_HALVINGS=1
+               "-DEXPECT_LOG=tier 2, [^\n]*1 texture.s. downsized .at most 1/2 per side.")
+  pen_gpu_test(${_b} tier3_skip pair bigtex.pen.json "--res|240x240|--spp|16" "-DARGS_A=--backend|cpu"
+               "-DARGS_B=--devices|0:${_b},cpu|--vram-limit|1K" -DMAXRELMSE=0 "-DEXPECT_LOG=memory tier 3")
+  pen_gpu_test(${_b} no_downsize pair bigtex.pen.json "--res|240x240|--spp|16" "-DARGS_A=--backend|cpu"
+               "-DARGS_B=--devices|0:${_b},cpu|--vram-limit|10M|--ram-limit|30M|--no-texture-downsize" -DMAXRELMSE=0
+               "-DEXPECT_LOG=memory tier 3[^\n]*--no-texture-downsize")
+  pen_gpu_test(${_b} oom_retry faults bigtex.pen.json "--res|240x240|--spp|64|--backend|${_b}" -DREF_DEVICES=0
+               -DFAULT_DEVICES=0 "-DFAULTS=device=0,mode=oom" "-DEXPECT_LOG=out of memory at tier 0")
 endforeach()
 if(PEN_ENABLE_CUDA)
   # Traversal step counts exist only in the software BVH.

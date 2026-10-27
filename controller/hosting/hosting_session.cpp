@@ -168,6 +168,8 @@ RenderOutcome HostingSession::render(RenderJob& job, std::vector<std::unique_ptr
   }
   if (!localDevices.empty())
     controller.addWorker([&](WorkerId id) {
+      std::unique_lock wl(render_mutex_);
+      local_render_id_ = id;
       return std::make_unique<LocalWorker>(id, controller, std::move(localDevices));
     });
 
@@ -190,6 +192,7 @@ RenderOutcome HostingSession::render(RenderJob& job, std::vector<std::unique_ptr
       std::unique_lock wl(s.render_mutex_);
       std::lock_guard lock(s.mutex_);
       s.render_ = nullptr;
+      s.local_render_id_.reset();
       for (auto& [id, e] : s.workers_) {
         e.render_id.reset();
         e.view.in_render = false;
@@ -268,6 +271,13 @@ std::optional<WorkerId> HostingSession::renderId(WorkerId id) const {
 }
 
 // ---------------------------------------------------------------- worker events (network thread)
+
+std::vector<DeviceReady> HostingSession::devicePlacement(WorkerId host) const {
+  std::shared_lock rl(render_mutex_);
+  if (!render_) return {};
+  const std::optional<WorkerId> rid = host == 0 ? local_render_id_ : renderId(host);
+  return rid ? render_->deviceReadiness(*rid) : std::vector<DeviceReady>{};
+}
 
 void HostingSession::onReady(WorkerId worker, const std::vector<DeviceReady>& devices) {
   std::shared_lock rl(render_mutex_);

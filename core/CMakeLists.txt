@@ -23,6 +23,7 @@ add_library(penumbra_core STATIC
   package/package.cpp
   render/camera.cpp
   render/lights.cpp
+  render/memory_placement.cpp
   render/surface.cpp
   sampling/alias_table.cpp
   scene/gltf_loader.cpp
@@ -37,7 +38,8 @@ add_library(penumbra_core STATIC
   system/file.cpp
   system/hash.cpp
   system/paths.cpp
-  system/sysinfo.cpp)
+  system/sysinfo.cpp
+  system/test_hooks.cpp)
 add_dependencies(penumbra_core penumbra_git_version)
 target_include_directories(penumbra_core PUBLIC "${PROJECT_SOURCE_DIR}")
 target_include_directories(penumbra_core SYSTEM PRIVATE ${CGLTF_INCLUDE_DIRS} ${STB_INCLUDE_DIRS})

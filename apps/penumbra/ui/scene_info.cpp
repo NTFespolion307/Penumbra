@@ -50,8 +50,7 @@ std::vector<uint8_t> renderPreview(const Scene& scene, const RenderSettings& set
     // A UI preview on this machine's CPU, leaving two threads for the UI (docs/GUIDE.md "Render page").
     const uint32_t threads = std::max(1u, usableCpuThreads() > 2 ? usableCpuThreads() - 2 : 1u);
     auto cpu = createCpuBackend(threads);
-    const MemoryPlan plan = cpu->plan(scene.stats());
-    cpu->upload(scene, plan);
+    cpu->upload(scene, Placement{});
     cpu->prepare(frame);
     WorkItem item;
     item.rect = {0, 0, width, height};

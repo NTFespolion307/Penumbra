@@ -11,6 +11,7 @@
 #include "core/output/output.h"
 #include "core/system/file.h"
 #include "core/system/paths.h"
+#include "core/system/test_hooks.h"
 
 namespace pen {
 
@@ -22,6 +23,7 @@ uint32_t sampleEnd(const RenderSettings& s) {
   return s.spp == 0 ? kUnboundedSamples : s.spp;
 }
 constexpr double kMinLateSeconds = 2.0;  // never call a lease late before this
+constexpr auto kFirstItemsGrace = std::chrono::seconds(30);  // ...nor a device's first items before this (D-109)
 constexpr size_t kDurationWindow = 256;
 constexpr size_t kDeviceDurationWindow = 32;
 constexpr uint32_t kMaxRejects = 3;
@@ -89,8 +91,15 @@ uint32_t RenderController::restoreFromFilm() {
 
 // ---------------------------------------------------------------- worker events
 
+std::vector<DeviceReady> RenderController::deviceReadiness(WorkerId worker) const {
+  std::lock_guard lock(mutex_);
+  const auto it = ready_.find(worker);
+  return it == ready_.end() ? std::vector<DeviceReady>{} : it->second;
+}
+
 void RenderController::onReady(WorkerId worker, const std::vector<DeviceReady>& devices) {
   std::lock_guard lock(mutex_);
+  ready_[worker] = devices;
   const WorkerInfo info = workers_[worker]->info();
   for (const DeviceReady& d : devices) {
     const std::string name = d.device < info.devices.size() ? info.devices[d.device].name : "?";
@@ -377,6 +386,8 @@ double RenderController::medianSeconds(const std::deque<double>& window) {
 
 // A lease is late after 10x its device's median item time, so a slow device (a CPU next to fast GPUs) is not
 // taken for a hung one; a device with fewer than 3 finished items is judged by the median of all devices (D-097).
+// A device that has finished nothing yet gets at least kFirstItemsGrace: next to a fast GPU, a CPU's first items
+// took longer than 10x the GPU's median and were all taken away (D-109).
 void RenderController::reissueLateLocked() {
   if (paused_) return;  // nothing is late while nothing is handed out
   const double overall = medianSeconds(item_seconds_);
@@ -385,15 +396,18 @@ void RenderController::reissueLateLocked() {
   for (auto& [id, info] : leases_) {
     if (info.reissued) continue;
     const auto dev = device_seconds_.find({info.worker, info.device});
+    const bool fresh = dev == device_seconds_.end() || dev->second.empty();
     double median = dev != device_seconds_.end() ? medianSeconds(dev->second) : -1;
     if (median < 0) median = overall;
     if (median < 0) continue;
-    const double limit = std::max(10 * median, kMinLateSeconds);
+    double limit = std::max(10 * median, kMinLateSeconds);
+    if (fresh) limit = std::max(limit, std::chrono::duration<double>(scaledForTests(kFirstItemsGrace)).count());
     const double age = std::chrono::duration<double>(now - info.issued).count();
     if (age <= limit) continue;
-    spdlog::warn("lease {} (tile {} chunk {}) on device {} of worker {} is late ({:.1f}s, 10x median is {:.1f}s); "
+    spdlog::warn("lease {} (tile {} chunk {}) on device {} of worker {} is late ({:.1f}s, the limit is {:.1f}s{}); "
                  "handing it out again, the first valid result wins",
-                 id, info.item.tile, info.item.chunk, info.device, info.worker, age, 10 * median);
+                 id, info.item.tile, info.item.chunk, info.device, info.worker, age, limit,
+                 fresh ? " for a device's first items" : "");
     info.reissued = true;
     ++reissued_;
     scheduler_.requeue(info.item);
