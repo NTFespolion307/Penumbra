@@ -17,16 +17,19 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "net/frame.h"
 #include "net/tls.h"
 
 namespace pen::net {
 
-// An io_context running on its own thread until stop() or destruction.
+// An io_context running on `threads` threads until stop() or destruction. Each connection gets its own strand, so
+// one connection's work stays in order while different connections are handled in parallel: a controller with many
+// workers decrypts and unpacks their tiles on several cores (M9, D-112).
 class IoThread {
  public:
-  IoThread();
+  explicit IoThread(unsigned threads = 1);
   ~IoThread();
   IoThread(const IoThread&) = delete;
   IoThread& operator=(const IoThread&) = delete;
@@ -36,7 +39,7 @@ class IoThread {
  private:
   asio::io_context io_;
   asio::executor_work_guard<asio::io_context::executor_type> guard_;
-  std::thread thread_;
+  std::vector<std::thread> threads_;
 };
 
 enum class Priority { Control, Bulk };
@@ -58,6 +61,12 @@ class Connection : public std::enable_shared_from_this<Connection> {
   template <class NativeT>
   void send(const NativeT& msg, Priority priority = Priority::Control) {
     send(MsgTypeOf<typename NativeT::TableType>::value, encode(msg), priority);
+  }
+
+  // Runs `fn` on this connection's strand, in order with its message handlers.
+  template <class F>
+  void post(F&& fn) {
+    asio::post(socket_.get_executor(), std::forward<F>(fn));
   }
 
   // Closes at once; queued frames are dropped. The closed handler runs with `reason`.
@@ -137,6 +146,7 @@ class Listener {
 
  private:
   void acceptNext();
+  asio::io_context& io_;
   asio::ip::tcp::acceptor acceptor_;
   JoinKey key_;
   AcceptFn on_accept_;

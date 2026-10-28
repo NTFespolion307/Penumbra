@@ -915,3 +915,21 @@ first and tell the user when a box is worth renting (cost matters).
   each device of the host alone, repo scenes plus `scenes/sponza` / `scenes/intel-sponza` when downloaded,
   time-limited 1080p, device samples/s, wall samples/s, busy %, Markdown for `docs/BENCHMARKS.md` plus JSON); then
   the network items; then the GPU session (profiling, busy %, CUDA tuning) on a rented 5090 box.
+
+**D-112 Controller throughput (M9 step 1).** Measured, not guessed: every render now logs results/s and how long
+the controller spent unpacking tiles, merging them, handing out work (and of that the tail search), the late
+check, and how busy the network threads were (and of that TLS decryption). On `net.scale_64` (64 workers, 512 null
+devices) the first measurement disproved the overnight guess (D-111): unpacking and merging were 11% of a core, but
+the single network thread was 96-98% busy and the controller process sat at exactly one core.
+- **Tail search**: once the queue is empty, every waiting device scanned all outstanding leases twice (is it idle?
+  which lease to copy?) on every result: 512 devices x ~1,500 leases, 48.5 of 93 busy seconds. Now one scan per
+  hand-out call records the busy devices, the copy search stops at the first eligible lease (lease ids grow with
+  time, so it is the oldest), and a device at least as slow as one that found nothing skips the search. Same
+  choices as before. 95 s -> 48 s.
+- **Several network threads**: what remained was TLS decryption (21 of 47 s) and unpacking, all on one thread. The
+  controller's `IoThread` now runs 2-8 threads (one per 4 usable cores) and every connection has its own asio strand,
+  so a connection's steps stay in order while connections are handled in parallel. The worker pointer the watchdog
+  reads is atomic, and an approval answer runs on its connection's strand. Workers keep one network thread.
+  48 s -> 19.4 s; 104 -> 442 results/s; 300 -> 1,748 M samples/s.
+- **A device that keeps delivering keeps its leases** (D-111's rule) stays: a lease is late only when its device has
+  also been silent for the limit.

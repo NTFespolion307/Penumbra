@@ -12,14 +12,17 @@ namespace pen::net {
 
 // ---------------------------------------------------------------- IoThread
 
-IoThread::IoThread() : guard_(asio::make_work_guard(io_)), thread_([this] { io_.run(); }) {}
+IoThread::IoThread(unsigned threads) : guard_(asio::make_work_guard(io_)) {
+  for (unsigned i = 0; i < std::max(1u, threads); ++i) threads_.emplace_back([this] { io_.run(); });
+}
 
 IoThread::~IoThread() { stop(); }
 
 void IoThread::stop() {
   guard_.reset();
   io_.stop();
-  if (thread_.joinable() && thread_.get_id() != std::this_thread::get_id()) thread_.join();
+  for (std::thread& t : threads_)
+    if (t.joinable() && t.get_id() != std::this_thread::get_id()) t.join();
 }
 
 // ---------------------------------------------------------------- Connection
@@ -299,7 +302,7 @@ std::shared_ptr<Connection> connectTo(IoThread& io, const std::string& host, uin
   std::error_code ec;
   const auto endpoints = resolver.resolve(host, std::to_string(port), ec);
   if (ec) throw ConnectError(fmt::format("cannot resolve '{}': {}", host, ec.message()), false);
-  asio::ip::tcp::socket socket(io.context());
+  asio::ip::tcp::socket socket(asio::make_strand(io.context()));  // its own strand (see IoThread)
   asio::connect(socket, endpoints, ec);
   if (ec) {
     const bool refused = ec == asio::error::connection_refused;
@@ -309,7 +312,7 @@ std::shared_ptr<Connection> connectTo(IoThread& io, const std::string& host, uin
 }
 
 Listener::Listener(IoThread& io, const std::string& bind, uint16_t port, const JoinKey& key, AcceptFn onAccept)
-    : acceptor_(io.context()), key_(key), on_accept_(std::move(onAccept)) {
+    : io_(io.context()), acceptor_(io.context()), key_(key), on_accept_(std::move(onAccept)) {
   std::error_code ec;
   asio::ip::tcp::endpoint ep;
   if (bind.empty()) {
@@ -357,7 +360,8 @@ void Listener::stop() {
 }
 
 void Listener::acceptNext() {
-  acceptor_.async_accept([this](std::error_code ec, asio::ip::tcp::socket socket) {
+  // Every accepted connection on its own strand (see IoThread).
+  acceptor_.async_accept(asio::make_strand(io_), [this](std::error_code ec, asio::ip::tcp::socket socket) {
     if (stopped_ || !acceptor_.is_open()) return;
     if (!ec) {
       try {

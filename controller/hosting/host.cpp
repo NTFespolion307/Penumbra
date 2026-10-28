@@ -2,12 +2,14 @@
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <iostream>
 #include <random>
 #include <thread>
 
+#include "core/system/sysinfo.h"
 #include "core/system/test_hooks.h"
 #include "core/version.h"
 #include "net/join_code.h"
@@ -24,9 +26,12 @@ constexpr auto kBlockTime = std::chrono::minutes(10);
 constexpr auto kPeerTimeout = std::chrono::seconds(30);  // docs/GUIDE.md: heartbeat 5 s, peer lost after 30 s
 }  // namespace
 
+unsigned networkThreads() { return std::clamp(usableCpuThreads() / 4, 2u, 8u); }
+
 struct Host::Peer {
   std::shared_ptr<net::Connection> connection;
-  RemoteWorker* worker = nullptr;  // set once the worker is accepted; owned by the render
+  // Set once the worker is accepted (on its connection's strand); the watchdog reads it from another thread.
+  std::atomic<RemoteWorker*> worker{nullptr};
   wire::HelloT hello;              // kept while it waits for approval
   bool hello_seen = false;
 };
@@ -61,11 +66,12 @@ void Host::watchdog() {
     for (const auto& p : peers_) {
       if (now - p->connection->lastReceived() > scaledForTests(kPeerTimeout) && p->connection->isOpen())
         silent.push_back(p);
-      else if (beat && p->worker && p->connection->isOpen()) p->connection->send(hb);
+      else if (beat && p->worker.load() && p->connection->isOpen()) p->connection->send(hb);
     }
   }
   for (const auto& p : silent) {
-    spdlog::warn("{} sent nothing for 30 s (heartbeat lost); dropping it", p->worker ? p->worker->info().name
+    RemoteWorker* const w = p->worker.load();
+    spdlog::warn("{} sent nothing for 30 s (heartbeat lost); dropping it", w ? w->info().name
                                                                                      : p->connection->peer());
     p->connection->close("no heartbeat for 30 s");
   }
@@ -105,7 +111,7 @@ void Host::onAccept(std::shared_ptr<net::Connection> connection) {
   connection->start({
       [this, weak](net::Message&& msg, uint16_t version) {
         if (auto p = weak.lock()) {
-          if (p->worker) p->worker->onMessage(std::move(msg));
+          if (RemoteWorker* w = p->worker.load()) w->onMessage(std::move(msg));
           else onHello(p, std::move(msg), version);
         }
       },
@@ -116,7 +122,7 @@ void Host::onAccept(std::shared_ptr<net::Connection> connection) {
 }
 
 void Host::onClosed(const std::shared_ptr<Peer>& peer, const std::string& reason) {
-  if (peer->worker) peer->worker->onClosed(reason);
+  if (RemoteWorker* w = peer->worker.load()) w->onClosed(reason);
   std::lock_guard lock(mutex_);
   std::erase(peers_, peer);
   if (!peer->connection->handshakeFailed()) return;
@@ -175,7 +181,7 @@ void Host::onHello(const std::shared_ptr<Peer>& peer, net::Message&& msg, uint16
   {
     std::lock_guard lock(mutex_);
     size_t workers = 0;
-    for (const auto& p : peers_) workers += p->worker != nullptr;
+    for (const auto& p : peers_) workers += p->worker.load() != nullptr;
     if (workers >= settings_.max_workers)
       return reject(peer, uint8_t(wire::RejectReason::SessionFull),
                     fmt::format("the session already has {} workers (--max-workers)", workers));
@@ -198,7 +204,7 @@ void Host::join(const std::shared_ptr<Peer>& peer) {
   on_join_([&](WorkerId id) -> std::unique_ptr<WorkerLink> {
     auto link = std::make_unique<RemoteWorker>(id, events_, uploader_, peer->connection, std::move(peer->hello),
                                                session_id_);
-    peer->worker = link.get();  // before the scene is offered, so the worker's answer finds its link
+    peer->worker.store(link.get());  // before the scene is offered, so the worker's answer finds its link
     return link;
   });
 }
@@ -232,7 +238,7 @@ void Host::approvalLoop() {
       const bool got = static_cast<bool>(std::getline(std::cin, answer));
       yes = got && (answer == "y" || answer == "Y" || answer == "yes");
     }
-    asio::post(io_.context(), [this, peer, yes] {
+    peer->connection->post([this, peer, yes] {  // on its strand, in order with its messages
       if (!peer->connection->isOpen()) return;
       if (yes) join(peer);
       else reject(peer, uint8_t(wire::RejectReason::NotApproved), "the controller did not approve this worker");
