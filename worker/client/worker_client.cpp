@@ -131,6 +131,7 @@ class Worker {
 
   net::IoThread io_;
   std::shared_ptr<net::Connection> conn_;
+  bool joined_once_ = false;  // a Welcome arrived at least once
   Inbox inbox_;
   bool welcomed_ = false;
   std::chrono::seconds unanswered_backoff_{1};  // --stay: wait before trying a controller that did not answer
@@ -204,7 +205,9 @@ int Worker::connect() {
         const auto until = Clock::now() + scaledForTests(backoff);
         while (Clock::now() < until && !(opt_.interrupt && opt_.interrupt->load()))
           std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        backoff = std::min<std::chrono::seconds>(backoff * 2, kMaxBackoff);
+        // Until it has joined once, the controller is probably about to start: keep the wait short (2 s) so the worker
+        // is there soon after it hosts (a worker started first joined 12 s late, D-113).
+        backoff = std::min<std::chrono::seconds>(backoff * 2, joined_once_ ? kMaxBackoff : std::chrono::seconds(2));
         continue;
       }
       // The controller may still be starting: keep trying for a while when nothing listens yet.
@@ -399,6 +402,7 @@ int Worker::handle(net::Message& msg) {
       case MsgType::Welcome: {
         const auto m = net::decode<wire::WelcomeT>(msg.payload);
         welcomed_ = true;
+        joined_once_ = true;
         unanswered_backoff_ = std::chrono::seconds(1);
         spdlog::info("joined the controller as worker {} (\"{}\"); waiting for a render", m.worker_id, name_);
         status([](WorkerStatus& st) {
@@ -624,8 +628,43 @@ void Worker::finishDownload() {
   prepare(folder);
 }
 
+namespace {
+
+// Keeps heartbeats going while this thread is busy: loading a big scene and building it on the devices can take
+// longer than the controller's 30 s peer timeout, and without heartbeats the controller dropped the worker, which
+// reconnected, loaded again and never joined (Intel's New Sponza: 35 s load + 8 s build, D-113).
+class Keepalive {
+ public:
+  explicit Keepalive(std::shared_ptr<net::Connection> conn) : conn_(std::move(conn)) {
+    thread_ = std::thread([this] {
+      auto next = Clock::now();
+      while (!stop_) {
+        if (Clock::now() >= next && conn_ && conn_->isOpen()) {
+          wire::HeartbeatT hb;
+          hb.sent_us = nowMicros();
+          conn_->send(hb);
+          next = Clock::now() + scaledForTests(kHeartbeatPeriod);
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      }
+    });
+  }
+  ~Keepalive() {
+    stop_ = true;
+    thread_.join();
+  }
+
+ private:
+  std::shared_ptr<net::Connection> conn_;
+  std::atomic<bool> stop_{false};
+  std::thread thread_;
+};
+
+}  // namespace
+
 // Loads the scene from its cached package and builds every device (docs/GUIDE.md "Ready before work").
 void Worker::prepare(const std::filesystem::path& folder) {
+  const Keepalive keepalive(conn_);
   status([](WorkerStatus& st) { st.phase = "Loading the scene and building it on each device"; });
   RenderSettings s = package_->relocate(render_, folder);
   keepLocalDeviceSettings(s, local_);

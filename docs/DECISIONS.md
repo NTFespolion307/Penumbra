@@ -933,3 +933,14 @@ the single network thread was 96-98% busy and the controller process sat at exac
   48 s -> 19.4 s; 104 -> 442 results/s; 300 -> 1,748 M samples/s.
 - **A device that keeps delivering keeps its leases** (D-111's rule) stays: a lease is late only when its device has
   also been silent for the limit.
+
+**D-113 Worker heartbeats while preparing; a quicker first join (M9, the 3-machine datacenter test).** First run
+across three rented boxes in one datacenter (controller RTX 4060 Ti, workers RTX 5060 Ti and RTX 4060 Ti):
+Khronos Sponza at 4K 1,024 spp rendered on all three at 127 M samples/s, 90% of the three GPUs' solo speeds added,
+every GPU 94-100% busy while it had the scene. Intel's New Sponza showed two worker bugs:
+- **No heartbeats while preparing.** A worker loads a big scene (35 s from its cache) and builds it on its devices
+  (8 s) on the thread that sends heartbeats; after 30 s of silence the controller dropped it, it reconnected, loaded
+  again and never joined. A keepalive thread now sends heartbeats while the worker prepares.
+- **A `--stay` worker that has never joined** backed off 1, 2, 4, 8 s while the controller was not up yet and
+  joined 12 s late; until its first Welcome the wait is at most 2 s (30 s still after a lost controller).
+- Seen, for this step: the 2.2 GB scene package reached two workers at ~60 MB/s on a datacenter network.
