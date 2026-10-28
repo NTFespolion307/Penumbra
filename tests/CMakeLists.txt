@@ -56,6 +56,8 @@ pen_smoke(worker_nothing_listening 7 "${PEN_SMOKE_COMMON}|--worker|--join|127.0.
           "cannot connect")
 pen_smoke(empty_scene_renders 0 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/empty.gltf|--res|240p|--spp|1|-o|empty.png"
           "426x240.*no lights")
+pen_smoke(benchmark 0 "${PEN_SMOKE_COMMON}|--benchmark|${PROJECT_SOURCE_DIR}/scenes/cornell.pen.json|--devices|cpu|--threads|2|--res|120p|--spp|4|-o|bench.json"
+          "\\| cpu \\| cornell \\| [0-9.]+ \\| [0-9.]+ \\| [0-9]+ \\|")
 pen_smoke(pen_json 0 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/scene.pen.json|--scale|0.05|--spp|1|-o|pen.png"
           "128x72 \\(2k at scale 0.05\\).*camera 'Camera.001'")
 pen_smoke(exr_half 0 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/scene.pen.json|--res|64x36|--spp|1|-o|half.exr" "wrote")

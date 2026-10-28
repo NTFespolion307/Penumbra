@@ -111,7 +111,11 @@ void RenderController::onReady(WorkerId worker, const std::vector<DeviceReady>& 
     }
     spdlog::info("{} device {} ({}, {}): ready in {:.2f}s, {}", info.name, d.device, name, toString(d.backend),
                  d.build_seconds, d.summary);
-    tallies_[{worker, d.device}].name = fmt::format("{}/{} {}", info.name, d.device, name);
+    DeviceTally& t = tallies_[{worker, d.device}];
+    t.name = fmt::format("{}/{} {}", info.name, d.device, name);
+    t.backend = d.backend;
+    t.ready_seconds = d.build_seconds;
+    t.placement = d.summary;
     ++live_devices_;
   }
 }
@@ -315,6 +319,9 @@ void RenderController::onTileResult(WorkerId worker, TileResult&& r) {
   ++t.items;
   t.samples += r.rect.pixels() * (r.sample_end - r.sample_begin);
   t.seconds += r.render_seconds;
+  t.last_end = std::chrono::duration<double>(Clock::now() - start_).count();
+  const double begin = std::max(0.0, t.last_end - r.render_seconds);
+  if (t.first_begin < 0 || begin < t.first_begin) t.first_begin = begin;
 
   early_owner_[item.id] = worker;  // the live view colours each tile by the worker that merged it
   early_.emplace(item.id, std::move(r));

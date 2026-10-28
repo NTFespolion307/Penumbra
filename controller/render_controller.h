@@ -31,7 +31,13 @@ struct DeviceTally {
   std::string name;
   uint32_t items = 0;
   uint64_t samples = 0;
-  double seconds = 0;
+  double seconds = 0;  // inside the backend's render calls
+  // Its render window, in seconds since the render started: the first item's start (its result time minus its
+  // render time) to the last result. Busy % = seconds / window, without the scene upload (--benchmark, M9).
+  double first_begin = -1, last_end = 0;
+  BackendKind backend = BackendKind::Cpu;
+  double ready_seconds = 0;  // scene upload and build on the device
+  std::string placement;     // memory tier summary
   bool failed = false;
   bool left = false;  // its worker disconnected
 };

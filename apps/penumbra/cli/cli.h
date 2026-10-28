@@ -25,6 +25,7 @@ struct Invocation {
   std::filesystem::path resume;
   std::vector<std::filesystem::path> merge_inputs;
   std::filesystem::path merge_output;
+  std::filesystem::path benchmark_output;  // --benchmark: the JSON report (-o)
 
   RenderSettings settings;  // resolved and finalized; not resolved for info modes
   nlohmann::json cli_settings = nlohmann::json::object();  // settings given explicitly on the command line

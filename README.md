@@ -255,6 +255,7 @@ The binary is `build/<preset>/bin/penumbra` (`penumbra.exe` on Windows).
 | `PEN_ENABLE_OPTIX` | `OFF` | OptiX backend and denoiser *(planned, M13, optional)* |
 | `PEN_ENABLE_UI` | `ON` | The user interface (M10); off for headless servers (`build.sh` turns it off when there is no display). `--terminal` and `--worker` never need display libraries either way |
 | `PEN_CUDA_ARCHS` | `75;80;86;89;90;120` | CUDA architectures to compile for. Newer GPUs run the embedded PTX. CUDA 13 cannot build for GTX 10-series (61) or V100 (70); for those, build with CUDA 12.x and add the architecture, e.g. `-DPEN_CUDA_ARCHS="61;75;86"` |
+| `PEN_CUDA_NVCC_FLAGS` | (empty) | Extra nvcc flags for the CUDA kernels, separated by semicolons, e.g. `-DPEN_CUDA_NVCC_FLAGS="-maxrregcount=96"`. For tuning experiments; the build log shows each kernel's registers and spills |
 | `PEN_BUILD_TESTS` | `ON` | Unit, smoke and lint tests |
 
 Pass options at configure time, for example a headless server build without CUDA or UI:
@@ -279,6 +280,25 @@ cmake --preset linux-gcc-release -DPEN_ENABLE_CUDA=OFF -DPEN_ENABLE_UI=OFF
 | `penumbra --list-devices` | Lists the devices this machine can render with |
 | `penumbra --diagnose` | Prints OS, CPU, RAM, devices, folders and free disk. **Paste this into bug reports.** |
 | `penumbra --version` | Prints version, git hash and protocol version |
+| `penumbra --benchmark` | Measures each device alone on the scenes in `./scenes` (see [Benchmark](#benchmark)) |
+
+### Benchmark
+
+Run `penumbra --benchmark` from the Penumbra folder. It renders each scene in `scenes/` on each selected device
+alone: `cornell` and `spheres`, plus `sponza` and `intel-sponza` once `scripts/get-scenes` has downloaded them.
+Each run is 30 s at 1080p, through the same path as a normal render. It prints a table and writes
+`penumbra-benchmark.json` and `penumbra-benchmark.md` (change the name with `-o name.json`).
+
+- `penumbra --benchmark --devices 0:vulkan,0:cuda` compares both backends on GPU 0.
+- `penumbra --benchmark scene.pen.json --res 4k --time-limit 2m` benchmarks your own scene.
+
+| Column | Meaning |
+| --- | --- |
+| M samples/s (rendering) | Samples per second while the device was rendering: the device's speed |
+| M samples/s (window) | Samples per second from its first chunk to its last, idle gaps included |
+| Busy % | Rendering time over that window. Below ~95% means the device waits between chunks |
+| Upload + build (s) | Scene upload and acceleration-structure build on the device; not in the two rates |
+| Placement | Memory tier and how much of the device memory the scene took |
 
 Settings come from four layers, highest priority first: command-line flags, the `render` section of a
 `.pen.json`, your user config file, then built-in defaults. The user config file holds personal defaults using
@@ -621,7 +641,7 @@ full text on your machine.
 | Info | `--version` |  |  | `penumbra --version` | CLI only | Print version and git hash, then exit |
 | Info | `--list-devices` |  |  | `penumbra --list-devices` | CLI only | List this machine's render devices, then exit |
 | Info | `--diagnose` |  |  | `penumbra --diagnose` | CLI only | Print OS, devices, paths and free disk for bug reports |
-| Info | `--benchmark` |  |  | `penumbra --benchmark` | CLI only | Run the benchmark suite (from M9) |
+| Info | `--benchmark` |  |  | `penumbra --benchmark --devices 0:vulkan,0:cuda` | CLI only | Render each scene on each selected device alone (the scene given, else ./scenes; 1080p, 30 s each unless --res, --time-limit or --spp is given), then print samples/s and busy % and write -o (default penumbra-benchmark.json) plus a .md table |
 | Subcommand | `merge <films...> -o <output>` |  |  | `penumbra merge a.penfilm b.penfilm -o out.exr` | CLI only | Combine partial films into one output image |
 <!-- END CLI REFERENCE -->
 

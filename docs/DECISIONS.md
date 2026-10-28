@@ -945,3 +945,23 @@ every GPU 94-100% busy while it had the scene. Intel's New Sponza showed two wor
   joined 12 s late; until its first Welcome the wait is at most 2 s (30 s still after a lost controller).
 - The 2.2 GB scene package reached two workers at once at ~117 MB/s in total: the controller was on 1 Gbit/s
   Ethernet (user), so the transfer ran at line rate. Not a Penumbra limit; recheck only on a 10 GbE controller.
+
+**D-114 `--benchmark`, and what the step-3 "GPU idle" really was (M9 steps 2-3).** Reading the Vulkan render
+loop: a dispatch is at most 4M paths, so on Intel Sponza (~12 M samples/s) each CPU round trip (~0.1-0.2 ms) sits
+between ~0.35 s of GPU work (<0.1% idle), and on Cornell (~15 ms dispatches) about 1%, which matches the measured
+97-99%. Between items a slot copies back one small tile and takes the next of its two queued leases. Neither
+explains 78%. What does: `RenderController::run` starts the render clock, and with it `--time-limit`, before the
+local worker uploads and builds the scene, and the solo script averaged every non-zero `nvidia-smi` sample,
+upload included. So no change to the dispatch loop without a measurement that shows a gap.
+- `--time-limit` keeps counting from the start (a user's time budget includes the upload).
+- Every `DeviceTally` now records its render window: from its first item's start (result time minus render time)
+  to its last result, plus backend, upload + build time and placement.
+- `penumbra --benchmark` renders each scene (the one given, else `cornell`, `spheres`, `sponza`, `intel-sponza`
+  from `./scenes` when present) on each selected device alone, through the normal controller -> scheduler -> local
+  worker -> film path. Defaults are 1080p and 30 s, unless `--res`, `--time-limit` or `--spp` is given. The scene is
+  loaded once per scene, with a new film per device. It reports M samples/s while rendering (device speed),
+  M samples/s over the window, busy % (rendering / window) and upload + build seconds. It writes JSON (`-o`, default
+  `penumbra-benchmark.json`) and a `.md` table. Comparing backends: `--devices 0:vulkan,0:cuda`.
+- Known, unchanged: a work item is 2^26 pixel-samples, so a CPU alone (~2 M samples/s on the laptop) needs ~33 s per
+  item, and `--time-limit` waits for the item in progress plus the queued one (a 10 s limit ended after 67 s).
+  On GPUs an item takes well under a second.

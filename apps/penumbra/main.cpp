@@ -13,6 +13,7 @@
 #if defined(PEN_HAS_UI)
 #include "apps/penumbra/ui/ui.h"
 #endif
+#include "controller/benchmark.h"
 #include "controller/solo_render.h"
 #include "worker/client/worker_client.h"
 #include "core/exit_codes.h"
@@ -26,11 +27,6 @@ using pen::cli::Invocation;
 using pen::cli::Mode;
 
 void write(FILE* f, const std::string& s) { std::fwrite(s.data(), 1, s.size(), f); }
-
-int notYet(std::string_view what, std::string_view milestone) {
-  spdlog::error("{} is built in milestone {}; this build only validates its arguments.", what, milestone);
-  return pen::toInt(pen::ExitCode::BadArguments);
-}
 
 #if !defined(PEN_HAS_UI)
 int runUiPlaceholder(bool fromExplorer) {
@@ -72,7 +68,13 @@ int dispatch(const Invocation& inv, bool fromExplorer) {
       render.interrupt = &pen::app::installInterruptHandler();
       return pen::resumeLocalRender(inv.resume, inv.cli_settings, render);
     case Mode::Merge: return pen::mergeFilmsToImage(inv.merge_inputs, inv.settings);
-    case Mode::Benchmark: return notYet("The benchmark", "M9");
+    case Mode::Benchmark: {
+      pen::BenchmarkOptions bench;
+      bench.cli = inv.cli_settings;
+      if (!inv.config_file.empty()) bench.config_file = inv.config_file;
+      bench.output = inv.benchmark_output;
+      return pen::runBenchmark(bench);
+    }
     default: return pen::toInt(pen::ExitCode::BadArguments);
   }
 }

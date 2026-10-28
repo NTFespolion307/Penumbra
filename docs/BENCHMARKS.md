@@ -84,6 +84,11 @@ renders):
 The two RTX 4060 Ti agree within 1%. CUDA is 7-18x slower than Vulkan RT while reporting 100% busy: the GPU is
 occupied but the kernel is inefficient (M9 step 4). Vulkan on the heavy Intel Sponza leaves the GPU 22% idle (step 3).
 
+Correction (D-114): these rates are samples over the whole `--time-limit`, and that clock also counts the scene
+upload and build on the device. With an 8 s build in a 20 s run, Intel Sponza's 11.8 understates Vulkan's speed, and
+its 78% averaged upload samples into the utilization. `penumbra --benchmark` now measures over each device's render
+window; rerun these rows with it.
+
 **Three machines, one render** (controller hosts and renders; workers join over the datacenter network):
 
 | Scene | Result | Per GPU (items) | GPU util while working |
