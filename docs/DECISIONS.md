@@ -943,4 +943,5 @@ every GPU 94-100% busy while it had the scene. Intel's New Sponza showed two wor
   again and never joined. A keepalive thread now sends heartbeats while the worker prepares.
 - **A `--stay` worker that has never joined** backed off 1, 2, 4, 8 s while the controller was not up yet and
   joined 12 s late; until its first Welcome the wait is at most 2 s (30 s still after a lost controller).
-- Seen, for this step: the 2.2 GB scene package reached two workers at ~60 MB/s on a datacenter network.
+- The 2.2 GB scene package reached two workers at once at ~117 MB/s in total: the controller was on 1 Gbit/s
+  Ethernet (user), so the transfer ran at line rate. Not a Penumbra limit; recheck only on a 10 GbE controller.

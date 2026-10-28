@@ -91,8 +91,9 @@ occupied but the kernel is inefficient (M9 step 4). Vulkan on the heavy Intel Sp
 | `sponza`, 4K, 1,024 spp | 66.8 s, 127.1 M samples/s = 90% of the three solo rates added (141.2) | 4060 Ti (ctl) 42, 4060 Ti 40, 5060 Ti 53 | 100% / 94% / 95% |
 | `intel-sponza`, 4K, 256 spp, cached on the workers | 59.3 s, 35.8 M samples/s | 81 / 21 / 33 (the workers load the scene for ~45 s first) | 92% / 78% / 81% |
 
-The 58 MB Khronos Sponza package reached each worker in 0.6 s; the 2.2 GB Intel Sponza package in 35-36 s
-(~60 MB/s, both workers at once). With realistic scenes the controller is nearly idle (network threads 1%,
+The 58 MB Khronos Sponza package reached each worker in 0.6 s; the 2.2 GB Intel Sponza package reached both
+workers at once in 35-36 s: ~117 MB/s in total, the line rate of the controller's 1 Gbit/s Ethernet (the user
+confirmed it was on 1 GbE, not its 10 GbE port). The transfer filled the link; it is not a Penumbra limit. With realistic scenes the controller is nearly idle (network threads 1%,
 2 results/s).
 
 **Controller throughput, `net.scale_64`** (laptop, i7-11850H; 64 workers with 8 null devices each, 4K, 4,096 spp):
