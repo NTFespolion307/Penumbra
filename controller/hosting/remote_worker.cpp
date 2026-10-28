@@ -130,6 +130,12 @@ TileResult RemoteWorker::decodeResult(const wire::TileResultT& m) const {
   r.nan_count = m.nan_count;
   r.render_seconds = m.render_seconds;
   if (m.x1 <= m.x0 || m.y1 <= m.y0 || m.encoding != wire::TileEncoding::Float32Shuffled) return r;
+  const auto start = std::chrono::steady_clock::now();
+  struct Timed {
+    TileResult& r;
+    std::chrono::steady_clock::time_point start;
+    ~Timed() { r.decode_seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count(); }
+  } timed{r, start};
   try {
     std::vector<Vec3f> mean = net::decodeTilePixels(m.pixels, r.rect.pixels());
     if (net::tileChecksum(mean) == m.checksum) r.mean = std::move(mean);

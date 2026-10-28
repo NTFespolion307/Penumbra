@@ -1,4 +1,5 @@
 #include "net/connection.h"
+#include "net/stats.h"
 #include "core/system/test_hooks.h"
 
 #include <algorithm>
@@ -100,7 +101,20 @@ void Connection::readSome() {
   });
 }
 
+namespace {
+std::atomic<int64_t> g_busy_ns{0}, g_tls_ns{0};
+}
+
+double networkBusySeconds() { return double(g_busy_ns.load()) * 1e-9; }
+double networkTlsSeconds() { return double(g_tls_ns.load()) * 1e-9; }
+
 void Connection::onCipher(size_t n) {
+  struct Timed {
+    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+    ~Timed() {
+      g_busy_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count();
+    }
+  } timed;
   last_rx_ = std::chrono::steady_clock::now().time_since_epoch().count();
   tls_.feed(std::span(cipher_in_.data(), n));
   bool more = true;
@@ -114,7 +128,9 @@ void Connection::onCipher(size_t n) {
         plain_.erase(plain_.begin(), plain_.begin() + static_cast<std::ptrdiff_t>(plain_pos_));
         plain_pos_ = 0;
       }
+      const auto t0 = std::chrono::steady_clock::now();
       more = tls_.read(plain_);
+      g_tls_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count();
     }
   } catch (const TlsError& e) {
     if (e.during_handshake) handshake_failed_ = true;

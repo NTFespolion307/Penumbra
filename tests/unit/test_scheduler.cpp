@@ -124,3 +124,14 @@ TEST_CASE("unbounded renders keep going until stopped", "[scheduler]") {
   s.stopNew();
   CHECK_FALSE(s.next().has_value());
 }
+
+TEST_CASE("breadth-first hands out every chunk before it reports nothing left", "[scheduler]") {
+  // The net.scale_64 frame: 4K, 4,096 spp, 64 chunks per tile (M9, D-112).
+  const FilmLayout layout = FilmLayout::make(3840, 2160, 256);  // 135 tiles
+  Scheduler s(layout, 0, 4096, std::nullopt, PassOrder::BreadthFirst);
+  uint64_t expected = 0;
+  for (uint32_t t = 0; t < layout.tileCount(); ++t) expected += s.chunkCount(t);
+  uint64_t handed = 0;
+  while (s.next()) ++handed;
+  CHECK(handed == expected);
+}
