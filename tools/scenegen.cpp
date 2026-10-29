@@ -266,8 +266,14 @@ void furnaceFog(const fs::path& dir) {
   GltfWriter w;
   w.useExtension("KHR_materials_specular");
   const int white = w.material(lambert("white", {1, 1, 1}));
+  // 100 x 100 quads of 200 m, not two 20 km triangles: with vertices 10 km out, Vulkan's hardware hit points near
+  // the camera were off by about a millimetre and shadow rays caught their own triangle (6% too dark, D-123).
   MeshData ground;
-  addQuad(ground, {-1e4f, 0, -1e4f}, {1e4f, 0, -1e4f}, {1e4f, 0, 1e4f}, {-1e4f, 0, 1e4f}, {0, 10, 0}, 1);
+  for (int j = 0; j < 100; ++j)
+    for (int i = 0; i < 100; ++i) {
+      const float x0 = -1e4f + 200.0f * i, z0 = -1e4f + 200.0f * j;
+      addQuad(ground, {x0, 0, z0}, {x0 + 200, 0, z0}, {x0 + 200, 0, z0 + 200}, {x0, 0, z0 + 200}, {x0 + 100, 10, z0 + 100}, 1);
+    }
   w.node({{"name", "ground"}, {"mesh", w.mesh("ground", ground, white)}});
   const int cam = w.camera({{"type", "perspective"}, {"perspective", {{"yfov", 0.9}, {"znear", 0.01}}}});
   // 3 units up, looking 10 degrees down, so the image holds ground, fog and the horizon.
