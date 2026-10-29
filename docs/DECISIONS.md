@@ -1087,3 +1087,14 @@ at 2048 and 4096 within 2%), limb darkening 1 - 0.6 (1 - cos) normalized to the 
   Unit tests pin Blender's zenith, 20 deg away from the sun and 50 deg towards it (within 8%).
 - Physical units: the sky needs an exposure around -6 to -10, as in Blender. `sun_strength` scales the disc only,
   like Blender's Sun Intensity. A sky together with an HDRI: the sky wins (warning).
+
+**D-121 The atmosphere on the GPUs (M14 step 4).** `shaders/medium.slang` is the twin of `core/render/medium.h`
+(Slang has no expm1, log1p or cbrt: a two-term series below 1e-4, and pow(x, 1/3) where x is always positive), and
+`integrator.slang` follows the CPU integrator: the medium's own sampler dimensions, NEE through the medium at
+scattering points, the surface shadow rays multiplied by the transmittance only when there is a medium (so images
+without one keep their bits). The layers travel in `FrameData` (`medium_count` + 3 x 40-byte layers; Frame 172 ->
+296 bytes). CUDA layout checked on the laptop with slangc's reflection: `medium_count` at 172, `medium` at 176,
+FrameData 296 bytes, as gpu::Frame; slangc does not report the nested MediumLayer on its own, so it is covered by
+the FrameData size. Vulkan and CUDA no longer refuse an atmosphere. Tests: `slots_atmosphere` (CPU, 1, 2 and 3
+slots give the same bits with sky, air, haze and fog); GPU (run on a box at the gate): `atmosphere_vs_cpu` (relMSE
+< 1e-3 at 4,096 spp) and `furnace_fog` on Vulkan and CUDA.

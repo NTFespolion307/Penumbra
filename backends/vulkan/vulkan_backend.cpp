@@ -881,7 +881,6 @@ void VulkanBackend::writeDescriptors() {
 void VulkanBackend::prepare(const FrameSetup& frame) {
   cancel_ = false;
   if (!scene_ready_) throw BackendError("Vulkan: prepare() before upload()");
-  if (!scene_->medium.empty()) throw BackendError("the atmosphere renders on the CPU only until its GPU port (M14 step 4); use --backend cpu");  // M14, until the port
   if (frame.params.mode == Integrator::DebugBvh)
     throw BackendError("debug:bvh needs traversal step counts, which Vulkan ray tracing does not report; use "
                        "--backend cuda");

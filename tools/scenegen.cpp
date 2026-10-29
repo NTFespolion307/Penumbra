@@ -6,6 +6,7 @@
 //   furnace_fog.gltf      white Lambert ground under non-absorbing height fog, white environment (M14)
 //                         -> furnace_fog.pen.json
 //   spheres.gltf + sky.hdr glass, gold, clear-coated and sheen spheres on a procedural HDRI -> spheres.pen.json
+//                         and under the physical sky with fog (M14) -> spheres_atmosphere.pen.json
 //   bigtex.gltf + bigtex.bin + textures/noise.png   a quad with a 12 MB noise texture, external buffer and a
 //                         texture in a subfolder: scene package transfer tests -> bigtex.pen.json
 //   cutout.gltf           orthographic camera (axis-parallel rays), an alpha-masked checker quad, one sphere mesh
@@ -336,6 +337,12 @@ void spheres(const fs::path& dir) {
   writeJson(dir / "spheres.pen.json", {{"scene", "spheres.gltf"},
                                         {"environment", {{"hdri", "sky.hdr"}, {"strength", 1.0}, {"rotation_deg", 0}}},
                                         {"render", {{"res", "720p"}}}});
+  // M14: the same spheres under the physical sky (low sun) in air, haze and a ground fog, metres as units.
+  writeJson(dir / "spheres_atmosphere.pen.json",
+            {{"scene", "spheres.gltf"},
+             {"sky", {{"sun_elevation_deg", 12.0}, {"sun_azimuth_deg", -60.0}, {"resolution", 1024}}},
+             {"atmosphere", {{"fog_density", 0.05}, {"fog_height", 1.0}, {"fog_base", 0.0}, {"fog_anisotropy", 0.6}}},
+             {"render", {{"res", "720p"}, {"exposure", -6.5}}}});
 }
 
 // A lit quad whose base colour is a 2048x2048 noise PNG (about 12 MB, barely compressible): big enough for the

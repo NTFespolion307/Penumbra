@@ -177,6 +177,10 @@ PEN_CUDA_FIELD(Frame, "FrameData", env_rotation);
 PEN_CUDA_FIELD(Frame, "FrameData", env_color);
 PEN_CUDA_FIELD(Frame, "FrameData", env_is_black);
 PEN_CUDA_FIELD(Frame, "FrameData", env_dist_sum);
+PEN_CUDA_FIELD(Frame, "FrameData", medium_count);
+PEN_CUDA_FIELD(Frame, "FrameData", medium);
+// MediumLayer is not reported on its own (only nested in FrameData's array): its 40 bytes of plain 4-byte fields
+// are checked by FrameData's size (296) and the offset of the array.
 PEN_CUDA_FIELD(Frame, "FrameData", env_light_index);
 PEN_CUDA_SIZE(PushConstants, "PushConstants");
 PEN_CUDA_FIELD(PushConstants, "PushConstants", x0);
@@ -651,7 +655,6 @@ void CudaBackend::prepare(const FrameSetup& frame) {
   cancel_ = false;
   stack_warned_ = false;
   if (!scene_ready_) throw BackendError("CUDA: prepare() before upload()");
-  if (!scene_->medium.empty()) throw BackendError("the atmosphere renders on the CPU only until its GPU port (M14 step 4); use --backend cpu");  // M14, until the port
   const gpu::Frame f = makeGpuFrame(frame, *scene_);
   CtxScope scope(cu_, ctx_);
   check(cu_.cuMemcpyHtoD(frame_buffer_.ptr, &f, sizeof(f)), "cuMemcpyHtoD (frame)");

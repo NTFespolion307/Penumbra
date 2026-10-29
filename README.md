@@ -792,7 +792,7 @@ More `.pen.json` options:
 Light units: glTF point and spot intensities (candela) and sun illuminance (lux) are divided by 683 lm/W, which
 matches Blender's "Standard" export; emissive materials use emissive colour × strength as radiance.
 
-**Atmosphere** *(M14; CPU backend for now, Vulkan and CUDA follow)*. An `"atmosphere"` object fills the scene with
+**Atmosphere** *(M14; CPU, Vulkan and CUDA)*. An `"atmosphere"` object fills the scene with
 air, haze and an optional ground fog. Each layer thins out exponentially with height, so distant objects fade and
 turn blue, and light shafts form. With a `"sky"`, air and haze follow its `air` and `dust` values, so the haze
 matches the sky.
