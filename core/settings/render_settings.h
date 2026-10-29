@@ -95,7 +95,7 @@ struct SkySettings {
   double sun_elevation_deg = 30;
   double sun_azimuth_deg = 0;
   double sun_size_deg = 0.545;  // angular diameter
-  double sun_strength = 1;      // the sun disc (and the sunlight the atmosphere scatters)
+  double sun_strength = 1;      // the sun disc only (as Blender's Sun Intensity)
   bool sun_disc = true;         // false: the disc is not drawn, the sky still lit by it
   double strength = 1;          // the whole sky
   double altitude = 0;          // metres above sea level of the viewer

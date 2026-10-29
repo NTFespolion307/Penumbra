@@ -3,6 +3,7 @@
 #include <fmt/format.h>
 
 #include "core/image/image_io.h"
+#include "core/scene/sky.h"
 #include "core/settings/parse.h"
 #include "core/system/paths.h"
 
@@ -48,6 +49,16 @@ Scene loadScene(const RenderSettings& settings, std::vector<std::string>& warnin
   if (scene.instances.empty()) warnings.push_back("the scene contains no meshes");
 
   const EnvironmentSettings& env = settings.environment;
+  if (settings.sky.enabled) {
+    // The physical sky is the environment (D-120): baked here, then sampled like an HDRI on every backend.
+    if (!env.hdri.empty()) warnings.push_back("\"sky\" replaces the environment HDRI");
+    scene.environment.map = bakeSky(settings.sky);
+    scene.environment.name = fmt::format("physical sky (sun {:.1f} deg up, {:.1f} deg azimuth)",
+                                         settings.sky.sun_elevation_deg, settings.sky.sun_azimuth_deg);
+    scene.medium = buildMedium(settings);
+    scene.finalize();
+    return scene;
+  }
   scene.environment.strength = static_cast<float>(env.strength);
   scene.environment.rotation = static_cast<float>(env.rotation_deg) * kPi / 180.0f;
   if (!env.hdri.empty()) {

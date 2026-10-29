@@ -10,6 +10,7 @@ add_executable(penumbra_unit_tests
   unit/test_config.cpp
   unit/test_film.cpp
   unit/test_medium.cpp
+  unit/test_sky.cpp
   unit/test_memory.cpp
   unit/test_net.cpp
   unit/test_package.cpp

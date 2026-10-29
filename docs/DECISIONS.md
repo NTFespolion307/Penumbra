@@ -1065,3 +1065,25 @@ part of the pixel hash only when enabled, so renders without them keep their has
   (non-absorbing fog over a white Lambert ground, white environment): 16x16 at 65,536 spp, every pixel within
   0.78% of 1, mean 1.00006.
 - **Until the GPU port (step 4)** Vulkan and CUDA refuse a scene with an atmosphere (no silent fallback).
+
+**D-120 The physical sky (M14 step 3, CPU bake).** `"sky"` replaces the environment with a map baked at load
+(`core/scene/sky.cpp`), then sampled like an HDRI on every backend (no new GPU code). Written from the physics and
+published data, not from Blender's code (Blender is GPL; Penumbra is MIT): Nishita single scattering over a
+spherical Earth (radius 6360 km, atmosphere 60 km), 21 wavelengths 380-780 nm; Rayleigh from the refractive index of
+air (Peck and Reeder) with the King factor; Mie as Blender's (2e-5 per m, 1.11 extinction, 1.2 km, Cornette-Shanks
+g 0.76); ozone as the Chappuis band (Gaussian, peak 4.6e-25 m^2 at 603 nm, 5.4e18 per m^3 at 25 km, 10-40 km
+tent); the sun a 5778 K black body (1361 W/m^2); CIE 1931 via the Wyman-Sloan-Shirley fit; XYZ to linear Rec. 709.
+The sky depends only on view elevation and azimuth from the sun: a 512 x 512 table (elevation spaced x|x|, dense at
+the horizon) with bilinear lookup; view rays 64 steps and sun rays 32, spaced (k/n)^2 near their start. About 1.5 s
+per load on the laptop. The sun disc: 8 x 8 subsamples per pixel (power independent of the map resolution, tested
+at 2048 and 4096 within 2%), limb darkening 1 - 0.6 (1 - cos) normalized to the full irradiance.
+- **Against Blender 4.2.23** (headless from a portable copy on D:, Cycles, Nishita, sun 30 deg, altitude 1 m):
+  above 10 deg elevation within 0-5% in every channel, towards and away from the sun, with no scale constant (both
+  in W/m^2/sr). Near the horizon Blender is up to 33% darker and redder. Cause found: Blender adds each 1/32 step's
+  whole optical depth before using it, so every sample sees half a step (~9 km at the horizon) too much air.
+  Replicating that in Penumbra matched Blender within 0-6% everywhere, so the physics and data agree. Kept the
+  accurate integration: the in-scene haze (D-119) is exact, so an accurate sky meets the hazy terrain without a seam.
+  Blender's sun disc has 18% less power (its limb darkening is not normalized); Penumbra keeps the real irradiance.
+  Unit tests pin Blender's zenith, 20 deg away from the sun and 50 deg towards it (within 8%).
+- Physical units: the sky needs an exposure around -6 to -10, as in Blender. `sun_strength` scales the disc only,
+  like Blender's Sun Intensity. A sky together with an HDRI: the sky wins (warning).

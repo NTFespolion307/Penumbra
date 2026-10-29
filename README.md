@@ -794,8 +794,8 @@ matches Blender's "Standard" export; emissive materials use emissive colour × s
 
 **Atmosphere** *(M14; CPU backend for now, Vulkan and CUDA follow)*. An `"atmosphere"` object fills the scene with
 air, haze and an optional ground fog. Each layer thins out exponentially with height, so distant objects fade and
-turn blue, and light shafts form. With `"sky"` *(planned, M14)*, air and haze follow its `air` and `dust` values,
-so the haze matches the sky.
+turn blue, and light shafts form. With a `"sky"`, air and haze follow its `air` and `dust` values, so the haze
+matches the sky.
 
 ```json
 "atmosphere": { "altitude": 1600, "fog_density": 0.002, "fog_height": 60, "fog_base": 0 }
@@ -810,6 +810,28 @@ so the haze matches the sky.
 | `fog_density` | Ground fog: extinction per metre at `fog_base`; 0.004 is about 1 km visibility (0: no fog) |
 | `fog_height` | Fog scale height in metres: the density falls by e every this many metres up (100) |
 | `fog_base`, `fog_color`, `fog_anisotropy` | Fog base height (scene units, y), its colour `[r, g, b]` (single-scattering albedo, [1, 1, 1]) and *g* (0) |
+
+**Physical sky** *(M14; CPU backend for now)*. A `"sky"` object replaces the environment with a sky computed from
+the sun's position, like Blender's Nishita sky: air, haze and ozone scatter sunlight over a round Earth, computed per
+wavelength, with the sun's disc. It is in real units (the sun is 1361 W/m² above the air), so use an exposure of
+about -6 to -10 (`--exposure -8`), as with Blender's.
+
+```json
+"sky": { "sun_elevation_deg": 12, "sun_azimuth_deg": -60, "altitude": 1600 }
+```
+
+| Key | Meaning (default) |
+| --- | --- |
+| `sun_elevation_deg`, `sun_azimuth_deg` | Sun height above the horizon, and its direction from -Z (glTF forward) turning towards +X (30, 0) |
+| `sun_size_deg`, `sun_strength`, `sun_disc` | Sun's angular diameter (0.545), brightness of the disc only (1), and whether the disc is drawn (true) |
+| `altitude` | Viewer's metres above sea level (0) |
+| `air`, `dust`, `ozone` | Densities as multiples of Earth's (1 each) |
+| `strength` | Multiplier for the whole sky (1) |
+| `resolution` | Width of the computed sky map; its height is half (2048) |
+
+Compared with Blender 4.2's Nishita sky at the same settings, brightness and colour agree within about 5% above
+10° elevation. Near the horizon Penumbra's sky is brighter and bluer: Blender integrates the air along the view coarsely
+there. Penumbra's sun disc is limb-darkened but keeps the sun's full power, about 18% more than Blender's.
 
 ## Troubleshooting
 

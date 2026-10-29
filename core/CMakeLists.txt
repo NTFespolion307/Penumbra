@@ -30,6 +30,7 @@ add_library(penumbra_core STATIC
   scene/obj_loader.cpp
   scene/scene.cpp
   scene/scene_loader.cpp
+  scene/sky.cpp
   settings/parse.cpp
   settings/presets.cpp
   settings/schema.cpp
