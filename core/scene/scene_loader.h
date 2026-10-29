@@ -22,6 +22,10 @@ Medium buildMedium(const RenderSettings& settings);
 
 Scene loadScene(const RenderSettings& settings, std::vector<std::string>& warnings);
 
+// Sets the environment (HDRI, colour or physical sky) and the atmosphere from the settings, then finalizes the
+// scene: loadScene's last step, also used by the UI preview when only these settings changed.
+void applyEnvironment(Scene& scene, const RenderSettings& settings, std::vector<std::string>& warnings);
+
 Scene loadGltf(const std::filesystem::path& path, std::vector<std::string>& warnings);
 Scene loadObj(const std::filesystem::path& path, std::vector<std::string>& warnings);
 

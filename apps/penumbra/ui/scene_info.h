@@ -32,7 +32,10 @@ SceneInfo inspectScene(const std::filesystem::path& path);
 
 // A small preview of the framing: `width` x `height`, a few samples on this machine's CPU, RGBA8 rows top-down
 // through the same display transform as the output. Never throws (empty on failure).
-std::vector<uint8_t> renderPreview(const Scene& scene, const RenderSettings& settings, uint32_t width,
+// `loadedWith`: the settings the scene was loaded with; when its environment, sky or atmosphere differ from
+// `settings`, the preview renders a copy with the new ones (the sky is baked at load).
+std::vector<uint8_t> renderPreview(const Scene& scene, const RenderSettings& loadedWith, const RenderSettings& settings,
+                                   uint32_t width,
                                    uint32_t height, uint32_t spp);
 
 }  // namespace pen::ui

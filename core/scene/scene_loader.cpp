@@ -48,7 +48,13 @@ Scene loadScene(const RenderSettings& settings, std::vector<std::string>& warnin
   Scene scene = ext == ".obj" ? loadObj(settings.scene, warnings) : loadGltf(settings.scene, warnings);
   if (scene.instances.empty()) warnings.push_back("the scene contains no meshes");
 
+  applyEnvironment(scene, settings, warnings);
+  return scene;
+}
+
+void applyEnvironment(Scene& scene, const RenderSettings& settings, std::vector<std::string>& warnings) {
   const EnvironmentSettings& env = settings.environment;
+  scene.environment = Environment{};
   if (settings.sky.enabled) {
     // The physical sky is the environment (D-120): baked here, then sampled like an HDRI on every backend.
     if (!env.hdri.empty()) warnings.push_back("\"sky\" replaces the environment HDRI");
@@ -57,7 +63,7 @@ Scene loadScene(const RenderSettings& settings, std::vector<std::string>& warnin
                                          settings.sky.sun_elevation_deg, settings.sky.sun_azimuth_deg);
     scene.medium = buildMedium(settings);
     scene.finalize();
-    return scene;
+    return;
   }
   scene.environment.strength = static_cast<float>(env.strength);
   scene.environment.rotation = static_cast<float>(env.rotation_deg) * kPi / 180.0f;
@@ -75,7 +81,6 @@ Scene loadScene(const RenderSettings& settings, std::vector<std::string>& warnin
   }
   scene.medium = buildMedium(settings);
   scene.finalize();
-  return scene;
 }
 
 }  // namespace pen
