@@ -111,6 +111,61 @@ void loadSceneDescription(RenderSettings& s, const std::filesystem::path& file, 
           warnings.push_back(fmt::format("{}: unknown key 'environment.{}' (ignored)", src, ek));
         }
       }
+    } else if (key == "sky" || key == "atmosphere") {
+      if (!value.is_object()) fail(fmt::format("'{}' must be an object", key));
+      // A number in [lo, hi] (hi exclusive when open), or a failure naming the key.
+      const auto number = [&](const std::string& k, const json& v, double lo, double hi, bool open = false) {
+        if (!v.is_number() || v.get<double>() < lo || (open ? v.get<double>() >= hi : v.get<double>() > hi))
+          fail(fmt::format("{}.{} has an invalid value {} (expected {} to {})", key, k, v.dump(), lo, hi));
+        return v.get<double>();
+      };
+      const double kBig = 1e12;
+      if (key == "sky") {
+        SkySettings& sky = s.sky;
+        sky.enabled = true;
+        for (const auto& [k, v] : value.items()) {
+          if (k == "type") {
+            if (v != "physical") fail(fmt::format("sky.type has an invalid value {} (expected \"physical\")", v.dump()));
+          } else if (k == "sun_elevation_deg") sky.sun_elevation_deg = number(k, v, -90, 90);
+          else if (k == "sun_azimuth_deg") sky.sun_azimuth_deg = number(k, v, -360, 360);
+          else if (k == "sun_size_deg") sky.sun_size_deg = number(k, v, 0.01, 90);
+          else if (k == "sun_strength") sky.sun_strength = number(k, v, 0, kBig);
+          else if (k == "strength") sky.strength = number(k, v, 0, kBig);
+          else if (k == "altitude") sky.altitude = number(k, v, -500, 60000);
+          else if (k == "air") sky.air = number(k, v, 0, 10);
+          else if (k == "dust") sky.dust = number(k, v, 0, 10);
+          else if (k == "ozone") sky.ozone = number(k, v, 0, 10);
+          else if (k == "resolution") sky.resolution = static_cast<uint32_t>(number(k, v, 64, 16384));
+          else if (k == "sun_disc") {
+            if (!v.is_boolean()) fail(fmt::format("sky.sun_disc has an invalid value {} (expected true or false)", v.dump()));
+            sky.sun_disc = v.get<bool>();
+          } else {
+            warnings.push_back(fmt::format("{}: unknown key 'sky.{}' (ignored)", src, k));
+          }
+        }
+      } else {
+        AtmosphereSettings& a = s.atmosphere;
+        a.enabled = true;
+        for (const auto& [k, v] : value.items()) {
+          if (k == "air") a.air = number(k, v, 0, 1000);
+          else if (k == "haze") a.haze = number(k, v, 0, 1000);
+          else if (k == "haze_anisotropy") a.haze_anisotropy = number(k, v, -0.99, 0.99);
+          else if (k == "altitude") a.altitude = number(k, v, -500, 60000);
+          else if (k == "meters_per_unit") a.meters_per_unit = number(k, v, 1e-6, 1e6);
+          else if (k == "fog_density") a.fog_density = number(k, v, 0, 1000);
+          else if (k == "fog_height") a.fog_height = number(k, v, 0.01, 1e6);
+          else if (k == "fog_base") a.fog_base = number(k, v, -kBig, kBig);
+          else if (k == "fog_anisotropy") a.fog_anisotropy = number(k, v, -0.99, 0.99);
+          else if (k == "fog_color") {
+            if (!v.is_array() || v.size() != 3 ||
+                !std::all_of(v.begin(), v.end(), [](const json& c) { return c.is_number() && c.get<double>() >= 0 && c.get<double>() <= 1; }))
+              fail(fmt::format("atmosphere.fog_color has an invalid value {} (expected [r, g, b], each 0 to 1)", v.dump()));
+            for (int c = 0; c < 3; ++c) a.fog_color[c] = v[c].get<double>();
+          } else {
+            warnings.push_back(fmt::format("{}: unknown key 'atmosphere.{}' (ignored)", src, k));
+          }
+        }
+      }
     } else if (key == "render") {
       if (!value.is_object()) fail("'render' must be an object");
       applyLayer(s, value, Layer::SceneDescription, src + " render", warnings);
