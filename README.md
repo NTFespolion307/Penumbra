@@ -811,7 +811,7 @@ matches the sky.
 | `fog_height` | Fog scale height in metres: the density falls by e every this many metres up (100) |
 | `fog_base`, `fog_color`, `fog_anisotropy` | Fog base height (scene units, y), its colour `[r, g, b]` (single-scattering albedo, [1, 1, 1]) and *g* (0) |
 
-**Physical sky** *(M14; CPU backend for now)*. A `"sky"` object replaces the environment with a sky computed from
+**Physical sky** *(M14; every backend: it becomes the environment map)*. A `"sky"` object replaces the environment with a sky computed from
 the sun's position, like Blender's Nishita sky: air, haze and ozone scatter sunlight over a round Earth, computed per
 wavelength, with the sun's disc. It is in real units (the sun is 1361 W/m² above the air), so use an exposure of
 about -6 to -10 (`--exposure -8`), as with Blender's.
