@@ -965,11 +965,3 @@ upload included. So no change to the dispatch loop without a measurement that sh
 - Known, unchanged: a work item is 2^26 pixel-samples, so a CPU alone (~2 M samples/s on the laptop) needs ~33 s per
   item, and `--time-limit` waits for the item in progress plus the queued one (a 10 s limit ended after 67 s).
   On GPUs an item takes well under a second.
-
-**D-115 Each CUDA architecture is compiled from its own PTX (M9 step 4; replaces D-087's single PTX).** ptxas on an
-RTX 5060 Ti box (CUDA 13): the `render` kernel compiled for sm_120 from compute_75 PTX (the D-087 build) used 169
-registers and a 1576-byte stack frame; from compute_120 PTX, 175 registers and 848 bytes. Forcing every generated
-function inline changed little (183 registers, 800 bytes), so the rest of the frame is the traversal stacks
-(48 x 8 + 64 x 4 bytes). The fatbin now holds sm_X machine code from compute_X PTX for every architecture in
-`PEN_CUDA_ARCHS`, plus the newest architecture's PTX for GPUs newer than the list. D-087 already allowed the last
-bits to differ between architectures, so the cross-device rules do not change.
