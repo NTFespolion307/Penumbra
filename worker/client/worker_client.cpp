@@ -49,7 +49,10 @@ constexpr auto kPeerTimeout = std::chrono::seconds(30);
 constexpr double kLongRoundTripMs = 50;  // before item times are known: 3 items in flight above this, else 2
 constexpr int kMaxInFlight = 64;
 constexpr int kReconnect = -3;           // session(): the link dropped; a --stay worker connects again
-constexpr auto kMaxBackoff = std::chrono::seconds(30);
+constexpr auto kMaxBackoff = std::chrono::seconds(30);  // a relay answers but the controller does not
+// Nothing listens: a connect attempt costs nothing, so a --stay worker tries at least every 5 s and is back soon
+// after a new controller starts (with 30 s, workers missed the first 16 s of back-to-back renders, D-116).
+constexpr auto kMaxConnectBackoff = std::chrono::seconds(5);
 
 uint64_t nowMicros() {
   return static_cast<uint64_t>(
@@ -207,7 +210,8 @@ int Worker::connect() {
           std::this_thread::sleep_for(std::chrono::milliseconds(100));
         // Until it has joined once, the controller is probably about to start: keep the wait short (2 s) so the worker
         // is there soon after it hosts (a worker started first joined 12 s late, D-113).
-        backoff = std::min<std::chrono::seconds>(backoff * 2, joined_once_ ? kMaxBackoff : std::chrono::seconds(2));
+        backoff = std::min<std::chrono::seconds>(backoff * 2,
+                                                 joined_once_ ? kMaxConnectBackoff : std::chrono::seconds(2));
         continue;
       }
       // The controller may still be starting: keep trying for a while when nothing listens yet.
@@ -875,6 +879,7 @@ void Worker::sendStats() {
   s.rtt_ms = static_cast<float>(rtt_ms_);
   const uint64_t sent = conn_->bytesSent();
   s.upload_bytes_per_s = dt > 0 ? double(sent - last_sent_) / dt : 0.0;
+  s.upload_queued = conn_->queuedBytes();
   last_sent_ = sent;
   if (Clock::now() - cache_checked_ > std::chrono::seconds(30)) {  // reads every manifest: not every 2 s
     cache_usage_ = cache_.usage();

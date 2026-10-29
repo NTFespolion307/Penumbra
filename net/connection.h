@@ -1,5 +1,7 @@
 #pragma once
 
+#include <chrono>
+
 // One TLS-encrypted TCP connection carrying framed messages (docs/GUIDE.md "Wire protocol", "Security"). The
 // TLS 1.3 handshake uses the key derived from the join code; a peer with another code cannot connect. All
 // socket and TLS work runs on an IoThread; send() and close() may be called from any thread. Two send queues:
@@ -131,7 +133,10 @@ struct ConnectError : std::runtime_error {
   bool refused;
 };
 
-// Resolves `host` and connects (blocking); the TLS handshake starts with Connection::start. Throws ConnectError.
+inline constexpr std::chrono::seconds kConnectTimeout{10};
+
+// Resolves `host` and connects (blocking, at most kConnectTimeout); the TLS handshake starts with
+// Connection::start. Throws ConnectError.
 std::shared_ptr<Connection> connectTo(IoThread& io, const std::string& host, uint16_t port, const JoinKey& key);
 
 // Accepts connections on bind:port (all interfaces when bind is empty, IPv6 and IPv4 where possible).

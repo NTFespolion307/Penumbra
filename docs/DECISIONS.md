@@ -989,3 +989,27 @@ with experiments:
 - Gate check (busy GPUs): every device 99-100% busy alone (`--benchmark`), and internet workers ~98% busy from
   their first item to their last result in a three-datacenter render. `--stay` workers rejoined a new controller
   16 s late (backoff up to 30 s after a lost controller, D-113); a shorter retry would help back-to-back renders.
+
+**D-116 Network work (M9 step 5): items of several chunks for upload-bound workers, 10 s connect timeout,
+quicker `--stay` rejoin, transfer-stall warning.** User decision (2026-10-29): bigger items only for workers that
+fall behind on upload.
+- **Why:** a result carries the whole tile whatever its sample count (~0.5-1 MB for 256 x 256), so one fast GPU at
+  ~300 M samples/s sends ~20-25 Mbit/s and a 4-GPU server over 100 Mbit/s: more than many home uplinks (D-103 saw
+  a Cornell box at 20K over a 240 ms link upload-bound by far).
+- **How:** `Stats` carries `upload_queued` (protocol 5). The controller divides it by the worker's upload rate;
+  when three reports in a row (6 s) show more than 2 s and 4 MB waiting, the worker's span doubles (2, 4, 8 chunks per item, at most every 4 s), and after 20 s
+  below 0.5 s it halves. A span item is consecutive chunks of one tile (`next(span)`): its id is the first
+  chunk's, its sample range covers all of them, so validation, requeue, tail copies and in-order merging work as
+  before, and `markMergedUntil` advances the tile by the whole span. The film still holds whole chunks, so
+  `--resume` is unchanged. Item times are kept per chunk, so the late check judges a span item by its age / span.
+  Breadth-first passes stay even: a tile given 2 chunks sits out the next pass. Every change is logged at info.
+- **Determinism:** renders where no worker falls behind keep one chunk per item and stay bit-identical for any
+  distribution (D-045). A merged span differs from chunk-by-chunk merging only in rounding (`net.item_span`:
+  relMSE 7.8e-16 against the solo render, max 3.8e-6 per value, with items of 3-4 chunks; test hook `PENUMBRA_TEST_ITEM_SPAN` forces a span, logged when active).
+- **Connect timeout:** `connectTo` connects asynchronously and gives up after 10 s (`kConnectTimeout`): behind a
+  firewall that drops instead of refusing (Hyper-V in front of WSL, D-103) the first attempt waited ~2 minutes.
+- **`--stay` rejoin:** after a lost controller a worker now retries at least every 5 s (was 30 s): in the
+  three-datacenter test, workers missed the first 16 s of a back-to-back render (D-115). The 30 s backoff stays for
+  a relay that answers while no controller is behind it.
+- **Transfer stall:** a scene transfer that hands no chunk to its connection for 15 s is logged with its chunk and
+  queued bytes, and again when it moves (D-115's unexplained 69 s stall).

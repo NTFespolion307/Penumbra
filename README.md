@@ -467,7 +467,8 @@ penumbra --worker --join 192.168.1.20 --code K7QD-M2XR-9FHT-4WNB
 
 Set the code in the `PENUMBRA_CODE` environment variable instead of `--code` to keep it out of shell history.
 Add `--stay` on always-on machines: the worker then waits for the next render and reconnects on its own whenever
-the controller goes away (it retries after 1, 2, 4... up to 30 seconds, forever; Ctrl+C stops it). In the UI, use
+the controller goes away (it retries after 1, 2, 4 and then every 5 seconds, forever; Ctrl+C stops it; an attempt
+gives up after 10 seconds without an answer). In the UI, use
 **Join a render**. Without `--stay`, a worker exits when the render ends (exit code 0) or the connection drops
 (exit code 7).
 
@@ -810,7 +811,7 @@ Start with `penumbra --diagnose` and include its output in any bug report.
 | Worker: "cannot connect to ...: connection refused" or timed out (exit code 7) | Check, in order: the controller is running with `--host` and printed "hosting on port 7420"; the address is one the controller listed; the firewall allows TCP 7420 on the controller (Windows: allow Penumbra when asked, or `New-NetFirewallRule -DisplayName Penumbra -Direction Inbound -Protocol TCP -LocalPort 7420 -Action Allow` in an admin PowerShell; Linux: `sudo ufw allow 7420/tcp`); for internet workers, the router forwards TCP 7420 (the controller logs whether UPnP did it) or both machines are on the same VPN. |
 | Controller log: "UPnP: the router's internet address ... is not public" | Carrier-grade NAT or a second router: port forwarding cannot work. Use a VPN such as Tailscale on both machines and join with the controller's VPN address. |
 | Controller log: "&lt;worker&gt; cannot take this scene: not enough disk / RAM" | That worker has no room for the scene; the render goes on without it. Free space or use `--cache-dir` on a bigger drive on the worker. |
-| Host shows "upload-bound" | The worker renders faster than its uplink can send tiles; it stops asking for work until they are sent. Nothing to fix unless it persists. |
+| Host shows "upload-bound" | The worker renders faster than its uplink can send tiles. Once its results wait more than 2 s, the controller gives it items of 2, 4, then up to 8 chunks, which need up to 8x less upload per sample (logged as "N chunks per item"); past 512 MB waiting it stops asking for work until they are sent. Nothing to fix unless it persists. |
 | Controller log: "&lt;worker&gt; sent nothing for 30 s (heartbeat lost)" | The connection to that worker died (network, sleep, crash). Its work goes to others; with `--stay` it reconnects on its own. |
 | Out of disk (exit code 4) | The film needs space on the controller (table above). Use `--film-dir` on a bigger drive or host from a machine with more disk. A render that runs out of space mid-way checkpoints first; free space, then continue with `--resume`. |
 | `--resume` refuses: "rendered by Penumbra ... (git ...)" | The film was started by another build. Check out that commit and rebuild to finish it, or start the render again. |

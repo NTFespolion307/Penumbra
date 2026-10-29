@@ -35,6 +35,8 @@ class SceneUploader {
     std::string name;
     uint64_t bytes_sent = 0;
     std::chrono::steady_clock::time_point started;
+    std::chrono::steady_clock::time_point progressed;  // last chunk handed to the connection
+    bool stall_logged = false;
   };
   void run();
 

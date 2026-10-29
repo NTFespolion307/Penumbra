@@ -174,6 +174,9 @@ table Stats {
   cache_used:ulong;       // scene cache: bytes of complete packages
   cache_limit:ulong;
   cache_scenes:uint;
+  // protocol 5 (M9): result bytes waiting to be sent; with upload_bytes_per_s the controller sees an upload-bound
+  // worker long before upload_bound (512 MB) and gives it items of several chunks (D-116).
+  upload_queued:ulong;
 }
 
 table Heartbeat {

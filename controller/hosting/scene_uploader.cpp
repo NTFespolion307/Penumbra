@@ -13,6 +13,9 @@ namespace pen {
 namespace {
 using Clock = std::chrono::steady_clock;
 constexpr uint64_t kMaxQueued = 2ull * ScenePackage::kChunkBytes;
+// A transfer whose connection takes no chunk for this long is logged (a 58 MB transfer once sat still for 69 s on a
+// route that carried 62 MB/s, D-116).
+constexpr auto kStallWarning = std::chrono::seconds(15);
 }  // namespace
 
 SceneUploader::SceneUploader(uint64_t limitBytesPerSecond) : limit_(limitBytesPerSecond) {
@@ -34,7 +37,8 @@ void SceneUploader::start(std::shared_ptr<net::Connection> connection, std::shar
                           uint64_t hash, uint32_t first, const std::string& workerName) {
   std::lock_guard lock(mutex_);
   std::erase_if(transfers_, [&](const Transfer& t) { return t.connection == connection; });
-  transfers_.push_back({std::move(connection), std::move(pkg), hash, first, workerName, 0, Clock::now()});
+  const auto now = Clock::now();
+  transfers_.push_back({std::move(connection), std::move(pkg), hash, first, workerName, 0, now, now, false});
   cv_.notify_all();
 }
 
@@ -52,6 +56,14 @@ void SceneUploader::run() {
       continue;
     }
     const auto now = Clock::now();
+    for (Transfer& x : transfers_) {
+      if (x.stall_logged || now - x.progressed < kStallWarning) continue;
+      x.stall_logged = true;
+      spdlog::warn("the scene transfer to '{}' has not moved for {} s: chunk {} of {}, {} waiting to be written to "
+                   "the connection",
+                   x.name, std::chrono::duration_cast<std::chrono::seconds>(now - x.progressed).count(), x.next,
+                   x.pkg->chunkCount(), formatBytes(x.connection->queuedBytes()));
+    }
     if (limit_ > 0) {
       tokens = std::min<double>(double(limit_), tokens + std::chrono::duration<double>(now - last).count() * double(limit_));
       last = now;
@@ -94,6 +106,11 @@ void SceneUploader::run() {
                            [&](const Transfer& x) { return x.connection == job.connection && x.hash == job.hash; });
     if (it == transfers_.end()) continue;  // replaced or stopped meanwhile
     it->bytes_sent += wire;
+    it->progressed = Clock::now();
+    if (it->stall_logged) {
+      it->stall_logged = false;
+      spdlog::info("the scene transfer to '{}' moves again", it->name);
+    }
     if (++it->next >= it->pkg->chunkCount()) {
       const double s = std::chrono::duration<double>(Clock::now() - it->started).count();
       spdlog::info("scene sent to '{}': {} on the wire in {:.1f}s", it->name, formatBytes(it->bytes_sent), s);

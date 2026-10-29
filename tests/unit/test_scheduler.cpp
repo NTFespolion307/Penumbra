@@ -101,6 +101,38 @@ TEST_CASE("merging in order completes tiles; requeued items come first", "[sched
   (void)b;
 }
 
+TEST_CASE("items of several chunks for upload-bound workers (D-116)", "[scheduler]") {
+  const FilmLayout layout = FilmLayout::make(512, 256, 256);  // 2 tiles, 64-sample chunks (test budget 2^22)
+  Scheduler s(layout, 0, 320, std::nullopt, PassOrder::DepthFirst);  // 5 chunks per tile
+  const WorkItem a = *s.next(4);
+  CHECK(a.chunk == 0);
+  CHECK(a.sample_begin == 0);
+  CHECK(a.sample_end == 256);
+  CHECK(s.chunksIn(a) == 4);
+  const WorkItem b = *s.next(4);  // only one chunk of the tile is left
+  CHECK(b.tile == a.tile);
+  CHECK(b.chunk == 4);
+  CHECK(s.chunksIn(b) == 1);
+  CHECK(s.next(4)->tile != a.tile);
+
+  s.markMergedUntil(a.tile, a.sample_end);
+  CHECK(s.mergedChunks(a.tile) == 4);
+  CHECK(s.mergedSamples() == uint64_t(256) * 256 * 256);
+  s.markMergedUntil(b.tile, b.sample_end);
+  CHECK(s.tileComplete(a.tile));
+
+  // Breadth-first: a tile given 2 chunks sits out the next pass, so passes stay even.
+  Scheduler bf(layout, 0, 320, std::nullopt, PassOrder::BreadthFirst);
+  const WorkItem first = *bf.next(2);
+  CHECK(first.samples() == 128);
+  const WorkItem second = *bf.next();
+  CHECK(second.tile != first.tile);
+  CHECK(second.chunk == 0);
+  const WorkItem third = *bf.next();  // pass 1: the first tile already has chunk 1
+  CHECK(third.tile == second.tile);
+  CHECK(third.chunk == 1);
+}
+
 TEST_CASE("restore continues each tile after the samples in the film", "[scheduler]") {
   const FilmLayout layout = FilmLayout::make(1024, 256, 256);  // 4 tiles, 64-sample chunks
   Scheduler s(layout, 0, 256, std::nullopt, PassOrder::BreadthFirst);

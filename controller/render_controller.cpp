@@ -139,7 +139,7 @@ void RenderController::serveLocked() {
   for (auto it = wanted_.begin(); it != wanted_.end();) {
     auto& [key, want] = *it;
     while (want > 0) {
-      std::optional<WorkItem> item = scheduler_.next();
+      std::optional<WorkItem> item = scheduler_.next(workers_[key.first]->itemSpan());
       const bool duplicate = !item;
       if (!item) item = tailDuplicateLocked(key, scan);
       if (!item) break;  // nothing for this device now; it keeps waiting
@@ -233,7 +233,7 @@ bool RenderController::mergeLocked(const TileResult& r) {
     return false;
   }
   const uint32_t tile = static_cast<uint32_t>(r.item_id >> 32);
-  scheduler_.markMerged(tile);
+  scheduler_.markMergedUntil(tile, r.sample_end);
   ++merged_items_;
   if (scheduler_.tileComplete(tile)) {
     try {
@@ -277,7 +277,9 @@ void RenderController::onTileResult(WorkerId worker, TileResult&& r) {
     return;
   }
   const WorkItem item = lease->second.item;
-  const double seconds = std::chrono::duration<double>(Clock::now() - lease->second.issued).count();
+  // Per chunk, so items of several chunks (D-116) and single chunks share one scale for the late check.
+  const double seconds = std::chrono::duration<double>(Clock::now() - lease->second.issued).count() /
+                         scheduler_.chunksIn(lease->second.item);
   const LeaseInfo info = lease->second;
   leases_.erase(lease);
 
@@ -452,7 +454,7 @@ void RenderController::reissueLateLocked() {
     double limit = std::max(10 * median, kMinLateSeconds);
     if (fresh) limit = std::max(limit, std::chrono::duration<double>(scaledForTests(kFirstItemsGrace)).count());
     const double age = std::chrono::duration<double>(now - info.issued).count();
-    if (age <= limit) continue;
+    if (age / scheduler_.chunksIn(info.item) <= limit) continue;  // item times are kept per chunk
     if (const auto last = device_last_result_.find({info.worker, info.device}); last != device_last_result_.end() &&
         std::chrono::duration<double>(now - last->second).count() <= limit)
       continue;

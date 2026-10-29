@@ -302,13 +302,29 @@ std::shared_ptr<Connection> connectTo(IoThread& io, const std::string& host, uin
   std::error_code ec;
   const auto endpoints = resolver.resolve(host, std::to_string(port), ec);
   if (ec) throw ConnectError(fmt::format("cannot resolve '{}': {}", host, ec.message()), false);
-  asio::ip::tcp::socket socket(asio::make_strand(io.context()));  // its own strand (see IoThread)
-  asio::connect(socket, endpoints, ec);
+  // Its own strand (see IoThread). Asynchronous, so a host that drops the SYN instead of refusing it (a firewall,
+  // Hyper-V in front of WSL) fails after kConnectTimeout, not the OS's ~2 minutes (D-116).
+  auto socket = std::make_shared<asio::ip::tcp::socket>(asio::make_strand(io.context()));
+  std::promise<std::error_code> done;
+  auto result = done.get_future();
+  asio::async_connect(*socket, endpoints,
+                      [&done](std::error_code e, const asio::ip::tcp::endpoint&) { done.set_value(e); });
+  if (result.wait_for(kConnectTimeout) != std::future_status::ready) {
+    asio::post(socket->get_executor(), [socket] {
+      std::error_code ignored;
+      socket->close(ignored);  // the pending connect completes with operation_aborted
+    });
+    result.wait();
+    throw ConnectError(fmt::format("cannot connect to {}:{}: no answer within {} s", host, port,
+                                   std::chrono::duration_cast<std::chrono::seconds>(kConnectTimeout).count()),
+                       false);
+  }
+  ec = result.get();
   if (ec) {
     const bool refused = ec == asio::error::connection_refused;
     throw ConnectError(fmt::format("cannot connect to {}:{}: {}", host, port, ec.message()), refused);
   }
-  return std::make_shared<Connection>(std::move(socket), TlsSession::Role::Client, key);
+  return std::make_shared<Connection>(std::move(*socket), TlsSession::Role::Client, key);
 }
 
 Listener::Listener(IoThread& io, const std::string& bind, uint16_t port, const JoinKey& key, AcceptFn onAccept)

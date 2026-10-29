@@ -75,14 +75,14 @@ void Scheduler::restore(const std::function<uint32_t(uint32_t tile)>& samplesInF
   cursor_ = 0;
 }
 
-WorkItem Scheduler::makeItem(const TileWork& t, uint32_t chunk) const {
+WorkItem Scheduler::makeItem(const TileWork& t, uint32_t chunk, uint32_t span) const {
   WorkItem item;
   item.tile = t.tile;
   item.chunk = chunk;
   item.id = WorkItem::makeId(t.tile, chunk);
   item.rect = t.rect;
   item.sample_begin = sample_begin_ + chunk * t.chunk_size;
-  const uint64_t end = uint64_t(item.sample_begin) + t.chunk_size;
+  const uint64_t end = uint64_t(item.sample_begin) + uint64_t(t.chunk_size) * span;
   item.sample_end = static_cast<uint32_t>(std::min<uint64_t>(end, sample_end_));
   return item;
 }
@@ -91,7 +91,15 @@ WorkItem Scheduler::item(uint32_t tile, uint32_t chunk) const { return makeItem(
 
 uint32_t Scheduler::chunkCount(uint32_t tile) const { return tiles_[lookup_[tile]].chunks; }
 
-std::optional<WorkItem> Scheduler::next() {
+std::optional<WorkItem> Scheduler::next(uint32_t span) {
+  span = std::max(span, 1u);
+  // Up to `span` chunks of tile t from its next unissued one.
+  const auto take = [&](TileWork& t) {
+    const uint32_t n = t.chunks == kUnboundedSamples ? span : std::min(span, t.chunks - t.issued);
+    WorkItem item = makeItem(t, t.issued, n);
+    t.issued += n;
+    return item;
+  };
   if (!requeued_.empty()) {  // lost or late items first, even after stopNew (their tiles wait for them)
     WorkItem item = requeued_.front();
     requeued_.pop_front();
@@ -102,7 +110,7 @@ std::optional<WorkItem> Scheduler::next() {
   if (order_ == PassOrder::DepthFirst) {
     while (cursor_ < tiles_.size()) {
       TileWork& t = tiles_[cursor_];
-      if (t.issued < t.chunks) return makeItem(t, t.issued++);
+      if (t.issued < t.chunks) return take(t);
       ++cursor_;
     }
     return std::nullopt;
@@ -114,7 +122,7 @@ std::optional<WorkItem> Scheduler::next() {
     while (cursor_ < tiles_.size()) {
       TileWork& t = tiles_[cursor_++];
       if (t.issued < t.chunks) anyLeft = true;
-      if (t.issued <= pass_ && t.issued < t.chunks) return makeItem(t, t.issued++);
+      if (t.issued <= pass_ && t.issued < t.chunks) return take(t);
     }
     // End of a pass: start the next one, unless no tile has chunks left.
     if (!anyLeft) {
@@ -142,6 +150,20 @@ void Scheduler::markMerged(uint32_t tile) {
   const WorkItem item = makeItem(t, t.merged);
   merged_samples_ += t.rect.pixels() * item.samples();
   ++t.merged;
+}
+
+void Scheduler::markMergedUntil(uint32_t tile, uint32_t sampleEnd) {
+  TileWork& t = tiles_[lookup_[tile]];
+  do {
+    merged_samples_ += t.rect.pixels() * makeItem(t, t.merged).samples();
+    ++t.merged;
+  } while (t.merged < t.chunks && makeItem(t, t.merged).sample_begin < sampleEnd);
+}
+
+uint32_t Scheduler::chunksIn(const WorkItem& item) const {
+  if (!knowsTile(item.tile)) return 1;
+  const uint32_t size = tiles_[lookup_[item.tile]].chunk_size;
+  return std::max(1u, (item.samples() + size - 1) / size);
 }
 
 bool Scheduler::tileComplete(uint32_t tile) const {

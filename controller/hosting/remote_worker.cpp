@@ -4,10 +4,12 @@
 #include <spdlog/spdlog.h>
 
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <random>
 
 #include "core/film/session.h"
+#include "core/system/test_hooks.h"
 #include "core/settings/parse.h"
 #include "core/settings/serialize.h"
 #include "net/tile_codec.h"
@@ -16,11 +18,25 @@ namespace pen {
 
 namespace wire = net::wire;
 
+namespace {
+// Test only: every network worker gets this many chunks per item from the start, upload-bound or not (D-116).
+uint32_t testItemSpan() {
+  static const uint32_t span = [] {
+    const char* v = std::getenv("PENUMBRA_TEST_ITEM_SPAN");
+    const uint32_t n = v ? static_cast<uint32_t>(std::strtoul(v, nullptr, 10)) : 0;
+    if (n > 0) spdlog::warn("TEST HOOK ACTIVE (PENUMBRA_TEST_ITEM_SPAN): {} chunks per item for network workers", n);
+    return n;
+  }();
+  return span;
+}
+}  // namespace
+
 RemoteWorker::RemoteWorker(WorkerId id, WorkerEvents& events, SceneUploader& uploader,
                            std::shared_ptr<net::Connection> connection, wire::HelloT hello, uint64_t sessionId)
     : id_(id), events_(events), uploader_(uploader), connection_(std::move(connection)), hello_(std::move(hello)) {
   info_.name = hello_.worker_name;
   info_.local = false;
+  if (testItemSpan() > 0) span_ = testItemSpan();
   info_.os = hello_.os;
   info_.address = connection_->peer();
   info_.logical_cores = hello_.logical_cores;
@@ -110,6 +126,41 @@ void RemoteWorker::complete() {
 }
 
 void RemoteWorker::disconnect(const std::string& reason) { connection_->close(reason); }
+
+// docs/GUIDE.md "Uploader and backpressure": a worker whose results wait more than 2 s to be sent renders faster
+// than its uplink carries them. Each result is a whole tile whatever its sample count, so items of 2, 4 or 8
+// chunks send 2-8x fewer bytes per sample. The span doubles at most every 4 s once three reports in a row show
+// more than 2 s and 4 MB waiting (one freshly queued full-frame result next to an idle upload is no backlog), and
+// halves after 20 s below 0.5 s. Renders where no worker is upload-bound keep 1 chunk per item and the same
+// bits for any distribution of work (D-045); merged spans change only the last bits (D-116).
+void RemoteWorker::adaptSpan(uint64_t queued, double bytesPerSecond) {
+  constexpr uint32_t kMaxSpan = 8;
+  if (testItemSpan() > 0) return;
+  const auto now = std::chrono::steady_clock::now();
+  const double backlog = double(queued) / std::max(bytesPerSecond, 64.0 * 1024);
+  const uint32_t span = span_.load();
+  if (backlog > 2.0 && queued >= (4u << 20)) {
+    backlog_low_since_ = {};
+    if (++behind_reports_ >= 3 && span < kMaxSpan && now - span_changed_ >= scaledForTests(std::chrono::seconds(4))) {
+      span_ = span * 2;
+      span_changed_ = now;
+      spdlog::info("{}: {:.1f} s of results wait to be sent ({:.1f} MB/s up); {} chunks per item from now on",
+                   info_.name, backlog, bytesPerSecond / 1e6, span * 2);
+    }
+    return;
+  }
+  behind_reports_ = 0;
+  if (span == 1 || backlog >= 0.5) {
+    backlog_low_since_ = {};
+    return;
+  }
+  if (backlog_low_since_ == std::chrono::steady_clock::time_point{}) backlog_low_since_ = now;
+  if (now - backlog_low_since_ >= scaledForTests(std::chrono::seconds(20))) {
+    span_ = span / 2;
+    span_changed_ = backlog_low_since_ = now;
+    spdlog::info("{}: its upload keeps up again; {} chunk(s) per item", info_.name, span / 2);
+  }
+}
 
 void RemoteWorker::kick(const std::string& reason) {
   spdlog::warn("kicking {}: {}", info_.name, reason);
@@ -217,6 +268,8 @@ void RemoteWorker::onMessage(net::Message&& msg) {
         stats.upload_bound = m.upload_bound;
         stats.rtt_ms = m.rtt_ms;
         stats.upload_bytes_per_s = m.upload_bytes_per_s;
+        stats.upload_queued = m.upload_queued;
+        adaptSpan(m.upload_queued, m.upload_bytes_per_s);
         stats.cache_used = m.cache_used;
         stats.cache_limit = m.cache_limit;
         stats.cache_scenes = m.cache_scenes;

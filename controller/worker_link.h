@@ -55,6 +55,7 @@ struct WorkerStats {
   std::vector<Device> devices;
   float rtt_ms = 0;  // 0 = not measured yet
   double upload_bytes_per_s = 0;
+  uint64_t upload_queued = 0;  // result bytes waiting to be sent (protocol 5)
   uint64_t cache_used = 0, cache_limit = 0;
   uint32_t cache_scenes = 0;
 };
@@ -117,6 +118,8 @@ class WorkerLink {
   virtual void complete() = 0;
   // Disconnects a misbehaving worker with a reason (network workers; the local worker never is).
   virtual void kick(const std::string& reason) { (void)reason; }
+  // Chunks per item for this worker's next leases: 1, or more while its upload cannot keep up (D-116).
+  virtual uint32_t itemSpan() const { return 1; }
 };
 
 }  // namespace pen

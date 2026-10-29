@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+#include <chrono>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -30,6 +32,7 @@ class RemoteWorker final : public WorkerLink {
   void pause(bool paused) override;
   void complete() override;
   void kick(const std::string& reason) override;
+  uint32_t itemSpan() const override { return span_.load(); }
 
   bool connected() const { return connection_->isOpen(); }
   // Closes the connection; the worker is reported gone with `reason`.
@@ -48,6 +51,12 @@ class RemoteWorker final : public WorkerLink {
   net::wire::HelloT hello_;
   uint64_t render_id_ = 0;
   uint64_t settings_hash_ = 0;
+  // Upload-bound workers get several chunks per item (D-116): set from Stats on the network thread.
+  void adaptSpan(uint64_t queued, double bytesPerSecond);
+  std::atomic<uint32_t> span_{1};
+  std::chrono::steady_clock::time_point span_changed_{};
+  std::chrono::steady_clock::time_point backlog_low_since_{};
+  int behind_reports_ = 0;  // Stats reports in a row with a backlog
   std::mutex mutex_;
   bool gone_ = false;
   bool said_bye_ = false;

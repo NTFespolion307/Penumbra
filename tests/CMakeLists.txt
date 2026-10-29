@@ -237,6 +237,11 @@ pen_net_test(bad_network 7517 1 cornell.pen.json "--res|1080p|--scale|0.5|--spp|
              "-DNETEM_ARGS=--delay-ms|100|--loss|0.02|--up-kbps|10000"
              "-DEXPECT_WORKER_LOG=device 0: [0-9]+ items in flight .round trip [0-9]+ ms.")
 set_tests_properties(net.worker_silent PROPERTIES LABELS "net;gate;slow")
+# M9 (D-116): workers that get items of 4 chunks (as an upload-bound worker would) next to the controller's own
+# single-chunk items; tiles merge several chunks at once, so the image matches the solo render to the last bits.
+pen_net_test(item_span 7523 2 cornell.pen.json "${PEN_NET_12}" "-DREF_ARGS=--devices|cpu"
+             "-DCONTROLLER_ARGS=--threads|2" "-DWORKER_ARGS=--threads|2" -DITEM_SPAN=4 -DMAXRELMSE=1e-9
+             "-DEXPECT_LOG=TEST HOOK ACTIVE .PENUMBRA_TEST_ITEM_SPAN.")
 
 # M4 step 5: the controller is killed mid-render (power loss) and resumed from its session file; its --stay
 # workers reconnect on their own and finish the image. A --stay worker waits after a render and serves the next

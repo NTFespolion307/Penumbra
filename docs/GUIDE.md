@@ -176,7 +176,7 @@ A worker is a network client, a scene cache and a device manager; each GPU is an
 
 **Memory.** Each device runs the memory budget ladder independently (see Memory management). A device that cannot hold the scene at any tier is reported as skipped in `WorkerReady`; the worker still joins with its other devices. If no device qualifies, the worker answers `scene_rejected`.
 
-**Uploader and backpressure.** One sender thread compresses and sends results. If unsent results exceed 512 MB (slow uplink), slots stop requesting new work until the queue drains, so a GPU never renders tiles that cannot be delivered. The worker reports this state in `Stats`, and the UI shows the host as "upload-bound".
+**Uploader and backpressure.** One sender thread compresses and sends results. A worker whose results wait more than 2 s to be sent gets items of 2, 4, then up to 8 chunks of one tile, so it sends fewer results per sample (M9, DECISIONS D-116). If unsent results exceed 512 MB (slow uplink), slots stop requesting new work until the queue drains, so a GPU never renders tiles that cannot be delivered. The worker reports this state in `Stats`, and the UI shows the host as "upload-bound".
 
 **Device failure.** A device that errors (driver reset, out of memory, lost device) is removed; its leases go back to the controller in a `Release` message, and the worker continues with its remaining devices. A worker with no devices left sends `Bye` with the reason.
 
