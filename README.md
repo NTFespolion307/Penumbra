@@ -792,6 +792,25 @@ More `.pen.json` options:
 Light units: glTF point and spot intensities (candela) and sun illuminance (lux) are divided by 683 lm/W, which
 matches Blender's "Standard" export; emissive materials use emissive colour × strength as radiance.
 
+**Atmosphere** *(M14; CPU backend for now, Vulkan and CUDA follow)*. An `"atmosphere"` object fills the scene with
+air, haze and an optional ground fog. Each layer thins out exponentially with height, so distant objects fade and
+turn blue, and light shafts form. With `"sky"` *(planned, M14)*, air and haze follow its `air` and `dust` values,
+so the haze matches the sky.
+
+```json
+"atmosphere": { "altitude": 1600, "fog_density": 0.002, "fog_height": 60, "fog_base": 0 }
+```
+
+| Key | Meaning (default) |
+| --- | --- |
+| `air`, `haze` | Earth's air (Rayleigh, blue) and haze (Mie) as multiples of sea level; 0 turns a layer off (1, or the sky's `air` / `dust`) |
+| `haze_anisotropy` | Henyey-Greenstein *g* of the haze: how strongly it scatters forward, around the sun (0.76) |
+| `altitude` | Metres above sea level at y = 0; air and haze are thinner higher up (0) |
+| `meters_per_unit` | Metres per scene unit, for scenes not modelled in metres (1) |
+| `fog_density` | Ground fog: extinction per metre at `fog_base`; 0.004 is about 1 km visibility (0: no fog) |
+| `fog_height` | Fog scale height in metres: the density falls by e every this many metres up (100) |
+| `fog_base`, `fog_color`, `fog_anisotropy` | Fog base height (scene units, y), its colour `[r, g, b]` (single-scattering albedo, [1, 1, 1]) and *g* (0) |
+
 ## Troubleshooting
 
 Start with `penumbra --diagnose` and include its output in any bug report.

@@ -132,6 +132,25 @@ struct Environment {
   bool isBlack() const { return !hasMap() && pen::isBlack(color); }
 };
 
+// One exponential height layer of the atmosphere (M14): coefficients at y = base, falling off with height as
+// exp(-(y - base) / height). Scene units throughout (built from AtmosphereSettings, metres converted).
+struct MediumLayer {
+  Vec3f sigma_s{0, 0, 0};  // scattering
+  Vec3f sigma_t{0, 0, 0};  // extinction (scattering + absorption)
+  float base = 0;
+  float inv_height = 0;    // 1 / scale height
+  float g = 0;             // Henyey-Greenstein anisotropy (ignored for Rayleigh)
+  bool rayleigh = false;   // Rayleigh phase function instead of Henyey-Greenstein
+};
+
+// The participating medium filling the scene: up to three layers (air, haze, fog); empty without an atmosphere.
+struct Medium {
+  static constexpr uint32_t kMaxLayers = 3;
+  MediumLayer layers[kMaxLayers];
+  uint32_t count = 0;
+  bool empty() const { return count == 0; }
+};
+
 // A triangle with emission, in world space, for light sampling.
 struct EmissiveTriangle {
   Vec3f p0, e1, e2;  // p0 and edges p1 - p0, p2 - p0
@@ -157,6 +176,7 @@ struct Scene {
   std::vector<Camera> cameras;
   std::vector<PunctualLight> lights;
   Environment environment;
+  Medium medium;
   Bounds3f bounds;  // world space
 
   // Light sampling, built by finalize().

@@ -651,6 +651,7 @@ void CudaBackend::prepare(const FrameSetup& frame) {
   cancel_ = false;
   stack_warned_ = false;
   if (!scene_ready_) throw BackendError("CUDA: prepare() before upload()");
+  if (!scene_->medium.empty()) throw BackendError("the atmosphere renders on the CPU only until its GPU port (M14 step 4); use --backend cpu");  // M14, until the port
   const gpu::Frame f = makeGpuFrame(frame, *scene_);
   CtxScope scope(cu_, ctx_);
   check(cu_.cuMemcpyHtoD(frame_buffer_.ptr, &f, sizeof(f)), "cuMemcpyHtoD (frame)");

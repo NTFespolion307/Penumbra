@@ -3,6 +3,8 @@
 //   cornell.gltf          classic Cornell box (Lambert walls, area light)            -> cornell.pen.json
 //   furnace_diffuse.gltf  white Lambert sphere in a uniform white environment         -> furnace_diffuse.pen.json
 //   furnace_glass.gltf    smooth glass sphere in a uniform white environment          -> furnace_glass.pen.json
+//   furnace_fog.gltf      white Lambert ground under non-absorbing height fog, white environment (M14)
+//                         -> furnace_fog.pen.json
 //   spheres.gltf + sky.hdr glass, gold, clear-coated and sheen spheres on a procedural HDRI -> spheres.pen.json
 //   bigtex.gltf + bigtex.bin + textures/noise.png   a quad with a 12 MB noise texture, external buffer and a
 //                         texture in a subfolder: scene package transfer tests -> bigtex.pen.json
@@ -256,6 +258,28 @@ void sphereScene(const fs::path& dir, const std::string& name, const json& mat, 
             {{"scene", name + ".gltf"}, {"environment", {{"color", {1.0, 1.0, 1.0}}}}, {"render", render}});
 }
 
+// The atmosphere's furnace (M14): a white Lambert ground 20 km wide under height fog that scatters without
+// absorbing, in a uniform white environment. Everything conserves energy, so every pixel is 1. The ground stops
+// rays going down, where the fog keeps getting denser (as real terrain would).
+void furnaceFog(const fs::path& dir) {
+  GltfWriter w;
+  w.useExtension("KHR_materials_specular");
+  const int white = w.material(lambert("white", {1, 1, 1}));
+  MeshData ground;
+  addQuad(ground, {-1e4f, 0, -1e4f}, {1e4f, 0, -1e4f}, {1e4f, 0, 1e4f}, {-1e4f, 0, 1e4f}, {0, 10, 0}, 1);
+  w.node({{"name", "ground"}, {"mesh", w.mesh("ground", ground, white)}});
+  const int cam = w.camera({{"type", "perspective"}, {"perspective", {{"yfov", 0.9}, {"znear", 0.01}}}});
+  // 3 units up, looking 10 degrees down, so the image holds ground, fog and the horizon.
+  w.node({{"name", "Camera"}, {"camera", cam}, {"translation", {0, 3.0, 10.0}}, {"rotation", {-0.0871557, 0, 0, 0.9961947}}});
+  w.write(dir / "furnace_fog.gltf");
+  writeJson(dir / "furnace_fog.pen.json",
+            {{"scene", "furnace_fog.gltf"},
+             {"environment", {{"color", {1.0, 1.0, 1.0}}}},
+             {"atmosphere", {{"air", 0.0}, {"haze", 0.0}, {"fog_density", 0.05}, {"fog_height", 20.0}, {"fog_base", 0.0},
+                             {"fog_anisotropy", 0.3}, {"fog_color", {1.0, 1.0, 1.0}}}},
+             {"render", {{"res", "64x64"}, {"max_bounces", 512}}}});
+}
+
 void skyHdr(const fs::path& path) {
   constexpr int W = 512, H = 256;
   std::vector<float> px(W * H * 3);
@@ -424,6 +448,7 @@ int main(int argc, char** argv) {
                {"pbrMetallicRoughness", {{"baseColorFactor", {1, 1, 1, 1}}, {"metallicFactor", 0.0}, {"roughnessFactor", 0.0}}},
                {"extensions", {{"KHR_materials_transmission", {{"transmissionFactor", 1.0}}}, {"KHR_materials_ior", {{"ior", 1.5}}}}}},
               {{"res", "64x64"}, {"max_bounces", 128}, {"no_rr", true}});
+  furnaceFog(dir);
   spheres(dir);
   bigtex(dir);
   cutout(dir);

@@ -9,6 +9,7 @@ add_executable(penumbra_unit_tests
   unit/test_cli.cpp
   unit/test_config.cpp
   unit/test_film.cpp
+  unit/test_medium.cpp
   unit/test_memory.cpp
   unit/test_net.cpp
   unit/test_package.cpp
@@ -96,6 +97,8 @@ endfunction()
 # has no variance beyond reflect/refract choices, which all return 1.
 pen_render_test(furnace_diffuse uniform furnace_diffuse.pen.json "--res|32x32|--spp|16384" -DTOLERANCE=0.005)
 pen_render_test(furnace_glass uniform furnace_glass.pen.json "--spp|256" -DTOLERANCE=0.005)
+# M14: non-absorbing height fog over a white ground in a white environment stays white (every pixel within 1%).
+pen_render_test(furnace_fog uniform furnace_fog.pen.json "--res|16x16|--spp|65536" -DTOLERANCE=0.01)
 # The same image for any thread count, bit for bit.
 pen_render_test(threads_cornell threads cornell.pen.json "--res|64x64|--spp|16" "-DTHREADS=1|2|0")
 pen_render_test(threads_spheres threads spheres.pen.json "--res|96x54|--spp|8" "-DTHREADS=1|3|0")

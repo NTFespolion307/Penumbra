@@ -1037,3 +1037,31 @@ photos for the wide area, sharper tiles only near the camera to keep the downloa
 converter is a **C++ tool in `tools/`** (libtiff, libjpeg, libpng are already dependencies; swisstopo tiles are named
 by their LV95 coordinates, so no GeoTIFF library); the physical sky is compared with **Blender's Nishita sky**,
 rendered headless from a portable Blender on D: (not a system install, not a dependency of Penumbra).
+
+**D-119 The atmosphere's design (M14 steps 1-2, CPU).** `.pen.json` `"atmosphere"` and `"sky"` are scene
+description objects like `"environment"` and `"camera"` (no CLI flags); serialized for sessions and workers, and
+part of the pixel hash only when enabled, so renders without them keep their hash (and resume).
+- **Medium:** up to three exponential height layers, density exp(-(y - base) / height): Earth's air (Rayleigh
+  phase, 5.8/13.6/33.1e-6 per m, 8 km) and haze (Mie as in Blender's Nishita: 2e-5 per m scattering, 11%
+  absorption, 1.2 km, Henyey-Greenstein g 0.76), plus a user ground fog (density per m, scale height, base, albedo,
+  g). `altitude` puts y = 0 above sea level; `meters_per_unit` converts. Air and haze follow the sky's `air` and
+  `dust` when a sky is set, so haze and sky match. Ozone only in the sky (negligible across a scene).
+- **Sampling:** optical depth along a ray has a closed form (expm1/log1p for accuracy), so transmittance is exact
+  and free-flight distances invert it; no ray marching, no majorant. RGB coefficients: one colour channel is
+  picked per segment, each layer's collision distance sampled for it, the earliest wins (independent layers);
+  weights divide by the average over the channels (spectral MIS). At a collision: next-event estimation to every
+  light (area, punctual, environment) through the medium's transmittance, MIS with the phase function, then the
+  phase function picks the direction (Rayleigh by Cardano, HG by inversion). Surface NEE multiplies by the same
+  transmittance. A scattering counts as a bounce (max_bounces, Russian roulette).
+- **Determinism:** the medium draws from its own sampler dimensions (65536 + 8 per bounce), so renders without an
+  atmosphere keep their exact numbers; the surface code multiplies by the transmittance only when there is a
+  medium. Golden images unchanged (full suite).
+- **Unbounded fog:** below its base a layer keeps getting denser (capped at e^80); without ground, a ray going
+  down does thousands of scatterings (an empty-scene furnace lost 12% to the bounce cap and fireflied). Real
+  scenes have terrain; the furnace test has a white ground 20 km wide.
+- **Tests:** depth vs numeric integration and its inverse; uniform-medium transmittance equals exp(-sigma t)
+  (gate); free-flight sampling unbiased per channel (pass branch = T, scatter branch = 1 - T); phase sampling
+  matches the value, mean cosine g (HG) and E[cos^2] = 2/5 (Rayleigh); layers from the settings; render furnace
+  (non-absorbing fog over a white Lambert ground, white environment): 16x16 at 65,536 spp, every pixel within
+  0.78% of 1, mean 1.00006.
+- **Until the GPU port (step 4)** Vulkan and CUDA refuse a scene with an atmosphere (no silent fallback).

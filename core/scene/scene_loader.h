@@ -17,6 +17,9 @@ struct SceneError : std::runtime_error {
 
 // Loads the scene file named in the settings (.glb, .gltf or .obj), the environment from the .pen.json, and
 // finalizes light sampling. Non-fatal problems (unsupported extensions, skipped primitives) go to `warnings`.
+// The atmosphere's layers in scene units (empty without "atmosphere").
+Medium buildMedium(const RenderSettings& settings);
+
 Scene loadScene(const RenderSettings& settings, std::vector<std::string>& warnings);
 
 Scene loadGltf(const std::filesystem::path& path, std::vector<std::string>& warnings);
