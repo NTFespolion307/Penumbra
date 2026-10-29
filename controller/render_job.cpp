@@ -344,6 +344,19 @@ int finishRender(RenderJob& job, const RenderOutcome& outcomeIn) {
     spdlog::info("  {}: {} items, {:.2f} M samples, {:.2f}s{}", d.name, d.items, d.samples / 1e6, d.seconds,
                  d.failed ? " (failed)" : "");
   if (outcome.reissued) spdlog::info("{} lease(s) were handed out again (late or from a failed device)", outcome.reissued);
+  if (outcome.results && outcome.seconds > 0)
+    spdlog::info("controller: {} results ({:.0f}/s); unpacking {:.1f}s ({:.0f}% of one core), merging {:.1f}s "
+                 "({:.0f}% of one core)",
+                 outcome.results, outcome.results / outcome.seconds, outcome.decode_seconds,
+                 100 * outcome.decode_seconds / outcome.seconds, outcome.merge_seconds,
+                 100 * outcome.merge_seconds / outcome.seconds);
+  if (outcome.seconds > 0)
+    spdlog::info("controller: handing out work {:.1f}s ({:.0f}%; tail duplicates {:.1f}s), late check {:.1f}s "
+                 "({:.0f}%), network thread busy {:.1f}s ({:.0f}%; decrypting {:.1f}s)",
+                 outcome.serve_seconds, 100 * outcome.serve_seconds / outcome.seconds, outcome.tail_seconds,
+                 outcome.late_seconds,
+                 100 * outcome.late_seconds / outcome.seconds, outcome.network_seconds,
+                 100 * outcome.network_seconds / outcome.seconds, outcome.tls_seconds);
   if (outcome.duplicated)
     spdlog::info("tail duplication: {} item(s) copied to idle devices, {} copy(ies) finished first", outcome.duplicated,
                  outcome.duplicate_wins);

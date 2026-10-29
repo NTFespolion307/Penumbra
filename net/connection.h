@@ -1,5 +1,7 @@
 #pragma once
 
+#include <chrono>
+
 // One TLS-encrypted TCP connection carrying framed messages (docs/GUIDE.md "Wire protocol", "Security"). The
 // TLS 1.3 handshake uses the key derived from the join code; a peer with another code cannot connect. All
 // socket and TLS work runs on an IoThread; send() and close() may be called from any thread. Two send queues:
@@ -17,16 +19,19 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "net/frame.h"
 #include "net/tls.h"
 
 namespace pen::net {
 
-// An io_context running on its own thread until stop() or destruction.
+// An io_context running on `threads` threads until stop() or destruction. Each connection gets its own strand, so
+// one connection's work stays in order while different connections are handled in parallel: a controller with many
+// workers decrypts and unpacks their tiles on several cores (M9, D-112).
 class IoThread {
  public:
-  IoThread();
+  explicit IoThread(unsigned threads = 1);
   ~IoThread();
   IoThread(const IoThread&) = delete;
   IoThread& operator=(const IoThread&) = delete;
@@ -36,7 +41,7 @@ class IoThread {
  private:
   asio::io_context io_;
   asio::executor_work_guard<asio::io_context::executor_type> guard_;
-  std::thread thread_;
+  std::vector<std::thread> threads_;
 };
 
 enum class Priority { Control, Bulk };
@@ -58,6 +63,12 @@ class Connection : public std::enable_shared_from_this<Connection> {
   template <class NativeT>
   void send(const NativeT& msg, Priority priority = Priority::Control) {
     send(MsgTypeOf<typename NativeT::TableType>::value, encode(msg), priority);
+  }
+
+  // Runs `fn` on this connection's strand, in order with its message handlers.
+  template <class F>
+  void post(F&& fn) {
+    asio::post(socket_.get_executor(), std::forward<F>(fn));
   }
 
   // Closes at once; queued frames are dropped. The closed handler runs with `reason`.
@@ -122,7 +133,10 @@ struct ConnectError : std::runtime_error {
   bool refused;
 };
 
-// Resolves `host` and connects (blocking); the TLS handshake starts with Connection::start. Throws ConnectError.
+inline constexpr std::chrono::seconds kConnectTimeout{10};
+
+// Resolves `host` and connects (blocking, at most kConnectTimeout); the TLS handshake starts with
+// Connection::start. Throws ConnectError.
 std::shared_ptr<Connection> connectTo(IoThread& io, const std::string& host, uint16_t port, const JoinKey& key);
 
 // Accepts connections on bind:port (all interfaces when bind is empty, IPv6 and IPv4 where possible).
@@ -137,6 +151,7 @@ class Listener {
 
  private:
   void acceptNext();
+  asio::io_context& io_;
   asio::ip::tcp::acceptor acceptor_;
   JoinKey key_;
   AcceptFn on_accept_;

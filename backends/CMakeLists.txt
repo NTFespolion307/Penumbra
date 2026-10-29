@@ -114,8 +114,9 @@ if(PEN_ENABLE_CUDA)
       VERBATIM)
     add_custom_command(
       OUTPUT "${_gen}/${_shader}.fatbin"
+      # -Xptxas -v prints registers, spills and stack per architecture into the build log (M9 kernel tuning).
       COMMAND "${CUDAToolkit_NVCC_EXECUTABLE}" -fatbin -O3 -std=c++17 ${_pen_nvcc_host} -gencode ${_pen_gencode}
-              -o "${_gen}/${_shader}.fatbin" "${_gen}/${_shader}.cu"
+              -Xptxas -v ${PEN_CUDA_NVCC_FLAGS} -o "${_gen}/${_shader}.fatbin" "${_gen}/${_shader}.cu"
       DEPENDS "${_gen}/${_shader}.cu"
       COMMENT "Compiling ${_shader} for sm_${_pen_sass} (nvcc)"
       VERBATIM)

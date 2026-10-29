@@ -55,6 +55,8 @@ if(NOT DEFINED PEN_ENABLE_CUDA)
 endif()
 set(PEN_CUDA_ARCHS "75;80;86;89;90;120" CACHE STRING
     "CUDA architectures to compile for (machine code for each; the oldest also as PTX for newer GPUs)")
+set(PEN_CUDA_NVCC_FLAGS "" CACHE STRING
+    "Extra nvcc flags for the CUDA kernels, semicolon-separated, e.g. -maxrregcount=96 (tuning experiments, M9)")
 
 # ---- Compiler settings ----
 if(MSVC)

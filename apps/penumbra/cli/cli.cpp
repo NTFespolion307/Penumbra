@@ -67,7 +67,10 @@ const std::vector<OptionRow> kInfoRows = {
     {"--version", "Info", kFlag, "", "", "--version", "Print version and git hash, then exit"},
     {"--list-devices", "Info", kFlag, "", "", "--list-devices", "List this machine's render devices, then exit"},
     {"--diagnose", "Info", kFlag, "", "", "--diagnose", "Print OS, devices, paths and free disk for bug reports"},
-    {"--benchmark", "Info", kFlag, "", "", "--benchmark", "Run the benchmark suite (from M9)"},
+    {"--benchmark", "Info", kFlag, "", "", "--benchmark --devices 0:vulkan,0:cuda",
+     "Render each scene on each selected device alone (the scene given, else ./scenes; 1080p, 30 s each unless "
+     "--res, --time-limit or --spp is given), then print samples/s and busy % and write -o (default "
+     "penumbra-benchmark.json) plus a .md table"},
 };
 constexpr std::array<std::string_view, 7> kGroups = {"General", "Render", "Devices", "Output",
                                                      "Film", "Controller", "Worker"};
@@ -228,11 +231,23 @@ ParseResult parse(std::span<const std::string> args, const ParseOptions& options
       return fail("--host is for headless controllers: add --terminal (in the UI, hosting is on the Settings page)");
     if (!inv.resume.empty() && sceneGiven)
       return fail("--resume continues the scene stored in the session file; remove the scene argument");
-    if (inv.terminal && inv.resume.empty() && !sceneGiven)
+    if (given("--benchmark")) {
+      if (!inv.resume.empty() || inv.host) return fail("--benchmark cannot be combined with --resume or --host");
+      inv.mode = Mode::Benchmark;
+      // -o names the JSON report, not an image: kept out of the settings.
+      inv.benchmark_output = "penumbra-benchmark.json";
+      if (sources.cli.contains("output")) {
+        inv.benchmark_output = pathFromUtf8(sources.cli["output"].get<std::string>());
+        sources.cli.erase("output");
+        if (inv.benchmark_output.extension() != ".json") return fail("--benchmark writes JSON: give -o name.json");
+      }
+    } else if (inv.terminal && inv.resume.empty() && !sceneGiven) {
       return fail("--terminal needs a scene, for example: penumbra --terminal scene.glb -o out.png");
-    if (!inv.resume.empty()) inv.mode = Mode::Resume;
-    else if (given("--benchmark")) inv.mode = Mode::Benchmark;
-    else if (inv.terminal) inv.mode = Mode::Terminal;
+    } else if (!inv.resume.empty()) {
+      inv.mode = Mode::Resume;
+    } else if (inv.terminal) {
+      inv.mode = Mode::Terminal;
+    }
   }
 
   const char* noLocalAlone = "--no-local renders nothing on this machine, so it needs --host to let workers join";

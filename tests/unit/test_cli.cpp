@@ -98,6 +98,19 @@ TEST_CASE("resume and merge", "[cli]") {
   CHECK(errorCode(run({"merge", "a.penfilm"})) == 1);  // -o required
 }
 
+TEST_CASE("benchmark", "[cli]") {
+  const Invocation suite = ok(run({"--benchmark", "--terminal", "--devices", "cpu"}));
+  CHECK(suite.mode == Mode::Benchmark);
+  CHECK(suite.benchmark_output == "penumbra-benchmark.json");
+  CHECK_FALSE(suite.cli_settings.contains("scene"));
+  const Invocation one = ok(run({"--benchmark", kScene, "-o", "bench/out.json"}));
+  CHECK(one.benchmark_output == "bench/out.json");
+  CHECK_FALSE(one.cli_settings.contains("output"));  // the report, not an image
+  CHECK(one.cli_settings.contains("scene"));
+  CHECK(errorCode(run({"--benchmark", "-o", "out.png"})) == 1);
+  CHECK(errorCode(run({"--benchmark", "--resume", "render.session.json"})) == 1);
+}
+
 TEST_CASE("info modes skip settings resolution", "[cli]") {
   CHECK(ok(run({"--version"})).mode == Mode::Version);
   CHECK(ok(run({"--list-devices"})).mode == Mode::ListDevices);

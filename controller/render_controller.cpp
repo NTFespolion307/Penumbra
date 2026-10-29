@@ -12,6 +12,7 @@
 #include "core/system/file.h"
 #include "core/system/paths.h"
 #include "core/system/test_hooks.h"
+#include "net/stats.h"
 
 namespace pen {
 
@@ -110,7 +111,11 @@ void RenderController::onReady(WorkerId worker, const std::vector<DeviceReady>& 
     }
     spdlog::info("{} device {} ({}, {}): ready in {:.2f}s, {}", info.name, d.device, name, toString(d.backend),
                  d.build_seconds, d.summary);
-    tallies_[{worker, d.device}].name = fmt::format("{}/{} {}", info.name, d.device, name);
+    DeviceTally& t = tallies_[{worker, d.device}];
+    t.name = fmt::format("{}/{} {}", info.name, d.device, name);
+    t.backend = d.backend;
+    t.ready_seconds = d.build_seconds;
+    t.placement = d.summary;
     ++live_devices_;
   }
 }
@@ -125,12 +130,18 @@ void RenderController::onRequestWork(WorkerId worker, DeviceId device, int count
 
 void RenderController::serveLocked() {
   if (paused_) return;  // devices keep their requests and get work on Resume
+  TailScan scan;
+  struct Timed {
+    double& total;
+    Clock::time_point start = Clock::now();
+    ~Timed() { total += std::chrono::duration<double>(Clock::now() - start).count(); }
+  } timed{serve_seconds_};
   for (auto it = wanted_.begin(); it != wanted_.end();) {
     auto& [key, want] = *it;
     while (want > 0) {
-      std::optional<WorkItem> item = scheduler_.next();
+      std::optional<WorkItem> item = scheduler_.next(workers_[key.first]->itemSpan());
       const bool duplicate = !item;
-      if (!item) item = tailDuplicateLocked(key);
+      if (!item) item = tailDuplicateLocked(key, scan);
       if (!item) break;  // nothing for this device now; it keeps waiting
       item->lease = next_lease_++;
       leases_[item->lease] = {*item, key.first, key.second, Clock::now(), false, duplicate};
@@ -143,16 +154,28 @@ void RenderController::serveLocked() {
 
 // docs/GUIDE.md "End of render": the queue is empty, so an idle device takes a copy of the oldest outstanding item
 // of another device, if by the devices' mean item times it should finish first. Each item gets one copy at most.
-std::optional<WorkItem> RenderController::tailDuplicateLocked(const DeviceKey& device) {
+std::optional<WorkItem> RenderController::tailDuplicateLocked(const DeviceKey& device, TailScan& scan) {
   if (!tailDuplicationEnabled() || finished_) return std::nullopt;
-  for (const auto& [id, l] : leases_)
-    if (l.worker == device.first && l.device == device.second) return std::nullopt;  // not idle
+  struct Timed {
+    double& total;
+    Clock::time_point start = Clock::now();
+    ~Timed() { total += std::chrono::duration<double>(Clock::now() - start).count(); }
+  } timed{tail_seconds_};
+  if (scan.nothing) return std::nullopt;
+  if (!scan.built) {
+    for (const auto& [id, l] : leases_) scan.busy.insert({l.worker, l.device});
+    scan.built = true;
+  }
+  if (scan.busy.count(device)) return std::nullopt;  // not idle
   const auto meanSeconds = [&](const DeviceKey& k) {
     auto t = tallies_.find(k);
     return t != tallies_.end() && t->second.items > 0 ? t->second.seconds / t->second.items : -1.0;
   };
   const double mine = meanSeconds(device);
+  // A device at least as slow as one that found nothing finds nothing either (the skip below only grows with `mine`).
+  if (mine >= 0 && mine >= scan.failed_mine) return std::nullopt;
   const auto now = Clock::now();
+  // Lease ids grow with time, so the first copyable lease in id order is the oldest.
   LeaseId best = 0;
   for (const auto& [id, l] : leases_) {
     if (l.duplicate || l.duplicated || l.reissued) continue;
@@ -160,9 +183,15 @@ std::optional<WorkItem> RenderController::tailDuplicateLocked(const DeviceKey& d
     const double age = std::chrono::duration<double>(now - l.issued).count();
     // The owner should finish first: it is not overdue yet and what it has left is less than a whole item here.
     if (mine >= 0 && theirs >= 0 && age < theirs && mine >= theirs - age) continue;
-    if (best == 0 || l.issued < leases_[best].issued) best = id;
+    best = id;
+    break;
   }
-  if (best == 0) return std::nullopt;
+  if (best == 0) {
+    if (mine < 0) scan.nothing = true;  // no device skips anything more than one without a mean
+    else scan.failed_mine = std::min(scan.failed_mine, mine);
+    return std::nullopt;
+  }
+  scan.busy.insert(device);  // it gets the copy
   LeaseInfo& orig = leases_[best];
   orig.duplicated = true;
   ++duplicated_;
@@ -204,7 +233,7 @@ bool RenderController::mergeLocked(const TileResult& r) {
     return false;
   }
   const uint32_t tile = static_cast<uint32_t>(r.item_id >> 32);
-  scheduler_.markMerged(tile);
+  scheduler_.markMergedUntil(tile, r.sample_end);
   ++merged_items_;
   if (scheduler_.tileComplete(tile)) {
     try {
@@ -234,13 +263,23 @@ void RenderController::mergeReadyLocked(uint32_t tile) {
 void RenderController::onTileResult(WorkerId worker, TileResult&& r) {
   std::lock_guard lock(mutex_);
   if (finished_) return;  // stopping: late results are not merged
+  // Time under the lock, for the throughput summary (D-112).
+  struct Timed {
+    double& total;
+    Clock::time_point start = Clock::now();
+    ~Timed() { total += std::chrono::duration<double>(Clock::now() - start).count(); }
+  } timed{merge_seconds_};
+  ++results_;
+  decode_seconds_ += r.decode_seconds;
   auto lease = leases_.find(r.lease);
   if (lease == leases_.end()) {
     workers_[worker]->ackTile(r.lease, AckStatus::Rejected);  // cancelled or unknown lease
     return;
   }
   const WorkItem item = lease->second.item;
-  const double seconds = std::chrono::duration<double>(Clock::now() - lease->second.issued).count();
+  // Per chunk, so items of several chunks (D-116) and single chunks share one scale for the late check.
+  const double seconds = std::chrono::duration<double>(Clock::now() - lease->second.issued).count() /
+                         scheduler_.chunksIn(lease->second.item);
   const LeaseInfo info = lease->second;
   leases_.erase(lease);
 
@@ -257,6 +296,7 @@ void RenderController::onTileResult(WorkerId worker, TileResult&& r) {
   }
   item_seconds_.push_back(seconds);
   if (item_seconds_.size() > kDurationWindow) item_seconds_.pop_front();
+  device_last_result_[{worker, r.device}] = Clock::now();  // it is alive (D-111)
   std::deque<double>& mine = device_seconds_[{worker, r.device}];  // also when the result turns out a duplicate
   mine.push_back(seconds);
   if (mine.size() > kDeviceDurationWindow) mine.pop_front();
@@ -281,6 +321,9 @@ void RenderController::onTileResult(WorkerId worker, TileResult&& r) {
   ++t.items;
   t.samples += r.rect.pixels() * (r.sample_end - r.sample_begin);
   t.seconds += r.render_seconds;
+  t.last_end = std::chrono::duration<double>(Clock::now() - start_).count();
+  const double begin = std::max(0.0, t.last_end - r.render_seconds);
+  if (t.first_begin < 0 || begin < t.first_begin) t.first_begin = begin;
 
   early_owner_[item.id] = worker;  // the live view colours each tile by the worker that merged it
   early_.emplace(item.id, std::move(r));
@@ -388,8 +431,16 @@ double RenderController::medianSeconds(const std::deque<double>& window) {
 // taken for a hung one; a device with fewer than 3 finished items is judged by the median of all devices (D-097).
 // A device that has finished nothing yet gets at least kFirstItemsGrace: next to a fast GPU, a CPU's first items
 // took longer than 10x the GPU's median and were all taken away (D-109).
+// A device that keeps delivering is alive: its old leases wait in its queue, they are not lost. A lease is late only
+// when its device has also delivered nothing for as long; reissuing a busy device's queue fed an overloaded
+// controller more work and made every item look later still (net.scale_64, D-111).
 void RenderController::reissueLateLocked() {
   if (paused_) return;  // nothing is late while nothing is handed out
+  struct Timed {
+    double& total;
+    Clock::time_point start = Clock::now();
+    ~Timed() { total += std::chrono::duration<double>(Clock::now() - start).count(); }
+  } timed{late_seconds_};
   const double overall = medianSeconds(item_seconds_);
   const auto now = Clock::now();
   bool any = false;
@@ -403,7 +454,10 @@ void RenderController::reissueLateLocked() {
     double limit = std::max(10 * median, kMinLateSeconds);
     if (fresh) limit = std::max(limit, std::chrono::duration<double>(scaledForTests(kFirstItemsGrace)).count());
     const double age = std::chrono::duration<double>(now - info.issued).count();
-    if (age <= limit) continue;
+    if (age / scheduler_.chunksIn(info.item) <= limit) continue;  // item times are kept per chunk
+    if (const auto last = device_last_result_.find({info.worker, info.device}); last != device_last_result_.end() &&
+        std::chrono::duration<double>(now - last->second).count() <= limit)
+      continue;
     spdlog::warn("lease {} (tile {} chunk {}) on device {} of worker {} is late ({:.1f}s, the limit is {:.1f}s{}); "
                  "handing it out again, the first valid result wins",
                  id, info.item.tile, info.item.chunk, info.device, info.worker, age, limit,
@@ -434,6 +488,8 @@ RenderProgress RenderController::progress() const {
 
 RenderOutcome RenderController::run(const RenderRunOptions& options) {
   start_ = Clock::now();
+  network_start_ = net::networkBusySeconds();
+  tls_start_ = net::networkTlsSeconds();
   RenderOutcome outcome;
   std::vector<WorkerLink*> initial;
   {
@@ -523,6 +579,14 @@ RenderOutcome RenderController::run(const RenderRunOptions& options) {
   outcome.reissued = reissued_;
   outcome.duplicated = duplicated_;
   outcome.duplicate_wins = duplicate_wins_;
+  outcome.results = results_;
+  outcome.decode_seconds = decode_seconds_;
+  outcome.merge_seconds = merge_seconds_;
+  outcome.serve_seconds = serve_seconds_;
+  outcome.late_seconds = late_seconds_;
+  outcome.tail_seconds = tail_seconds_;
+  outcome.network_seconds = net::networkBusySeconds() - network_start_;
+  outcome.tls_seconds = net::networkTlsSeconds() - tls_start_;
   outcome.progress = progressLocked();
   outcome.seconds = outcome.progress.elapsed_seconds;
   for (const auto& [key, tally] : tallies_) outcome.devices.push_back(tally);

@@ -8,7 +8,7 @@ the image. Any number of **workers**, each with one or more GPUs, join with the 
 code, render tiles and send them back. A render on one machine is the same thing with no workers, and every
 combination of machines, GPUs and backends converges to the same image.
 
-> **Status: milestone M8 (memory budget and fallback; M9 comes next).** Penumbra renders glTF and OBJ scenes on GPUs with hardware ray
+> **Status: milestone M9 (performance and benchmarks; M14 comes next).** Penumbra renders glTF and OBJ scenes on GPUs with hardware ray
 > tracing (Vulkan RT), on any NVIDIA GPU through CUDA, and on the CPU (Embree), with a path tracer (next-event
 > estimation, MIS), the glTF PBR material with its common extensions and HDRI lighting, at any size up to 160K,
 > with checkpoints, `--resume` and `merge`, writing EXR, PNG, JPEG, TIFF or WebP. Every machine uses all its GPUs
@@ -19,8 +19,9 @@ combination of machines, GPUs and backends converges to the same image.
 > crashes a render. Several machines render together: a controller hosts, workers on
 > the LAN or the internet join with a code (encrypted), download the scene once, and any failure of a worker, its
 > devices or the network is recovered without changing the image. The UI hosts, joins and runs renders with
-> clicks only: Dashboard, Hosts, Render, a live Viewport and Settings, on Windows and Linux. Measured performance
-> arrives in M9, an atmosphere and physical sky in M14. Features marked *(planned, Mx)* below are not built yet. The roadmap is in
+> clicks only: Dashboard, Hosts, Render, a live Viewport and Settings, on Windows and Linux. `penumbra --benchmark`
+> measures every device (measured numbers: [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)); workers with a slow uplink
+> get larger items. An atmosphere and physical sky arrive in M14. Features marked *(planned, Mx)* below are not built yet. The roadmap is in
 > [`docs/GUIDE.md`](docs/GUIDE.md).
 
 
@@ -255,6 +256,7 @@ The binary is `build/<preset>/bin/penumbra` (`penumbra.exe` on Windows).
 | `PEN_ENABLE_OPTIX` | `OFF` | OptiX backend and denoiser *(planned, M13, optional)* |
 | `PEN_ENABLE_UI` | `ON` | The user interface (M10); off for headless servers (`build.sh` turns it off when there is no display). `--terminal` and `--worker` never need display libraries either way |
 | `PEN_CUDA_ARCHS` | `75;80;86;89;90;120` | CUDA architectures to compile for. Newer GPUs run the embedded PTX. CUDA 13 cannot build for GTX 10-series (61) or V100 (70); for those, build with CUDA 12.x and add the architecture, e.g. `-DPEN_CUDA_ARCHS="61;75;86"` |
+| `PEN_CUDA_NVCC_FLAGS` | (empty) | Extra nvcc flags for the CUDA kernels, separated by semicolons, e.g. `-DPEN_CUDA_NVCC_FLAGS="-maxrregcount=96"`. For tuning experiments; the build log shows each kernel's registers and spills |
 | `PEN_BUILD_TESTS` | `ON` | Unit, smoke and lint tests |
 
 Pass options at configure time, for example a headless server build without CUDA or UI:
@@ -279,6 +281,25 @@ cmake --preset linux-gcc-release -DPEN_ENABLE_CUDA=OFF -DPEN_ENABLE_UI=OFF
 | `penumbra --list-devices` | Lists the devices this machine can render with |
 | `penumbra --diagnose` | Prints OS, CPU, RAM, devices, folders and free disk. **Paste this into bug reports.** |
 | `penumbra --version` | Prints version, git hash and protocol version |
+| `penumbra --benchmark` | Measures each device alone on the scenes in `./scenes` (see [Benchmark](#benchmark)) |
+
+### Benchmark
+
+Run `penumbra --benchmark` from the Penumbra folder. It renders each scene in `scenes/` on each selected device
+alone: `cornell` and `spheres`, plus `sponza` and `intel-sponza` once `scripts/get-scenes` has downloaded them.
+Each run is 30 s at 1080p, through the same path as a normal render. It prints a table and writes
+`penumbra-benchmark.json` and `penumbra-benchmark.md` (change the name with `-o name.json`).
+
+- `penumbra --benchmark --devices 0:vulkan,0:cuda` compares both backends on GPU 0.
+- `penumbra --benchmark scene.pen.json --res 4k --time-limit 2m` benchmarks your own scene.
+
+| Column | Meaning |
+| --- | --- |
+| M samples/s (rendering) | Samples per second while the device was rendering: the device's speed |
+| M samples/s (window) | Samples per second from its first chunk to its last, idle gaps included |
+| Busy % | Rendering time over that window. Below ~95% means the device waits between chunks |
+| Upload + build (s) | Scene upload and acceleration-structure build on the device; not in the two rates |
+| Placement | Memory tier and how much of the device memory the scene took |
 
 Settings come from four layers, highest priority first: command-line flags, the `render` section of a
 `.pen.json`, your user config file, then built-in defaults. The user config file holds personal defaults using
@@ -447,7 +468,8 @@ penumbra --worker --join 192.168.1.20 --code K7QD-M2XR-9FHT-4WNB
 
 Set the code in the `PENUMBRA_CODE` environment variable instead of `--code` to keep it out of shell history.
 Add `--stay` on always-on machines: the worker then waits for the next render and reconnects on its own whenever
-the controller goes away (it retries after 1, 2, 4... up to 30 seconds, forever; Ctrl+C stops it). In the UI, use
+the controller goes away (it retries after 1, 2, 4 and then every 5 seconds, forever; Ctrl+C stops it; an attempt
+gives up after 10 seconds without an answer). In the UI, use
 **Join a render**. Without `--stay`, a worker exits when the render ends (exit code 0) or the connection drops
 (exit code 7).
 
@@ -621,7 +643,7 @@ full text on your machine.
 | Info | `--version` |  |  | `penumbra --version` | CLI only | Print version and git hash, then exit |
 | Info | `--list-devices` |  |  | `penumbra --list-devices` | CLI only | List this machine's render devices, then exit |
 | Info | `--diagnose` |  |  | `penumbra --diagnose` | CLI only | Print OS, devices, paths and free disk for bug reports |
-| Info | `--benchmark` |  |  | `penumbra --benchmark` | CLI only | Run the benchmark suite (from M9) |
+| Info | `--benchmark` |  |  | `penumbra --benchmark --devices 0:vulkan,0:cuda` | CLI only | Render each scene on each selected device alone (the scene given, else ./scenes; 1080p, 30 s each unless --res, --time-limit or --spp is given), then print samples/s and busy % and write -o (default penumbra-benchmark.json) plus a .md table |
 | Subcommand | `merge <films...> -o <output>` |  |  | `penumbra merge a.penfilm b.penfilm -o out.exr` | CLI only | Combine partial films into one output image |
 <!-- END CLI REFERENCE -->
 
@@ -683,7 +705,7 @@ Before a render starts Penumbra checks there is room for the film and the output
 | `--backend` | Runs on | Role |
 | --- | --- | --- |
 | `vulkan` | NVIDIA RTX 20+, AMD RDNA2+, Intel Arc | Default on GPUs with ray tracing; uses the RT cores |
-| `cuda` | NVIDIA, compute capability 7.5+ (older with a CUDA 12 build) | Default on NVIDIA GPUs without Vulkan ray tracing (software BVH, tinybvh CWBVH); slower than Vulkan RT. Also on RTX GPUs with `--backend cuda`, and the only backend for `--integrator debug:bvh` |
+| `cuda` | NVIDIA, compute capability 7.5+ (older with a CUDA 12 build) | Default on NVIDIA GPUs without Vulkan ray tracing (software BVH, tinybvh CWBVH); 4-19x slower than Vulkan RT on RTX 50-series GPUs (measured, `docs/BENCHMARKS.md`). Also on RTX GPUs with `--backend cuda`, and the only backend for `--integrator debug:bvh` |
 | `cpu` | Any x86-64 or ARM64 CPU | Fallback and reference; joins GPUs in hybrid mode |
 | `optix` *(planned, M13)* | NVIDIA RTX | Optional, only if it beats Vulkan RT |
 
@@ -790,7 +812,7 @@ Start with `penumbra --diagnose` and include its output in any bug report.
 | Worker: "cannot connect to ...: connection refused" or timed out (exit code 7) | Check, in order: the controller is running with `--host` and printed "hosting on port 7420"; the address is one the controller listed; the firewall allows TCP 7420 on the controller (Windows: allow Penumbra when asked, or `New-NetFirewallRule -DisplayName Penumbra -Direction Inbound -Protocol TCP -LocalPort 7420 -Action Allow` in an admin PowerShell; Linux: `sudo ufw allow 7420/tcp`); for internet workers, the router forwards TCP 7420 (the controller logs whether UPnP did it) or both machines are on the same VPN. |
 | Controller log: "UPnP: the router's internet address ... is not public" | Carrier-grade NAT or a second router: port forwarding cannot work. Use a VPN such as Tailscale on both machines and join with the controller's VPN address. |
 | Controller log: "&lt;worker&gt; cannot take this scene: not enough disk / RAM" | That worker has no room for the scene; the render goes on without it. Free space or use `--cache-dir` on a bigger drive on the worker. |
-| Host shows "upload-bound" | The worker renders faster than its uplink can send tiles; it stops asking for work until they are sent. Nothing to fix unless it persists. |
+| Host shows "upload-bound" | The worker renders faster than its uplink can send tiles. Once its results wait more than 2 s, the controller gives it items of 2, 4, then up to 8 chunks, which need up to 8x less upload per sample (logged as "N chunks per item"); past 512 MB waiting it stops asking for work until they are sent. Nothing to fix unless it persists. |
 | Controller log: "&lt;worker&gt; sent nothing for 30 s (heartbeat lost)" | The connection to that worker died (network, sleep, crash). Its work goes to others; with `--stay` it reconnects on its own. |
 | Out of disk (exit code 4) | The film needs space on the controller (table above). Use `--film-dir` on a bigger drive or host from a machine with more disk. A render that runs out of space mid-way checkpoints first; free space, then continue with `--resume`. |
 | `--resume` refuses: "rendered by Penumbra ... (git ...)" | The film was started by another build. Check out that commit and rebuild to finish it, or start the render again. |

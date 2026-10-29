@@ -895,3 +895,132 @@ CUDA 13.0, Ubuntu 24.04, a 19-core container; the gaming PC is out, D-107):
   than they are, 18k leases are reissued and the reissues load it further (the loop noted in D-106). It is a
   scheduler problem, not memory; the user chose to merge M8 and fix it first thing in M9 (damp the workers' queue
   depth, keep queue time out of the late check).
+
+**D-111 M9 in progress (2026-10-27; handoff for the next session).** The user approved the M9 plan: (1) the
+controller overload loop, (2) `--benchmark`, (3) keep GPUs > 90% busy, (4) CUDA speed (a wavefront kernel only if
+profiling shows the megakernel cannot get within ~2x), (5) network: larger sample ranges for upload-bound workers
+and a 10 s connect timeout, (6) the gate: measured numbers replace the guide's estimates; LAN workers keep GPUs
+> 90% busy. Hardware: the user rents several RTX 5090s and offers a wide range of GPUs for benchmarks; build on the
+first box only, then ship a portable bundle (binary + scenes + a run script) to the others; do all laptop work
+first and tell the user when a box is worth renting (cost matters).
+- **Done (this commit):** a device that keeps delivering results is alive, so its old leases are queued, not lost:
+  a lease is late only when its device has also delivered nothing for the late limit
+  (`device_last_result_` in `RenderController::reissueLateLocked`). Fault and hang tests pass (15/15).
+- **Found:** that rule does not fix `net.scale_64` under load (with `PENUMBRA_TEST_TIME_SCALE=0.2` on the laptop it
+  still reissued 15k leases). Root cause: the controller decompresses and merges every `TileResult` on one thread;
+  512 null devices send about 1,700 tiles/s, results queue up in the controller, devices look silent and their
+  leases are reissued. The same limit will hold back fast GPUs (5090s) on a LAN.
+- **Next, in order:** multi-threaded result decode and merge in the controller, backpressure so workers slow down
+  when it falls behind, and a measured controller tiles/s; then `--benchmark` (`controller/benchmark.{h,cpp}`:
+  each device of the host alone, repo scenes plus `scenes/sponza` / `scenes/intel-sponza` when downloaded,
+  time-limited 1080p, device samples/s, wall samples/s, busy %, Markdown for `docs/BENCHMARKS.md` plus JSON); then
+  the network items; then the GPU session (profiling, busy %, CUDA tuning) on a rented 5090 box.
+
+**D-112 Controller throughput (M9 step 1).** Measured, not guessed: every render now logs results/s and how long
+the controller spent unpacking tiles, merging them, handing out work (and of that the tail search), the late
+check, and how busy the network threads were (and of that TLS decryption). On `net.scale_64` (64 workers, 512 null
+devices) the first measurement disproved the overnight guess (D-111): unpacking and merging were 11% of a core, but
+the single network thread was 96-98% busy and the controller process sat at exactly one core.
+- **Tail search**: once the queue is empty, every waiting device scanned all outstanding leases twice (is it idle?
+  which lease to copy?) on every result: 512 devices x ~1,500 leases, 48.5 of 93 busy seconds. Now one scan per
+  hand-out call records the busy devices, the copy search stops at the first eligible lease (lease ids grow with
+  time, so it is the oldest), and a device at least as slow as one that found nothing skips the search. Same
+  choices as before. 95 s -> 48 s.
+- **Several network threads**: what remained was TLS decryption (21 of 47 s) and unpacking, all on one thread. The
+  controller's `IoThread` now runs 2-8 threads (one per 4 usable cores) and every connection has its own asio strand,
+  so a connection's steps stay in order while connections are handled in parallel. The worker pointer the watchdog
+  reads is atomic, and an approval answer runs on its connection's strand. Workers keep one network thread.
+  48 s -> 19.4 s; 104 -> 442 results/s; 300 -> 1,748 M samples/s.
+- **A device that keeps delivering keeps its leases** (D-111's rule) stays: a lease is late only when its device has
+  also been silent for the limit.
+
+**D-113 Worker heartbeats while preparing; a quicker first join (M9, the 3-machine datacenter test).** First run
+across three rented boxes in one datacenter (controller RTX 4060 Ti, workers RTX 5060 Ti and RTX 4060 Ti):
+Khronos Sponza at 4K 1,024 spp rendered on all three at 127 M samples/s, 90% of the three GPUs' solo speeds added,
+every GPU 94-100% busy while it had the scene. Intel's New Sponza showed two worker bugs:
+- **No heartbeats while preparing.** A worker loads a big scene (35 s from its cache) and builds it on its devices
+  (8 s) on the thread that sends heartbeats; after 30 s of silence the controller dropped it, it reconnected, loaded
+  again and never joined. A keepalive thread now sends heartbeats while the worker prepares.
+- **A `--stay` worker that has never joined** backed off 1, 2, 4, 8 s while the controller was not up yet and
+  joined 12 s late; until its first Welcome the wait is at most 2 s (30 s still after a lost controller).
+- The 2.2 GB scene package reached two workers at once at ~117 MB/s in total: the controller was on 1 Gbit/s
+  Ethernet (user), so the transfer ran at line rate. Not a Penumbra limit; recheck only on a 10 GbE controller.
+
+**D-114 `--benchmark`, and what the step-3 "GPU idle" really was (M9 steps 2-3).** Reading the Vulkan render
+loop: a dispatch is at most 4M paths, so on Intel Sponza (~12 M samples/s) each CPU round trip (~0.1-0.2 ms) sits
+between ~0.35 s of GPU work (<0.1% idle), and on Cornell (~15 ms dispatches) about 1%, which matches the measured
+97-99%. Between items a slot copies back one small tile and takes the next of its two queued leases. Neither
+explains 78%. What does: `RenderController::run` starts the render clock, and with it `--time-limit`, before the
+local worker uploads and builds the scene, and the solo script averaged every non-zero `nvidia-smi` sample,
+upload included. So no change to the dispatch loop without a measurement that shows a gap.
+- `--time-limit` keeps counting from the start (a user's time budget includes the upload).
+- Every `DeviceTally` now records its render window: from its first item's start (result time minus render time)
+  to its last result, plus backend, upload + build time and placement.
+- `penumbra --benchmark` renders each scene (the one given, else `cornell`, `spheres`, `sponza`, `intel-sponza`
+  from `./scenes` when present) on each selected device alone, through the normal controller -> scheduler -> local
+  worker -> film path. Defaults are 1080p and 30 s, unless `--res`, `--time-limit` or `--spp` is given. The scene is
+  loaded once per scene, with a new film per device. It reports M samples/s while rendering (device speed),
+  M samples/s over the window, busy % (rendering / window) and upload + build seconds. It writes JSON (`-o`, default
+  `penumbra-benchmark.json`) and a `.md` table. Comparing backends: `--devices 0:vulkan,0:cuda`.
+- Known, unchanged: a work item is 2^26 pixel-samples, so a CPU alone (~2 M samples/s on the laptop) needs ~33 s per
+  item, and `--time-limit` waits for the item in progress plus the queued one (a 10 s limit ended after 67 s).
+  On GPUs an item takes well under a second.
+
+**D-115 CUDA speed (M9 step 4): measured, one experiment withdrawn, the traversal is the bottleneck.** On three
+Blackwell boxes (RTX 5060 Ti, 5070 Ti, RTX PRO 6000; BENCHMARKS 2026-10-29) CUDA is 4-19x slower than Vulkan RT at
+100% busy. The containers refuse GPU performance counters (`ncu`: ERR_NVGPUCTRPERM), so the cause was narrowed down
+with experiments:
+- ptxas (`-Xptxas -v` is now in every CUDA build log; `PEN_CUDA_NVCC_FLAGS` passes extra nvcc flags): the `render`
+  kernel uses 168-169 registers and a 1576-byte stack frame on sm_120 (compute_75 PTX), no spills.
+- Each architecture from its own PTX (commit 413c890) cut the sm_120 frame to 848-936 bytes but was slower on Sponza
+  on all three boxes (5.5 vs 7.0, 12.6 vs 15.3, 19.0 vs 26.1 M samples/s). Reverted: one compute_75 PTX stays (D-087).
+- Register caps (`-maxrregcount` 128/96/64, 72-884 bytes of spills): -20% to +30% on `path`, no change on
+  `debug:normal` (186-197 M samples/s at 64, 96 and 168 registers). Occupancy is not what limits traversal. Not
+  adopted: no cap wins on every GPU.
+- Traversal alone (Sponza, RTX 5070 Ti): `debug:normal` 1,399 (Vulkan) vs 200 (CUDA) M samples/s, `ao` 748 vs 86.
+  A primary ray takes ~40 traversal steps (`debug:bvh`, after Sponza's +1.5 exposure), a normal CWBVH count, so the
+  tree is fine and each step is slow.
+- Next (not today: no counters, and every try costs box time): rework the CWBVH loop after tinybvh's CUDA
+  kernel (traversal stack in shared memory, node loads, a traversal-only kernel if needed). Until then the measured
+  numbers above replace the guide's 2-5x estimate in the README.
+- Open: in the first three-box run, one worker's 58 MB scene transfer made no progress for 69 s while the other
+  finished in 0.4 s; raw TCP on the same route ran at 62 MB/s, and two reruns transferred in 1.0 s. Not reproduced;
+  a transfer that makes no progress for a while should be logged (and maybe restarted).
+- Gate check (busy GPUs): every device 99-100% busy alone (`--benchmark`), and internet workers ~98% busy from
+  their first item to their last result in a three-datacenter render. `--stay` workers rejoined a new controller
+  16 s late (backoff up to 30 s after a lost controller, D-113); a shorter retry would help back-to-back renders.
+
+**D-116 Network work (M9 step 5): items of several chunks for upload-bound workers, 10 s connect timeout,
+quicker `--stay` rejoin, transfer-stall warning.** User decision (2026-10-29): bigger items only for workers that
+fall behind on upload.
+- **Why:** a result carries the whole tile whatever its sample count (~0.5-1 MB for 256 x 256), so one fast GPU at
+  ~300 M samples/s sends ~20-25 Mbit/s and a 4-GPU server over 100 Mbit/s: more than many home uplinks (D-103 saw
+  a Cornell box at 20K over a 240 ms link upload-bound by far).
+- **How:** `Stats` carries `upload_queued` (protocol 5). The controller divides it by the worker's upload rate;
+  when three reports in a row (6 s) show more than 2 s and 4 MB waiting, the worker's span doubles (2, 4, 8 chunks per item, at most every 4 s), and after 20 s
+  below 0.5 s it halves. A span item is consecutive chunks of one tile (`next(span)`): its id is the first
+  chunk's, its sample range covers all of them, so validation, requeue, tail copies and in-order merging work as
+  before, and `markMergedUntil` advances the tile by the whole span. The film still holds whole chunks, so
+  `--resume` is unchanged. Item times are kept per chunk, so the late check judges a span item by its age / span.
+  Breadth-first passes stay even: a tile given 2 chunks sits out the next pass. Every change is logged at info.
+- **Determinism:** renders where no worker falls behind keep one chunk per item and stay bit-identical for any
+  distribution (D-045). A merged span differs from chunk-by-chunk merging only in rounding (`net.item_span`:
+  relMSE 7.8e-16 against the solo render, max 3.8e-6 per value, with items of 3-4 chunks; test hook `PENUMBRA_TEST_ITEM_SPAN` forces a span, logged when active).
+- **Connect timeout:** `connectTo` connects asynchronously and gives up after 10 s (`kConnectTimeout`): behind a
+  firewall that drops instead of refusing (Hyper-V in front of WSL, D-103) the first attempt waited ~2 minutes.
+- **`--stay` rejoin:** after a lost controller a worker now retries at least every 5 s (was 30 s): in the
+  three-datacenter test, workers missed the first 16 s of a back-to-back render (D-115). The 30 s backoff stays for
+  a relay that answers while no controller is behind it.
+- **Transfer stall:** a scene transfer that hands no chunk to its connection for 15 s is logged with its chunk and
+  queued bytes, and again when it moves (D-115's unexplained 69 s stall).
+
+**D-117 M9 gate passed (2026-10-29, approved by the user).** Measured speeds replace the estimates: `penumbra
+--benchmark` on an RTX 5060 Ti, RTX 5070 Ti and RTX PRO 6000 (BENCHMARKS 2026-10-29); README and guide give CUDA as
+4-19x slower than Vulkan RT (was estimated 2-5x). Busy GPUs: every device 99-100% busy alone, and workers ~98% busy
+from their first item to their last result in a three-machine render. The workers were in three datacenters over
+the internet, not a LAN (the harder case; accepted). Controller: `scale_64` 95 s -> 19 s; in the cluster render
+under 1% of a core merging and 2% on the network. Windows: full suite 181/181 at cda991b. Linux: CI passed at
+2e8e165 and three Ubuntu 24.04 boxes built from scratch by the README steps; CI for cda991b (step 5) was still
+running at the merge (the user chose not to wait; a failure gets fixed on main). Not done in M9: the CUDA traversal
+rework (D-115), a separate job that needs a GPU box. Protocol version 5. Next: M14 (plan posted, answers: Swiss
+Alps, C++ converter, Blender headless).

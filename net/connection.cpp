@@ -1,4 +1,5 @@
 #include "net/connection.h"
+#include "net/stats.h"
 #include "core/system/test_hooks.h"
 
 #include <algorithm>
@@ -11,14 +12,17 @@ namespace pen::net {
 
 // ---------------------------------------------------------------- IoThread
 
-IoThread::IoThread() : guard_(asio::make_work_guard(io_)), thread_([this] { io_.run(); }) {}
+IoThread::IoThread(unsigned threads) : guard_(asio::make_work_guard(io_)) {
+  for (unsigned i = 0; i < std::max(1u, threads); ++i) threads_.emplace_back([this] { io_.run(); });
+}
 
 IoThread::~IoThread() { stop(); }
 
 void IoThread::stop() {
   guard_.reset();
   io_.stop();
-  if (thread_.joinable() && thread_.get_id() != std::this_thread::get_id()) thread_.join();
+  for (std::thread& t : threads_)
+    if (t.joinable() && t.get_id() != std::this_thread::get_id()) t.join();
 }
 
 // ---------------------------------------------------------------- Connection
@@ -100,7 +104,20 @@ void Connection::readSome() {
   });
 }
 
+namespace {
+std::atomic<int64_t> g_busy_ns{0}, g_tls_ns{0};
+}
+
+double networkBusySeconds() { return double(g_busy_ns.load()) * 1e-9; }
+double networkTlsSeconds() { return double(g_tls_ns.load()) * 1e-9; }
+
 void Connection::onCipher(size_t n) {
+  struct Timed {
+    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+    ~Timed() {
+      g_busy_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count();
+    }
+  } timed;
   last_rx_ = std::chrono::steady_clock::now().time_since_epoch().count();
   tls_.feed(std::span(cipher_in_.data(), n));
   bool more = true;
@@ -114,7 +131,9 @@ void Connection::onCipher(size_t n) {
         plain_.erase(plain_.begin(), plain_.begin() + static_cast<std::ptrdiff_t>(plain_pos_));
         plain_pos_ = 0;
       }
+      const auto t0 = std::chrono::steady_clock::now();
       more = tls_.read(plain_);
+      g_tls_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count();
     }
   } catch (const TlsError& e) {
     if (e.during_handshake) handshake_failed_ = true;
@@ -283,17 +302,33 @@ std::shared_ptr<Connection> connectTo(IoThread& io, const std::string& host, uin
   std::error_code ec;
   const auto endpoints = resolver.resolve(host, std::to_string(port), ec);
   if (ec) throw ConnectError(fmt::format("cannot resolve '{}': {}", host, ec.message()), false);
-  asio::ip::tcp::socket socket(io.context());
-  asio::connect(socket, endpoints, ec);
+  // Its own strand (see IoThread). Asynchronous, so a host that drops the SYN instead of refusing it (a firewall,
+  // Hyper-V in front of WSL) fails after kConnectTimeout, not the OS's ~2 minutes (D-116).
+  auto socket = std::make_shared<asio::ip::tcp::socket>(asio::make_strand(io.context()));
+  std::promise<std::error_code> done;
+  auto result = done.get_future();
+  asio::async_connect(*socket, endpoints,
+                      [&done](std::error_code e, const asio::ip::tcp::endpoint&) { done.set_value(e); });
+  if (result.wait_for(kConnectTimeout) != std::future_status::ready) {
+    asio::post(socket->get_executor(), [socket] {
+      std::error_code ignored;
+      socket->close(ignored);  // the pending connect completes with operation_aborted
+    });
+    result.wait();
+    throw ConnectError(fmt::format("cannot connect to {}:{}: no answer within {} s", host, port,
+                                   std::chrono::duration_cast<std::chrono::seconds>(kConnectTimeout).count()),
+                       false);
+  }
+  ec = result.get();
   if (ec) {
     const bool refused = ec == asio::error::connection_refused;
     throw ConnectError(fmt::format("cannot connect to {}:{}: {}", host, port, ec.message()), refused);
   }
-  return std::make_shared<Connection>(std::move(socket), TlsSession::Role::Client, key);
+  return std::make_shared<Connection>(std::move(*socket), TlsSession::Role::Client, key);
 }
 
 Listener::Listener(IoThread& io, const std::string& bind, uint16_t port, const JoinKey& key, AcceptFn onAccept)
-    : acceptor_(io.context()), key_(key), on_accept_(std::move(onAccept)) {
+    : io_(io.context()), acceptor_(io.context()), key_(key), on_accept_(std::move(onAccept)) {
   std::error_code ec;
   asio::ip::tcp::endpoint ep;
   if (bind.empty()) {
@@ -341,7 +376,8 @@ void Listener::stop() {
 }
 
 void Listener::acceptNext() {
-  acceptor_.async_accept([this](std::error_code ec, asio::ip::tcp::socket socket) {
+  // Every accepted connection on its own strand (see IoThread).
+  acceptor_.async_accept(asio::make_strand(io_), [this](std::error_code ec, asio::ip::tcp::socket socket) {
     if (stopped_ || !acceptor_.is_open()) return;
     if (!ec) {
       try {

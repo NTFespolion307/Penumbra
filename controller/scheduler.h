@@ -39,7 +39,9 @@ class Scheduler {
   // Resume: `samplesInFilm(tile)` samples (whole chunks) of each tile are already in the film.
   void restore(const std::function<uint32_t(uint32_t tile)>& samplesInFilm);
 
-  std::optional<WorkItem> next();
+  // The next item: `span` consecutive chunks of one tile when that many are left (an upload-bound worker sends
+  // one result for them, D-116), else one chunk. Requeued items keep the span they were issued with.
+  std::optional<WorkItem> next(uint32_t span = 1);
   void requeue(const WorkItem& item);
   void stopNew() { stopped_ = true; }
   bool stopped() const { return stopped_; }
@@ -47,6 +49,10 @@ class Scheduler {
   // Merge bookkeeping, in chunk order per tile.
   uint32_t mergedChunks(uint32_t tile) const;
   void markMerged(uint32_t tile);
+  // Every chunk of `tile` that ends at or before `sampleEnd` (a merged item of one or more chunks).
+  void markMergedUntil(uint32_t tile, uint32_t sampleEnd);
+  // How many chunks an item covers (1, or its span).
+  uint32_t chunksIn(const WorkItem& item) const;
   bool tileComplete(uint32_t tile) const;
   bool knowsTile(uint32_t tile) const { return tile < lookup_.size() && lookup_[tile] >= 0; }
   // The item for chunk `chunk` of film tile `tile` (validation of results).
@@ -70,7 +76,7 @@ class Scheduler {
     uint32_t issued = 0;  // chunks handed out (requeues not counted)
     uint32_t merged = 0;
   };
-  WorkItem makeItem(const TileWork& t, uint32_t chunk) const;
+  WorkItem makeItem(const TileWork& t, uint32_t chunk, uint32_t span = 1) const;
 
   std::vector<TileWork> tiles_;  // spiral order
   std::vector<int32_t> lookup_;  // film tile -> index in tiles_, -1 if outside the region

@@ -56,6 +56,8 @@ pen_smoke(worker_nothing_listening 7 "${PEN_SMOKE_COMMON}|--worker|--join|127.0.
           "cannot connect")
 pen_smoke(empty_scene_renders 0 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/empty.gltf|--res|240p|--spp|1|-o|empty.png"
           "426x240.*no lights")
+pen_smoke(benchmark 0 "${PEN_SMOKE_COMMON}|--benchmark|${PROJECT_SOURCE_DIR}/scenes/cornell.pen.json|--devices|cpu|--threads|2|--res|120p|--spp|4|-o|bench.json"
+          "\\| cpu \\| cornell \\| [0-9.]+ \\| [0-9.]+ \\| [0-9]+ \\|")
 pen_smoke(pen_json 0 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/scene.pen.json|--scale|0.05|--spp|1|-o|pen.png"
           "128x72 \\(2k at scale 0.05\\).*camera 'Camera.001'")
 pen_smoke(exr_half 0 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/scene.pen.json|--res|64x36|--spp|1|-o|half.exr" "wrote")
@@ -235,6 +237,11 @@ pen_net_test(bad_network 7517 1 cornell.pen.json "--res|1080p|--scale|0.5|--spp|
              "-DNETEM_ARGS=--delay-ms|100|--loss|0.02|--up-kbps|10000"
              "-DEXPECT_WORKER_LOG=device 0: [0-9]+ items in flight .round trip [0-9]+ ms.")
 set_tests_properties(net.worker_silent PROPERTIES LABELS "net;gate;slow")
+# M9 (D-116): workers that get items of 4 chunks (as an upload-bound worker would) next to the controller's own
+# single-chunk items; tiles merge several chunks at once, so the image matches the solo render to the last bits.
+pen_net_test(item_span 7523 2 cornell.pen.json "${PEN_NET_12}" "-DREF_ARGS=--devices|cpu"
+             "-DCONTROLLER_ARGS=--threads|2" "-DWORKER_ARGS=--threads|2" -DITEM_SPAN=4 -DMAXRELMSE=1e-9
+             "-DEXPECT_LOG=TEST HOOK ACTIVE .PENUMBRA_TEST_ITEM_SPAN.")
 
 # M4 step 5: the controller is killed mid-render (power loss) and resumed from its session file; its --stay
 # workers reconnect on their own and finish the image. A --stay worker waits after a render and serves the next

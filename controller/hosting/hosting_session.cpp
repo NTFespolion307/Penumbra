@@ -36,6 +36,7 @@ class AttachedLink final : public WorkerLink {
   void pause(bool paused) override { w_.pause(paused); }
   void complete() override { w_.complete(); }
   void kick(const std::string& reason) override { w_.kick(reason); }
+  uint32_t itemSpan() const override { return w_.itemSpan(); }
 
  private:
   WorkerLink& w_;

@@ -42,6 +42,7 @@ struct TileResult {
   std::vector<Vec3f> mean;   // row-major over rect
   uint32_t nan_count = 0;    // non-finite samples replaced by 0
   double render_seconds = 0;
+  double decode_seconds = 0;  // controller side: unpacking it from the network (M9 throughput, D-112)
   bool cancelled = false;    // stopped early by IBackend::cancel(); the pixels are incomplete and never merged
 };
 

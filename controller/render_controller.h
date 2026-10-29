@@ -5,7 +5,9 @@
 #include <condition_variable>
 #include <deque>
 #include <functional>
+#include <limits>
 #include <map>
+#include <set>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -29,7 +31,13 @@ struct DeviceTally {
   std::string name;
   uint32_t items = 0;
   uint64_t samples = 0;
-  double seconds = 0;
+  double seconds = 0;  // inside the backend's render calls
+  // Its render window, in seconds since the render started: the first item's start (its result time minus its
+  // render time) to the last result. Busy % = seconds / window, without the scene upload (--benchmark, M9).
+  double first_begin = -1, last_end = 0;
+  BackendKind backend = BackendKind::Cpu;
+  double ready_seconds = 0;  // scene upload and build on the device
+  std::string placement;     // memory tier summary
   bool failed = false;
   bool left = false;  // its worker disconnected
 };
@@ -44,6 +52,14 @@ struct RenderOutcome {
   uint32_t reissued = 0;      // leases handed out again (late or lost)
   uint32_t duplicated = 0;    // tail duplicates handed out (DECISIONS D-091)
   uint32_t duplicate_wins = 0;  // ... whose result arrived first
+  // Controller throughput (M9, D-112): results received, time spent unpacking them (network thread) and merging them
+  // (under the controller lock).
+  uint64_t results = 0;
+  double decode_seconds = 0, merge_seconds = 0;
+  double serve_seconds = 0, late_seconds = 0;  // handing out work, the late-lease check (under the lock)
+  double tail_seconds = 0;                     // ... of which looking for tail duplicates
+  double network_seconds = 0;                  // the network threads busy with received data
+  double tls_seconds = 0;                      // ... of which decrypting it
   double seconds = 0;
   std::vector<DeviceTally> devices;
   RenderProgress progress;  // at the end, for the session file
@@ -133,7 +149,15 @@ class RenderController final : public WorkerEvents {
   bool mergeLocked(const TileResult& r);
   void checkFinishedLocked();
   void reissueLateLocked();
-  std::optional<WorkItem> tailDuplicateLocked(const std::pair<WorkerId, DeviceId>& device);
+  // What one serveLocked() call learns about the leases while looking for tail duplicates, so it scans them once,
+  // not once per waiting device (with 512 devices and 1,500 leases that saturated the network thread, D-112).
+  struct TailScan {
+    bool built = false;
+    std::set<std::pair<WorkerId, DeviceId>> busy;  // devices holding a lease
+    double failed_mine = std::numeric_limits<double>::infinity();  // a device this slow or slower found nothing
+    bool nothing = false;                          // no lease can be copied at all
+  };
+  std::optional<WorkItem> tailDuplicateLocked(const std::pair<WorkerId, DeviceId>& device, TailScan& scan);
   bool otherLeaseHoldsLocked(uint64_t item, LeaseId except) const;
   void requeueLostLocked(LeaseId id, const LeaseInfo& lease);
   void requeueWorkerLocked(WorkerId worker);
@@ -158,12 +182,16 @@ class RenderController final : public WorkerEvents {
   std::map<WorkerId, std::vector<DeviceReady>> ready_;  // each worker's devices: memory tier and placement
   std::deque<double> item_seconds_;                   // recent item durations, for hang detection
   std::map<DeviceKey, std::deque<double>> device_seconds_;  // the same per device (D-097)
+  std::map<DeviceKey, std::chrono::steady_clock::time_point> device_last_result_;  // when each last delivered (D-111)
   uint32_t live_devices_ = 0;
   bool hosting_ = false;
   bool running_ = false;  // run() has offered the scene; later workers get it from addWorker
   uint32_t reissued_ = 0;
   uint32_t duplicated_ = 0, duplicate_wins_ = 0;
   uint32_t merged_items_ = 0;
+  uint64_t results_ = 0;
+  double decode_seconds_ = 0, merge_seconds_ = 0, serve_seconds_ = 0, late_seconds_ = 0, tail_seconds_ = 0;
+  double network_start_ = 0, tls_start_ = 0;  // networkBusySeconds(), networkTlsSeconds() when run() started
   bool paused_ = false;
   // Live view (UI): per downsampled pixel, the sample-weighted sum and the samples.
   uint32_t live_w_ = 0, live_h_ = 0;
