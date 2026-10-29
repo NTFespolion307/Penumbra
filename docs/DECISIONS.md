@@ -1121,3 +1121,21 @@ slots give the same bits with sky, air, haze and fog); GPU (run on a box at the 
   The full scene: 4000 x 4000 vertices, 32 M triangles, 0.9 GB, an 8000 x 8000 texture; 30 s to build.
 - **libtiff with JPEG:** vcpkg's tiff was built with zip only; the photo tiles need its jpeg feature (libjpeg-turbo
   is already a dependency, so no new library; tiff is rebuilt once, about a minute).
+
+**D-123 M14 on the GPU and the 8K mountains (rented RTX 5090, 32 GB, driver 595.71, Ubuntu 24.04, CUDA 13).**
+- **GPU suite** (`ctest -L gpu`, m14 53bb80c): 45 of 46 passed at first, including `vulkan_atmosphere_vs_cpu` and
+  `cuda_atmosphere_vs_cpu` (sky, air, haze and fog against the CPU, relMSE < 1e-3 at 4,096 spp), `cuda_furnace_fog`,
+  and every earlier golden, furnace and cross-backend test on both backends (so images without an atmosphere are
+  unchanged). `vulkan_furnace_fog` gave mean 0.898. Not the fog: with the fog density at 1e-9 Vulkan still gave
+  0.937 against CUDA's 1.000. The furnace ground was two triangles 20 km across; with vertices 10 km out, the
+  hardware's hit points near the camera carried ~1 mm of float error and shadow rays caught their own triangle.
+  The ground is now 100 x 100 quads of 200 m (`tools/scenegen.cpp`): Vulkan, CUDA and CPU fog furnaces pass, so 46
+  of 46. Only giant triangles are affected (the terrain's are 4 m); not changed in the renderer.
+- **The Swiss Alps at 8K** (7680 x 4320, 1024 spp, Vulkan): `get-scenes.sh swiss-alps` from scratch on the box
+  (512 tiles checked, scene built) in 59 s; the render 78.4 s, 34.0 G samples, 433 M samples/s, 3.6 GB of VRAM
+  (tier 0), GPU ~86% busy by nvidia-smi over the whole run including the load. Eiger, Mönch and Jungfrau with their
+  glaciers, the evening sun on the north faces, the physical sky.
+- **Known limit of the data:** on near-vertical faces (the Eiger's north face) the orthophoto, taken from above, is
+  stretched into vertical streaks. Inherent to draping an aerial photo; fixing it (e.g. triplanar texturing of the
+  steep parts) would be a renderer feature, not part of M14.
+- The M9 CI run for cda991b finished later: Linux and Windows passed (D-117 had left Linux unconfirmed).
