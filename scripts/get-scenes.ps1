@@ -6,10 +6,11 @@
 .EXAMPLE
   .\scripts\get-scenes.ps1                       # Sponza (Khronos, ~58 MB) with an HDRI sky: scenes\sponza.pen.json
   .\scripts\get-scenes.ps1 -Scene intel-sponza   # Intel's New Sponza (4 GB download, 2.8 GB kept): scenes\intel-sponza.pen.json
+  .\scripts\get-scenes.ps1 -Scene swiss-alps     # Eiger, Moench, Jungfrau (swisstopo, 330 MB; needs Penumbra built)
 #>
 [CmdletBinding()]
 param(
-  [ValidateSet('sponza', 'intel-sponza')] [string] $Scene = 'sponza'
+  [ValidateSet('sponza', 'intel-sponza', 'swiss-alps')] [string] $Scene = 'sponza'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -110,6 +111,54 @@ function Get-IntelSponza {
   Write-Host 'Ready: scenes\intel-sponza.pen.json' -ForegroundColor Green
 }
 
+# The Swiss Alps (M14): Eiger, Moench and Jungfrau from swisstopo's open data (swissALTI3D 2 m elevation, SWISSIMAGE
+# 2 m photos), 16 x 16 km, the newest tile of each square kilometre. The STAC listing gives every tile's SHA-256;
+# penumbra-terrain (built with Penumbra) reads the listing and turns the tiles into a glTF. (c) swisstopo.
+function Get-SwissAlps {
+  $dir = Join-Path $root 'scenes\swiss-alps'
+  $bbox = '2632,1150,2648,1166'
+  $wgs = '7.84,46.49,8.09,46.655'
+  $tool = Get-ChildItem (Join-Path $root 'build\*\bin\penumbra-terrain.exe') -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $tool) { Fail 'penumbra-terrain.exe not found: build Penumbra first (.\scripts\build.ps1)' }
+  $tool = $tool.FullName
+  New-Item -ItemType Directory -Force (Join-Path $dir 'tiles'), (Join-Path $dir 'stac') | Out-Null
+  Step 'Listing the swisstopo tiles'
+  Remove-Item (Join-Path $dir 'stac\*.json') -ErrorAction SilentlyContinue
+  foreach ($c in 'ch.swisstopo.swissalti3d', 'ch.swisstopo.swissimage-dop10') {
+    $url = "https://data.geo.admin.ch/api/stac/v0.9/collections/$c/items?bbox=$wgs&limit=100"
+    $i = 0
+    while ($url) {
+      $page = Join-Path $dir "stac\$c-$i.json"
+      try { Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $page } catch { Fail "could not list ${url}: $_" }
+      $url = (& $tool --stac-next $page | Out-String).Trim()
+      $i++
+    }
+  }
+  $pages = Get-ChildItem (Join-Path $dir 'stac\*.json') | ForEach-Object { $_.FullName }
+  $list = & $tool --stac-list --bbox $bbox @pages
+  if ($LASTEXITCODE -ne 0) { Fail 'the swisstopo listing is incomplete' }
+  Step "Downloading $($list.Count) tiles (about 330 MB) into $dir\tiles"
+  $n = 0
+  foreach ($line in $list) {
+    $sha, $url = $line.Trim() -split ' ', 2
+    $file = Join-Path $dir ('tiles\' + ($url -split '/')[-1])
+    if ((Test-Path $file) -and (Sha $file) -eq $sha) { continue }
+    for ($try = 1; $try -le 3; $try++) {
+      try { Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $file } catch { continue }
+      if ((Sha $file) -eq $sha) { break }
+    }
+    if (-not (Test-Path $file) -or (Sha $file) -ne $sha) { Fail "$url could not be downloaded or does not match its SHA-256; run the script again" }
+    $n++
+  }
+  Write-Host "    $n tile(s) downloaded"
+  Step 'Building the terrain (4 m mesh, 2 m photo texture)'
+  & $tool --tiles (Join-Path $dir 'tiles') --out $dir --name alps --bbox $bbox --grid 4 --texture 2 `
+    --camera 2638300,1162250,2700 --target 2642835,1156511,3300 --yfov 40
+  if ($LASTEXITCODE -ne 0) { Fail 'penumbra-terrain failed' }
+  Write-Host 'Ready: scenes\swiss-alps.pen.json' -ForegroundColor Green
+}
+
 if ($Scene -eq 'intel-sponza') { Get-IntelSponza; $pen = 'scenes\intel-sponza.pen.json' }
+elseif ($Scene -eq 'swiss-alps') { Get-SwissAlps; $pen = 'scenes\swiss-alps.pen.json' }
 else { Get-Sponza; $pen = 'scenes\sponza.pen.json' }
 Write-Host "Render it with: build\windows-msvc-release\bin\penumbra.exe --terminal $pen --spp 1024 -o render.png"

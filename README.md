@@ -407,6 +407,29 @@ reference photos by Katica Putica and Princino.photo. The full credits and licen
 `scenes/intel-sponza/main_sponza/credits_license.txt` after the download. Downloaded from Intel, not
 redistributed here.
 
+**The Swiss Alps** *(M14)*: Eiger, Mönch and Jungfrau from real elevation data and aerial photos, under the
+physical sky with haze, seen from above the Männlichen ridge. 16 × 16 km: a mesh with a vertex every 4 m (32 million
+triangles, 0.9 GB) and a 2 m photo texture.
+
+1. Build Penumbra first: the script uses `penumbra-terrain`, which the build makes. Then, in the Penumbra folder:
+   ```
+   .\scripts\get-scenes.ps1 -Scene swiss-alps
+   ```
+   On Linux: `./scripts/get-scenes.sh swiss-alps`. It downloads 512 tiles (about 330 MB) from swisstopo, checks each
+   against the SHA-256 that swisstopo lists for it, and builds the scene. Success: the last lines say
+   `Ready: scenes/swiss-alps.pen.json`.
+2. Render it (8K on a GPU; about 6 GB of VRAM):
+   ```
+   build/windows-msvc-release/bin/penumbra.exe --terminal scenes/swiss-alps.pen.json --res 8k --spp 1024 -o alps.exr
+   ```
+   Change the time of day in `scenes/swiss-alps.pen.json` (`sky.sun_elevation_deg`, `sun_azimuth_deg`) or on the
+   Render page.
+
+Elevation (swissALTI3D) and photos (SWISSIMAGE) © swisstopo, open government data
+([terms of use](https://www.swisstopo.admin.ch/en/terms-of-use-free-geodata-and-geoservices)). Downloaded from
+swisstopo, not redistributed here. Any other area works the same way with `penumbra-terrain` (see the comment at the
+top of `tools/terrain.cpp`).
+
 **Test scenes and image comparison.** The build also makes two tools next to `penumbra`:
 
 1. Write all test scenes (the three above plus the furnace spheres and a big-texture scene) into a folder:

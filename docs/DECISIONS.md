@@ -1098,3 +1098,26 @@ FrameData 296 bytes, as gpu::Frame; slangc does not report the nested MediumLaye
 the FrameData size. Vulkan and CUDA no longer refuse an atmosphere. Tests: `slots_atmosphere` (CPU, 1, 2 and 3
 slots give the same bits with sky, air, haze and fog); GPU (run on a box at the gate): `atmosphere_vs_cpu` (relMSE
 < 1e-3 at 4,096 spp) and `furnace_fog` on Vulkan and CUDA.
+
+**D-122 The Swiss Alps scene and penumbra-terrain (M14 steps 5-6).**
+- **UI (step 5):** the Render page has a "Sky and atmosphere" section (open when the scene uses them): physical
+  sky (sun elevation, azimuth, disc strength, air, dust, ozone, altitude) and atmosphere (haze, fog density and
+  height with logarithmic sliders, fog base, scene altitude). The framing preview re-applies them to a copy of the
+  loaded scene (`applyEnvironment`, the environment/sky/medium part of loadScene), since the sky is baked at load.
+  The exposure slider reaches -12 (a physical sky needs about -8).
+- **Region:** Eiger, Mönch, Jungfrau (Bernese Oberland) instead of the Matterhorn: entirely in Switzerland, while
+  swisstopo's data stops at the Italian border on the Matterhorn's south side. 16 x 16 km, LV95 E 2632-2648 km,
+  N 1150-1166 km; camera 2700 m over the Männlichen ridge (668 m above the ground) towards the Mönch, 40 degree
+  vertical field of view; evening sun (22 degrees, azimuth 300) on the north faces; light valley fog at 1100 m. The
+  data checks: highest point 4158.2 m (the Jungfrau) and 4107.1 m in the Mönch's tile, both at their summits.
+- **Data:** swissALTI3D 2 m (float32 GeoTIFF, LZW, 500 x 500 per km) and SWISSIMAGE 2 m (RGB, JPEG in YCbCr), the
+  newest year of each tile (tiles are listed once per survey year). The STAC API lists every asset with a SHA-256
+  (`checksum:multihash`, prefix 1220): get-scenes verifies every tile. 512 tiles, 323 MB, 27 s on the laptop.
+- **penumbra-terrain** (`tools/terrain.cpp`, C++ as decided): `--stac-next` / `--stac-list` read the STAC JSON so
+  the scripts need no JSON parser (Ubuntu has no jq; mawk lacks gawk's match arrays); the conversion mosaics the
+  tiles, writes one grid mesh (a vertex every --grid m, smooth normals from central differences), the photo
+  texture (--texture m per pixel, JPEG via stb) and a glTF with a camera placed from LV95 coordinates. Axes: x east,
+  y metres above sea level, -z north, so `atmosphere.altitude` is 0 and a sky azimuth is a compass bearing.
+  The full scene: 4000 x 4000 vertices, 32 M triangles, 0.9 GB, an 8000 x 8000 texture; 30 s to build.
+- **libtiff with JPEG:** vcpkg's tiff was built with zip only; the photo tiles need its jpeg feature (libjpeg-turbo
+  is already a dependency, so no new library; tiff is rebuilt once, about a minute).

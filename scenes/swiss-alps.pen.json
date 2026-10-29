@@ -1,0 +1,6 @@
+{
+  "scene": "swiss-alps/alps.gltf",
+  "sky": { "sun_elevation_deg": 22, "sun_azimuth_deg": 300, "altitude": 2700 },
+  "atmosphere": { "altitude": 0, "fog_density": 0.0004, "fog_height": 120, "fog_base": 1100 },
+  "render": { "res": "1080p", "exposure": -6.3 }
+}
