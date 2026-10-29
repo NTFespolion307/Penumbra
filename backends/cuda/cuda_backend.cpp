@@ -261,10 +261,10 @@ std::string whyUnusable(int major, int minor, int driverVersion) {
   const int cc = major * 10 + minor;
   for (int a : kSass)
     if (a / 10 == major && a % 10 <= minor) return "";  // machine code runs on later minor versions
-  if (cc >= kPtxArch) return "";                        // the driver compiles the PTX
-  return fmt::format("compute capability {}.{} is older than this build's oldest target ({}); add {} to "
+  if (cc >= kPtxArch) return "";                        // the driver compiles the PTX (the newest architecture)
+  return fmt::format("compute capability {}.{} has no kernel in this build (oldest target {}); add {} to "
                      "PEN_CUDA_ARCHS and rebuild with a CUDA toolkit that still supports it",
-                     major, minor, kPtxArch / 10.0, cc);
+                     major, minor, kSass[0] / 10.0, cc);
 }
 
 DriverState& driverState() {

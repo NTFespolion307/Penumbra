@@ -55,9 +55,9 @@ if(PEN_ENABLE_CUDA)
   # time, so nothing links against CUDA (DECISIONS D-087).
   find_package(CUDAToolkit REQUIRED)
 
-  # Machine code for every architecture in PEN_CUDA_ARCHS this nvcc supports, all from ONE PTX of the oldest
-  # architecture: every GPU generation then runs the same instructions (same bits), and the embedded PTX lets the
-  # driver compile for GPUs newer than the list.
+  # Machine code for every architecture in PEN_CUDA_ARCHS this nvcc supports, each from its own PTX, plus the
+  # newest architecture's PTX so the driver can compile for GPUs newer than the list. (Until M9 every architecture
+  # came from compute_75 PTX: the sm_120 kernel then had a 1576-byte stack frame instead of 848, D-115.)
   execute_process(COMMAND "${CUDAToolkit_NVCC_EXECUTABLE}" --list-gpu-code OUTPUT_VARIABLE _pen_nvcc_codes
                   OUTPUT_STRIP_TRAILING_WHITESPACE)
   set(_pen_archs "")
@@ -73,14 +73,14 @@ if(PEN_ENABLE_CUDA)
                         "${CUDAToolkit_VERSION}")
   endif()
   list(SORT _pen_archs COMPARE NATURAL)
-  list(GET _pen_archs 0 _pen_ptx)
-  set(_pen_codes "")
+  list(GET _pen_archs -1 _pen_ptx)
+  set(_pen_gencode "")
   foreach(_a IN LISTS _pen_archs)
-    string(APPEND _pen_codes "sm_${_a},")
+    list(APPEND _pen_gencode -gencode "arch=compute_${_a},code=sm_${_a}")
   endforeach()
-  set(_pen_gencode "arch=compute_${_pen_ptx},code=[${_pen_codes}compute_${_pen_ptx}]")
+  list(APPEND _pen_gencode -gencode "arch=compute_${_pen_ptx},code=compute_${_pen_ptx}")
   string(REPLACE ";" "," _pen_sass "${_pen_archs}")
-  message(STATUS "CUDA ${CUDAToolkit_VERSION}: kernels for sm_${_pen_sass} (from compute_${_pen_ptx} PTX)")
+  message(STATUS "CUDA ${CUDAToolkit_VERSION}: kernels for sm_${_pen_sass}, PTX compute_${_pen_ptx}")
 
   set(_pen_nvcc_host -ccbin "${CMAKE_CXX_COMPILER}")
   if(MSVC)
@@ -115,7 +115,7 @@ if(PEN_ENABLE_CUDA)
     add_custom_command(
       OUTPUT "${_gen}/${_shader}.fatbin"
       # -Xptxas -v prints registers, spills and stack per architecture into the build log (M9 kernel tuning).
-      COMMAND "${CUDAToolkit_NVCC_EXECUTABLE}" -fatbin -O3 -std=c++17 ${_pen_nvcc_host} -gencode ${_pen_gencode}
+      COMMAND "${CUDAToolkit_NVCC_EXECUTABLE}" -fatbin -O3 -std=c++17 ${_pen_nvcc_host} ${_pen_gencode}
               -Xptxas -v ${PEN_CUDA_NVCC_FLAGS} -o "${_gen}/${_shader}.fatbin" "${_gen}/${_shader}.cu"
       DEPENDS "${_gen}/${_shader}.cu"
       COMMENT "Compiling ${_shader} for sm_${_pen_sass} (nvcc)"
