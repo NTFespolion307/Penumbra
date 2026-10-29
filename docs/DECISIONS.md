@@ -1024,3 +1024,16 @@ under 1% of a core merging and 2% on the network. Windows: full suite 181/181 at
 running at the merge (the user chose not to wait; a failure gets fixed on main). Not done in M9: the CUDA traversal
 rework (D-115), a separate job that needs a GPU box. Protocol version 5. Next: M14 (plan posted, answers: Swiss
 Alps, C++ converter, Blender headless).
+
+**D-118 M14 starts (2026-10-29): plan approved, open decisions answered.** Plan: (1) `.pen.json` `atmosphere` and
+`sky` in the settings schema (flag, config, UI, README), off by default; (2) the CPU reference first: exponential
+height fog with closed-form optical depth and analytic free-flight sampling, a Henyey-Greenstein phase function,
+next-event estimation to lights, sun and environment through the fog, MIS; (3) a physical sky (Nishita single
+scattering: Rayleigh, Mie, ozone) baked at load into a latitude-longitude environment map, so every backend reuses
+the HDRI sampling, plus a sun disk light from the same direction; (4) the Slang port for Vulkan and CUDA;
+(5) UI and README; (6) the mountain scene and an 8K render on a GPU box. User answers: the mountain scene is the
+**Swiss Alps** (swissALTI3D elevation and SWISSIMAGE photos from swisstopo; open data, credit "(c) swisstopo"; 2 m
+photos for the wide area, sharper tiles only near the camera to keep the download to a few GB); the terrain
+converter is a **C++ tool in `tools/`** (libtiff, libjpeg, libpng are already dependencies; swisstopo tiles are named
+by their LV95 coordinates, so no GeoTIFF library); the physical sky is compared with **Blender's Nishita sky**,
+rendered headless from a portable Blender on D: (not a system install, not a dependency of Penumbra).

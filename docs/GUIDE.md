@@ -646,8 +646,8 @@ These wait on the user. Build with the default and keep the alternative possible
 | Denoiser default | On for UI previews, off in `--terminal` | Always off; always on |
 | License | MIT (repo: github.com/NTFespolion307/Penumbra) | Apache-2.0; private repo |
 | Extra features | Approved: atmosphere and physical sky (M14, D-105); the rest none until approved | Any row of the table above |
-| M14 mountain scene | Asked when M14 starts: a US range (USGS 3DEP elevation and NAIP photos, public domain, can be redistributed) | Swiss Alps (swissALTI3D and SWISSIMAGE 10 cm, sharper; swisstopo open data with attribution) |
-| M14 terrain converter | Asked when M14 starts: a C++ tool in `tools/` | A Python script (numpy, tifffile), run once, outside the build |
+| M14 mountain scene | Decided (D-118): Swiss Alps (swissALTI3D and SWISSIMAGE, swisstopo open data with attribution) | A US range (USGS 3DEP elevation and NAIP photos, public domain) |
+| M14 terrain converter | Decided (D-118): a C++ tool in `tools/` | A Python script (numpy, tifffile), run once, outside the build |
 
 ## Working rules for the implementing agent
 
