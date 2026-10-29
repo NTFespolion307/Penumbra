@@ -41,7 +41,7 @@
     {
       "name": "tiff",
       "default-features": false,
-      "features": [ "zip" ]
+      "features": [ "jpeg", "zip" ]
     },
     "tinyobjloader",
     "volk",
