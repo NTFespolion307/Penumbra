@@ -1139,3 +1139,12 @@ slots give the same bits with sky, air, haze and fog); GPU (run on a box at the 
   stretched into vertical streaks. Inherent to draping an aerial photo; fixing it (e.g. triplanar texturing of the
   steep parts) would be a renderer feature, not part of M14.
 - The M9 CI run for cda991b finished later: Linux and Windows passed (D-117 had left Linux unconfirmed).
+
+**D-124 M14 gate passed (2026-10-29, approved by the user).** Transmittance equals the closed form (unit test);
+the fog furnace is uniform on CPU, Vulkan and CUDA; CPU, Vulkan and CUDA match with sky, air, haze and fog (relMSE
+< 1e-3 at 4,096 spp, RTX 5090); 1, 2 and 3 slots give the same bits; with no atmosphere every golden and comparison
+is unchanged on all three backends; the sky is within 5% of Blender's Nishita sky above 10 degrees (the horizon
+difference is Blender's integration bias, D-120); the Swiss Alps render at 8K on the RTX 5090 in 78 s (D-123).
+Windows full suite 192/192; Linux CI passed through e16d266, the last four commits' runs were still going at the
+merge (the converter and libtiff's JPEG were built and run on Ubuntu 24.04 on the box). Next: M11 (denoise,
+tonemapping, AOVs), then M12; M13 optional; the CUDA traversal rework (D-115) separate.
