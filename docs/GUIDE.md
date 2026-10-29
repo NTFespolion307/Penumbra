@@ -207,7 +207,7 @@ No single failure of a worker, device or connection may stop a render or corrupt
 | Backend | `--backend` | Runs on | Traversal | Expected speed (approx.) | Role |
 | --- | --- | --- | --- | --- | --- |
 | Vulkan RT | `vulkan` | NVIDIA RTX 20+, AMD RDNA2+, Intel Arc | Hardware RT cores, driver-built BVH | Fastest; baseline 1x | Default |
-| CUDA compute | `cuda` | NVIDIA GPUs, incl. non-RTX | Software BVH on CUDA cores (tinybvh CWBVH) | 2–5x slower than hardware RT | Non-RTX NVIDIA, cross-check, RAM-resident scenes |
+| CUDA compute | `cuda` | NVIDIA GPUs, incl. non-RTX | Software BVH on CUDA cores (tinybvh CWBVH) | 4–19x slower than hardware RT (measured in M9 on RTX 5060 Ti / 5070 Ti / PRO 6000; estimate was 2–5x) | Non-RTX NVIDIA, cross-check, RAM-resident scenes |
 | CPU | `cpu` | Any x86-64 / ARM64 CPU | Embree 4 | 20–100x slower than one high-end GPU | Fallback, reference, joins GPUs in hybrid mode |
 | OptiX (optional) | `optix` | NVIDIA RTX | Hardware RT cores | \~1x, sometimes slightly faster | Late milestone, only if benchmarks justify it |
 

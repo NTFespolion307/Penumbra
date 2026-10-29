@@ -703,7 +703,7 @@ Before a render starts Penumbra checks there is room for the film and the output
 | `--backend` | Runs on | Role |
 | --- | --- | --- |
 | `vulkan` | NVIDIA RTX 20+, AMD RDNA2+, Intel Arc | Default on GPUs with ray tracing; uses the RT cores |
-| `cuda` | NVIDIA, compute capability 7.5+ (older with a CUDA 12 build) | Default on NVIDIA GPUs without Vulkan ray tracing (software BVH, tinybvh CWBVH); slower than Vulkan RT. Also on RTX GPUs with `--backend cuda`, and the only backend for `--integrator debug:bvh` |
+| `cuda` | NVIDIA, compute capability 7.5+ (older with a CUDA 12 build) | Default on NVIDIA GPUs without Vulkan ray tracing (software BVH, tinybvh CWBVH); 4-19x slower than Vulkan RT on RTX 50-series GPUs (measured, `docs/BENCHMARKS.md`). Also on RTX GPUs with `--backend cuda`, and the only backend for `--integrator debug:bvh` |
 | `cpu` | Any x86-64 or ARM64 CPU | Fallback and reference; joins GPUs in hybrid mode |
 | `optix` *(planned, M13)* | NVIDIA RTX | Optional, only if it beats Vulkan RT |
 

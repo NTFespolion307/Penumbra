@@ -108,3 +108,46 @@ confirmed it was on 1 GbE, not its 10 GbE port). The transfer filled the link; i
 | before M9 | 95-113 s | 104 | 300 M | one thread, 96-98% busy |
 | tail search once per hand-out call | 48 s | 214 | 700 M | 96% (decrypting 21 s) |
 | + several network threads (strands) | 19.4 s | 442 | 1,748 M | 332% of one core over 4 threads |
+
+## 2026-10-29, M9: `penumbra --benchmark` on three Blackwell boxes
+
+- **Machines (vast.ai, Ubuntu 24.04, CUDA 13, sm_120):** RTX 5060 Ti 16 GB (driver 595.80, 14 CPUs), RTX 5070 Ti
+  16 GB (driver 580.119, ~15 CPUs), RTX PRO 6000 Blackwell Server Edition 96 GB (driver 580.95; the user's stand-in
+  for a 5090).
+- **Build:** branch `m9` b8590ac, Release, GCC 12.4. `penumbra --benchmark --devices 0:vulkan,0:cuda`: 1080p, 30 s
+  per run, path integrator, 12 bounces. Rates count only the device's render window (D-114).
+
+| GPU | Scene | Vulkan RT (M samples/s) | CUDA | Vulkan / CUDA | Busy % (both) | Upload + build (Vulkan / CUDA) |
+| --- | --- | --- | --- | --- | --- | --- |
+| RTX 5060 Ti | `cornell` | 290.3 | 19.0 | 15x | 100 | 0.1 s / 0.0 s |
+| RTX 5060 Ti | `spheres` | 268.7 | 19.5 | 14x | 100 | 0.0 s / 0.0 s |
+| RTX 5060 Ti | `sponza` (Khronos) | 60.9 | 6.9 | 8.8x | 100 | 0.3 s / 0.4 s |
+| RTX 5060 Ti | `intel-sponza` (5.5 GB) | 42.8 | 2.3 | 19x | 100 | 3.9 s / 5.1 s |
+| RTX 5070 Ti | `cornell` | 388.5 | 43.2 | 9.0x | 100 | 0.2 s / 0.0 s |
+| RTX 5070 Ti | `spheres` | 345.8 | 54.4 | 6.4x | 100 | 0.0 s / 0.1 s |
+| RTX 5070 Ti | `sponza` (Khronos) | 87.8 | 15.0 | 5.9x | 100 | 0.8 s / 0.9 s |
+| RTX 5070 Ti | `intel-sponza` (5.5 GB) | 65.8 | 4.8 | 14x | 100 | 10.1 s / 12.8 s |
+| RTX PRO 6000 | `cornell` | 478.8 | 90.4 | 5.3x | 99 / 100 | 0.1 s / 0.0 s |
+| RTX PRO 6000 | `spheres` | 403.8 | 66.5 | 6.1x | 100 | 0.0 s / 0.1 s |
+| RTX PRO 6000 | `sponza` (Khronos) | 105.9 | 27.5 | 3.8x | 100 | 0.8 s / 0.7 s |
+| RTX PRO 6000 | `intel-sponza` (5.5 GB) | 79.4 | 8.7 | 9.1x | 100 | 11.9 s / 13.7 s |
+
+Every device is 99-100% busy over its render window: the GPU does not wait between work items, also not on the
+5.5 GB Intel Sponza (the 78% of the 2026-10-28 entry counted the upload). Vulkan RT is 4-19x faster than the CUDA
+software BVH (the guide estimated 2-5x). Traversal alone, Sponza on the RTX 5070 Ti: `debug:normal` (one primary ray
+per sample) 1,399 vs 200 M samples/s, `ao` 748 vs 86 (D-115).
+
+**Three machines over the internet, one render** (PRO 6000 hosts and renders; the 5070 Ti and 5060 Ti join from two
+other datacenters with `--stay`, scene already cached; Vulkan; 4K):
+
+| Scene | Result | Per GPU: items, rendering time | Busy while joined |
+| --- | --- | --- | --- |
+| `sponza`, 2048 spp | 58.6 s, 289.7 M samples/s | PRO 6000 145 items, 57.3 s; 5070 Ti 70, 40.0 s; 5060 Ti 40, 40.9 s | 98% / ~98% / ~99% |
+| `intel-sponza`, 512 spp | 48.7 s, 87.2 M samples/s | PRO 6000 alone (135 items, 36.1 s) | 93% (nvidia-smi) |
+
+The workers joined 16 s after the render started: after the previous render's controller exited they retry with
+backoff up to 30 s (D-113). From their first item (14:56:21) to their last result (14:57:02) they rendered 40-41 s
+of 41 s. On Intel Sponza the PRO 6000 finished in 36 s, before a worker had received (2.1 GB in 22 s to the
+5070 Ti) and loaded the scene. Controller: 4 results/s, unpacking + merging < 1% of a core, network threads 2%.
+Raw TCP from the controller: 180 MB/s to the 5070 Ti, 62 MB/s to the 5060 Ti.
+

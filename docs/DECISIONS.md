@@ -965,3 +965,27 @@ upload included. So no change to the dispatch loop without a measurement that sh
 - Known, unchanged: a work item is 2^26 pixel-samples, so a CPU alone (~2 M samples/s on the laptop) needs ~33 s per
   item, and `--time-limit` waits for the item in progress plus the queued one (a 10 s limit ended after 67 s).
   On GPUs an item takes well under a second.
+
+**D-115 CUDA speed (M9 step 4): measured, one experiment withdrawn, the traversal is the bottleneck.** On three
+Blackwell boxes (RTX 5060 Ti, 5070 Ti, RTX PRO 6000; BENCHMARKS 2026-10-29) CUDA is 4-19x slower than Vulkan RT at
+100% busy. The containers refuse GPU performance counters (`ncu`: ERR_NVGPUCTRPERM), so the cause was narrowed down
+with experiments:
+- ptxas (`-Xptxas -v` is now in every CUDA build log; `PEN_CUDA_NVCC_FLAGS` passes extra nvcc flags): the `render`
+  kernel uses 168-169 registers and a 1576-byte stack frame on sm_120 (compute_75 PTX), no spills.
+- Each architecture from its own PTX (commit 413c890) cut the sm_120 frame to 848-936 bytes but was slower on Sponza
+  on all three boxes (5.5 vs 7.0, 12.6 vs 15.3, 19.0 vs 26.1 M samples/s). Reverted: one compute_75 PTX stays (D-087).
+- Register caps (`-maxrregcount` 128/96/64, 72-884 bytes of spills): -20% to +30% on `path`, no change on
+  `debug:normal` (186-197 M samples/s at 64, 96 and 168 registers). Occupancy is not what limits traversal. Not
+  adopted: no cap wins on every GPU.
+- Traversal alone (Sponza, RTX 5070 Ti): `debug:normal` 1,399 (Vulkan) vs 200 (CUDA) M samples/s, `ao` 748 vs 86.
+  A primary ray takes ~40 traversal steps (`debug:bvh`, after Sponza's +1.5 exposure), a normal CWBVH count, so the
+  tree is fine and each step is slow.
+- Next (not today: no counters, and every try costs box time): rework the CWBVH loop after tinybvh's CUDA
+  kernel (traversal stack in shared memory, node loads, a traversal-only kernel if needed). Until then the measured
+  numbers above replace the guide's 2-5x estimate in the README.
+- Open: in the first three-box run, one worker's 58 MB scene transfer made no progress for 69 s while the other
+  finished in 0.4 s; raw TCP on the same route ran at 62 MB/s, and two reruns transferred in 1.0 s. Not reproduced;
+  a transfer that makes no progress for a while should be logged (and maybe restarted).
+- Gate check (busy GPUs): every device 99-100% busy alone (`--benchmark`), and internet workers ~98% busy from
+  their first item to their last result in a three-datacenter render. `--stay` workers rejoined a new controller
+  16 s late (backoff up to 30 s after a lost controller, D-113); a shorter retry would help back-to-back renders.
