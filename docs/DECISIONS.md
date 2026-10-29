@@ -1013,3 +1013,14 @@ fall behind on upload.
   a relay that answers while no controller is behind it.
 - **Transfer stall:** a scene transfer that hands no chunk to its connection for 15 s is logged with its chunk and
   queued bytes, and again when it moves (D-115's unexplained 69 s stall).
+
+**D-117 M9 gate passed (2026-10-29, approved by the user).** Measured speeds replace the estimates: `penumbra
+--benchmark` on an RTX 5060 Ti, RTX 5070 Ti and RTX PRO 6000 (BENCHMARKS 2026-10-29); README and guide give CUDA as
+4-19x slower than Vulkan RT (was estimated 2-5x). Busy GPUs: every device 99-100% busy alone, and workers ~98% busy
+from their first item to their last result in a three-machine render. The workers were in three datacenters over
+the internet, not a LAN (the harder case; accepted). Controller: `scale_64` 95 s -> 19 s; in the cluster render
+under 1% of a core merging and 2% on the network. Windows: full suite 181/181 at cda991b. Linux: CI passed at
+2e8e165 and three Ubuntu 24.04 boxes built from scratch by the README steps; CI for cda991b (step 5) was still
+running at the merge (the user chose not to wait; a failure gets fixed on main). Not done in M9: the CUDA traversal
+rework (D-115), a separate job that needs a GPU box. Protocol version 5. Next: M14 (plan posted, answers: Swiss
+Alps, C++ converter, Blender headless).

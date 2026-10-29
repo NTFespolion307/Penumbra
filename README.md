@@ -8,7 +8,7 @@ the image. Any number of **workers**, each with one or more GPUs, join with the 
 code, render tiles and send them back. A render on one machine is the same thing with no workers, and every
 combination of machines, GPUs and backends converges to the same image.
 
-> **Status: milestone M8 (memory budget and fallback; M9 comes next).** Penumbra renders glTF and OBJ scenes on GPUs with hardware ray
+> **Status: milestone M9 (performance and benchmarks; M14 comes next).** Penumbra renders glTF and OBJ scenes on GPUs with hardware ray
 > tracing (Vulkan RT), on any NVIDIA GPU through CUDA, and on the CPU (Embree), with a path tracer (next-event
 > estimation, MIS), the glTF PBR material with its common extensions and HDRI lighting, at any size up to 160K,
 > with checkpoints, `--resume` and `merge`, writing EXR, PNG, JPEG, TIFF or WebP. Every machine uses all its GPUs
@@ -19,8 +19,9 @@ combination of machines, GPUs and backends converges to the same image.
 > crashes a render. Several machines render together: a controller hosts, workers on
 > the LAN or the internet join with a code (encrypted), download the scene once, and any failure of a worker, its
 > devices or the network is recovered without changing the image. The UI hosts, joins and runs renders with
-> clicks only: Dashboard, Hosts, Render, a live Viewport and Settings, on Windows and Linux. Measured performance
-> arrives in M9, an atmosphere and physical sky in M14. Features marked *(planned, Mx)* below are not built yet. The roadmap is in
+> clicks only: Dashboard, Hosts, Render, a live Viewport and Settings, on Windows and Linux. `penumbra --benchmark`
+> measures every device (measured numbers: [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)); workers with a slow uplink
+> get larger items. An atmosphere and physical sky arrive in M14. Features marked *(planned, Mx)* below are not built yet. The roadmap is in
 > [`docs/GUIDE.md`](docs/GUIDE.md).
 
 
