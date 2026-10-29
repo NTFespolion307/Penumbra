@@ -83,6 +83,25 @@ json settingsToJson(const RenderSettings& s) {
                       {"color", s.environment.color},
                       {"strength", s.environment.strength},
                       {"rotation_deg", s.environment.rotation_deg}};
+  const SkySettings& sky = s.sky;
+  j["sky"] = {{"enabled", sky.enabled},           {"sun_elevation_deg", sky.sun_elevation_deg},
+              {"sun_azimuth_deg", sky.sun_azimuth_deg}, {"sun_size_deg", sky.sun_size_deg},
+              {"sun_strength", sky.sun_strength}, {"sun_disc", sky.sun_disc},
+              {"strength", sky.strength},         {"altitude", sky.altitude},
+              {"air", sky.air},                   {"dust", sky.dust},
+              {"ozone", sky.ozone},               {"resolution", sky.resolution}};
+  const AtmosphereSettings& a = s.atmosphere;
+  j["atmosphere"] = {{"enabled", a.enabled},
+                     {"air", a.air ? json(*a.air) : json(nullptr)},
+                     {"haze", a.haze ? json(*a.haze) : json(nullptr)},
+                     {"haze_anisotropy", a.haze_anisotropy},
+                     {"altitude", a.altitude},
+                     {"meters_per_unit", a.meters_per_unit},
+                     {"fog_density", a.fog_density},
+                     {"fog_height", a.fog_height},
+                     {"fog_base", a.fog_base},
+                     {"fog_anisotropy", a.fog_anisotropy},
+                     {"fog_color", a.fog_color}};
   const CameraOverrides& co = s.camera_overrides;
   j["camera_overrides"] = {{"projection", co.projection},
                            {"fstop", co.fstop},
@@ -104,6 +123,33 @@ RenderSettings settingsFromJson(const json& j) {
         s.environment.color = value.at("color").get<std::array<double, 3>>();
         s.environment.strength = value.at("strength").get<double>();
         s.environment.rotation_deg = value.at("rotation_deg").get<double>();
+      } else if (key == "sky") {
+        SkySettings& sky = s.sky;
+        sky.enabled = value.at("enabled").get<bool>();
+        sky.sun_elevation_deg = value.at("sun_elevation_deg").get<double>();
+        sky.sun_azimuth_deg = value.at("sun_azimuth_deg").get<double>();
+        sky.sun_size_deg = value.at("sun_size_deg").get<double>();
+        sky.sun_strength = value.at("sun_strength").get<double>();
+        sky.sun_disc = value.at("sun_disc").get<bool>();
+        sky.strength = value.at("strength").get<double>();
+        sky.altitude = value.at("altitude").get<double>();
+        sky.air = value.at("air").get<double>();
+        sky.dust = value.at("dust").get<double>();
+        sky.ozone = value.at("ozone").get<double>();
+        sky.resolution = value.at("resolution").get<uint32_t>();
+      } else if (key == "atmosphere") {
+        AtmosphereSettings& a = s.atmosphere;
+        a.enabled = value.at("enabled").get<bool>();
+        if (!value.at("air").is_null()) a.air = value.at("air").get<double>();
+        if (!value.at("haze").is_null()) a.haze = value.at("haze").get<double>();
+        a.haze_anisotropy = value.at("haze_anisotropy").get<double>();
+        a.altitude = value.at("altitude").get<double>();
+        a.meters_per_unit = value.at("meters_per_unit").get<double>();
+        a.fog_density = value.at("fog_density").get<double>();
+        a.fog_height = value.at("fog_height").get<double>();
+        a.fog_base = value.at("fog_base").get<double>();
+        a.fog_anisotropy = value.at("fog_anisotropy").get<double>();
+        a.fog_color = value.at("fog_color").get<std::array<double, 3>>();
       } else if (key == "camera_overrides") {
         s.camera_overrides.projection = value.at("projection").get<std::string>();
         s.camera_overrides.fstop = value.at("fstop").get<double>();
@@ -130,6 +176,9 @@ uint64_t pixelSettingsHash(const RenderSettings& s) {
   for (const char* k : kPixelKeys) pixel[k] = all[k];
   pixel["environment"] = all["environment"];
   pixel["camera_overrides"] = all["camera_overrides"];
+  // Only when used, so renders without them keep the hash they had before M14 (and can still be resumed).
+  if (s.sky.enabled) pixel["sky"] = all["sky"];
+  if (s.atmosphere.enabled) pixel["atmosphere"] = all["atmosphere"];
   return hash64(pixel.dump());
 }
 

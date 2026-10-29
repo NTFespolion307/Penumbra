@@ -151,3 +151,15 @@ of 41 s. On Intel Sponza the PRO 6000 finished in 36 s, before a worker had rece
 5070 Ti) and loaded the scene. Controller: 4 results/s, unpacking + merging < 1% of a core, network threads 2%.
 Raw TCP from the controller: 180 MB/s to the 5070 Ti, 62 MB/s to the 5060 Ti.
 
+## 2026-10-29, M14: the atmosphere and the Swiss Alps at 8K (RTX 5090)
+
+- **Machine:** rented RTX 5090 32 GB (driver 595.71, Ubuntu 24.04, 23-CPU quota). Branch `m14` 7f77d21, Release.
+- **Scene:** `scenes/swiss-alps.pen.json`: 32.0 M triangles (4 m grid over 16 x 16 km), an 8000 x 8000 photo texture,
+  the physical sky (sun 22 degrees, azimuth 300) and the atmosphere (air, haze, valley fog).
+
+| Render | Time | M samples/s | VRAM |
+| --- | --- | --- | --- |
+| 8K (7680 x 4320), 1024 spp, Vulkan RT | 78.4 s (render 76.6 s) | 433 | 3.6 GB (tier 0) |
+
+The sky bake adds about 1.5 s to every scene load (laptop).
+

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
 
 #include "backends/cpu/cpu_backend.h"
 #include "core/config/config.h"
@@ -39,9 +40,19 @@ SceneInfo inspectScene(const std::filesystem::path& path) {
   return info;
 }
 
-std::vector<uint8_t> renderPreview(const Scene& scene, const RenderSettings& settings, uint32_t width,
-                                   uint32_t height, uint32_t spp) {
+std::vector<uint8_t> renderPreview(const Scene& loaded, const RenderSettings& loadedWith, const RenderSettings& settings,
+                                   uint32_t width, uint32_t height, uint32_t spp) {
   try {
+    const Scene* sceneP = &loaded;
+    std::unique_ptr<Scene> changed;
+    if (settings.sky != loadedWith.sky || settings.atmosphere != loadedWith.atmosphere ||
+        settings.environment != loadedWith.environment) {
+      changed = std::make_unique<Scene>(loaded);
+      std::vector<std::string> ignored;
+      applyEnvironment(*changed, settings, ignored);
+      sceneP = changed.get();
+    }
+    const Scene& scene = *sceneP;
     std::vector<std::string> notes;
     FrameSetup frame;
     frame.camera = RenderCamera(scene, settings, width, height, notes);

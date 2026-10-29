@@ -107,6 +107,14 @@ struct PunctualLight {
 };
 static_assert(sizeof(PunctualLight) == 4 * 12);
 
+// One exponential height layer of the atmosphere (core/scene/scene.h MediumLayer, M14).
+struct MediumLayer {
+  float sigma_s[3], sigma_t[3];
+  float base, inv_height, g;
+  uint32_t rayleigh;
+};
+static_assert(sizeof(MediumLayer) == 4 * 10);
+
 struct Frame {
   // Camera
   uint32_t projection;  // 0 perspective, 1 orthographic, 2 equirectangular
@@ -129,8 +137,11 @@ struct Frame {
   uint32_t env_is_black;
   float env_dist_sum;
   uint32_t env_light_index;
+  // Atmosphere (M14): medium_count layers, 0 without one
+  uint32_t medium_count;
+  MediumLayer medium[3];
 };
-static_assert(sizeof(Frame) == 4 * 43);
+static_assert(sizeof(Frame) == 4 * (44 + 30));
 
 // Per launch: Vulkan push constants, CUDA kernel argument. A work item may be split into several launches over
 // consecutive sample ranges (CUDA, to keep each launch short); the running sum stays in the output buffer, so the

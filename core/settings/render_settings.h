@@ -87,6 +87,41 @@ struct EnvironmentSettings {
   bool operator==(const EnvironmentSettings&) const = default;
 };
 
+// A physical sky from the sun direction (.pen.json "sky", M14): Nishita single scattering (Rayleigh, Mie, ozone),
+// like Blender's Nishita sky, baked at load into the environment map (it replaces "environment"). Angles in
+// degrees; the azimuth turns from -Z (glTF forward) towards +X; densities are multiples of Earth's.
+struct SkySettings {
+  bool enabled = false;
+  double sun_elevation_deg = 30;
+  double sun_azimuth_deg = 0;
+  double sun_size_deg = 0.545;  // angular diameter
+  double sun_strength = 1;      // the sun disc only (as Blender's Sun Intensity)
+  bool sun_disc = true;         // false: the disc is not drawn, the sky still lit by it
+  double strength = 1;          // the whole sky
+  double altitude = 0;          // metres above sea level of the viewer
+  double air = 1, dust = 1, ozone = 1;
+  uint32_t resolution = 2048;   // width of the baked map (height half)
+  bool operator==(const SkySettings&) const = default;
+};
+
+// A participating medium filling the scene (.pen.json "atmosphere", M14): exponential height layers, so
+// transmittance has a closed form. Air (Rayleigh) and haze (Mie) are Earth's (as in the physical sky, whose
+// densities they follow when unset); fog is a user layer. Heights: scene up axis (+Y), in metres via
+// meters_per_unit; altitude is the sea-level height of y = 0.
+struct AtmosphereSettings {
+  bool enabled = false;
+  std::optional<double> air, haze;  // unset: the sky's air and dust (1 without a sky)
+  double haze_anisotropy = 0.76;     // Henyey-Greenstein g of the haze
+  double altitude = 0;
+  double meters_per_unit = 1;
+  double fog_density = 0;            // extinction per metre at fog_base (0: no fog)
+  double fog_height = 100;           // scale height, metres
+  double fog_base = 0;               // scene units (y)
+  double fog_anisotropy = 0;
+  std::array<double, 3> fog_color{1, 1, 1};  // single-scattering albedo
+  bool operator==(const AtmosphereSettings&) const = default;
+};
+
 // Camera settings glTF cannot carry, from the .pen.json "camera" object.
 struct CameraOverrides {
   std::string projection;       // empty: from the scene; "perspective", "orthographic", "equirectangular"
@@ -110,6 +145,8 @@ struct RenderSettings {
   std::string camera;                       // empty: first camera in the scene
   CameraOverrides camera_overrides;
   EnvironmentSettings environment;
+  SkySettings sky;
+  AtmosphereSettings atmosphere;
 
   // Render
   Resolution res;

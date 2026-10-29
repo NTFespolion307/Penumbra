@@ -177,6 +177,10 @@ PEN_CUDA_FIELD(Frame, "FrameData", env_rotation);
 PEN_CUDA_FIELD(Frame, "FrameData", env_color);
 PEN_CUDA_FIELD(Frame, "FrameData", env_is_black);
 PEN_CUDA_FIELD(Frame, "FrameData", env_dist_sum);
+PEN_CUDA_FIELD(Frame, "FrameData", medium_count);
+PEN_CUDA_FIELD(Frame, "FrameData", medium);
+// MediumLayer is not reported on its own (only nested in FrameData's array): its 40 bytes of plain 4-byte fields
+// are checked by FrameData's size (296) and the offset of the array.
 PEN_CUDA_FIELD(Frame, "FrameData", env_light_index);
 PEN_CUDA_SIZE(PushConstants, "PushConstants");
 PEN_CUDA_FIELD(PushConstants, "PushConstants", x0);

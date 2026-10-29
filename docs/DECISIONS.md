@@ -1024,3 +1024,127 @@ under 1% of a core merging and 2% on the network. Windows: full suite 181/181 at
 running at the merge (the user chose not to wait; a failure gets fixed on main). Not done in M9: the CUDA traversal
 rework (D-115), a separate job that needs a GPU box. Protocol version 5. Next: M14 (plan posted, answers: Swiss
 Alps, C++ converter, Blender headless).
+
+**D-118 M14 starts (2026-10-29): plan approved, open decisions answered.** Plan: (1) `.pen.json` `atmosphere` and
+`sky` in the settings schema (flag, config, UI, README), off by default; (2) the CPU reference first: exponential
+height fog with closed-form optical depth and analytic free-flight sampling, a Henyey-Greenstein phase function,
+next-event estimation to lights, sun and environment through the fog, MIS; (3) a physical sky (Nishita single
+scattering: Rayleigh, Mie, ozone) baked at load into a latitude-longitude environment map, so every backend reuses
+the HDRI sampling, plus a sun disk light from the same direction; (4) the Slang port for Vulkan and CUDA;
+(5) UI and README; (6) the mountain scene and an 8K render on a GPU box. User answers: the mountain scene is the
+**Swiss Alps** (swissALTI3D elevation and SWISSIMAGE photos from swisstopo; open data, credit "(c) swisstopo"; 2 m
+photos for the wide area, sharper tiles only near the camera to keep the download to a few GB); the terrain
+converter is a **C++ tool in `tools/`** (libtiff, libjpeg, libpng are already dependencies; swisstopo tiles are named
+by their LV95 coordinates, so no GeoTIFF library); the physical sky is compared with **Blender's Nishita sky**,
+rendered headless from a portable Blender on D: (not a system install, not a dependency of Penumbra).
+
+**D-119 The atmosphere's design (M14 steps 1-2, CPU).** `.pen.json` `"atmosphere"` and `"sky"` are scene
+description objects like `"environment"` and `"camera"` (no CLI flags); serialized for sessions and workers, and
+part of the pixel hash only when enabled, so renders without them keep their hash (and resume).
+- **Medium:** up to three exponential height layers, density exp(-(y - base) / height): Earth's air (Rayleigh
+  phase, 5.8/13.6/33.1e-6 per m, 8 km) and haze (Mie as in Blender's Nishita: 2e-5 per m scattering, 11%
+  absorption, 1.2 km, Henyey-Greenstein g 0.76), plus a user ground fog (density per m, scale height, base, albedo,
+  g). `altitude` puts y = 0 above sea level; `meters_per_unit` converts. Air and haze follow the sky's `air` and
+  `dust` when a sky is set, so haze and sky match. Ozone only in the sky (negligible across a scene).
+- **Sampling:** optical depth along a ray has a closed form (expm1/log1p for accuracy), so transmittance is exact
+  and free-flight distances invert it; no ray marching, no majorant. RGB coefficients: one colour channel is
+  picked per segment, each layer's collision distance sampled for it, the earliest wins (independent layers);
+  weights divide by the average over the channels (spectral MIS). At a collision: next-event estimation to every
+  light (area, punctual, environment) through the medium's transmittance, MIS with the phase function, then the
+  phase function picks the direction (Rayleigh by Cardano, HG by inversion). Surface NEE multiplies by the same
+  transmittance. A scattering counts as a bounce (max_bounces, Russian roulette).
+- **Determinism:** the medium draws from its own sampler dimensions (65536 + 8 per bounce), so renders without an
+  atmosphere keep their exact numbers; the surface code multiplies by the transmittance only when there is a
+  medium. Golden images unchanged (full suite).
+- **Unbounded fog:** below its base a layer keeps getting denser (capped at e^80); without ground, a ray going
+  down does thousands of scatterings (an empty-scene furnace lost 12% to the bounce cap and fireflied). Real
+  scenes have terrain; the furnace test has a white ground 20 km wide.
+- **Tests:** depth vs numeric integration and its inverse; uniform-medium transmittance equals exp(-sigma t)
+  (gate); free-flight sampling unbiased per channel (pass branch = T, scatter branch = 1 - T); phase sampling
+  matches the value, mean cosine g (HG) and E[cos^2] = 2/5 (Rayleigh); layers from the settings; render furnace
+  (non-absorbing fog over a white Lambert ground, white environment): 16x16 at 65,536 spp, every pixel within
+  0.78% of 1, mean 1.00006.
+- **Until the GPU port (step 4)** Vulkan and CUDA refuse a scene with an atmosphere (no silent fallback).
+
+**D-120 The physical sky (M14 step 3, CPU bake).** `"sky"` replaces the environment with a map baked at load
+(`core/scene/sky.cpp`), then sampled like an HDRI on every backend (no new GPU code). Written from the physics and
+published data, not from Blender's code (Blender is GPL; Penumbra is MIT): Nishita single scattering over a
+spherical Earth (radius 6360 km, atmosphere 60 km), 21 wavelengths 380-780 nm; Rayleigh from the refractive index of
+air (Peck and Reeder) with the King factor; Mie as Blender's (2e-5 per m, 1.11 extinction, 1.2 km, Cornette-Shanks
+g 0.76); ozone as the Chappuis band (Gaussian, peak 4.6e-25 m^2 at 603 nm, 5.4e18 per m^3 at 25 km, 10-40 km
+tent); the sun a 5778 K black body (1361 W/m^2); CIE 1931 via the Wyman-Sloan-Shirley fit; XYZ to linear Rec. 709.
+The sky depends only on view elevation and azimuth from the sun: a 512 x 512 table (elevation spaced x|x|, dense at
+the horizon) with bilinear lookup; view rays 64 steps and sun rays 32, spaced (k/n)^2 near their start. About 1.5 s
+per load on the laptop. The sun disc: 8 x 8 subsamples per pixel (power independent of the map resolution, tested
+at 2048 and 4096 within 2%), limb darkening 1 - 0.6 (1 - cos) normalized to the full irradiance.
+- **Against Blender 4.2.23** (headless from a portable copy on D:, Cycles, Nishita, sun 30 deg, altitude 1 m):
+  above 10 deg elevation within 0-5% in every channel, towards and away from the sun, with no scale constant (both
+  in W/m^2/sr). Near the horizon Blender is up to 33% darker and redder. Cause found: Blender adds each 1/32 step's
+  whole optical depth before using it, so every sample sees half a step (~9 km at the horizon) too much air.
+  Replicating that in Penumbra matched Blender within 0-6% everywhere, so the physics and data agree. Kept the
+  accurate integration: the in-scene haze (D-119) is exact, so an accurate sky meets the hazy terrain without a seam.
+  Blender's sun disc has 18% less power (its limb darkening is not normalized); Penumbra keeps the real irradiance.
+  Unit tests pin Blender's zenith, 20 deg away from the sun and 50 deg towards it (within 8%).
+- Physical units: the sky needs an exposure around -6 to -10, as in Blender. `sun_strength` scales the disc only,
+  like Blender's Sun Intensity. A sky together with an HDRI: the sky wins (warning).
+
+**D-121 The atmosphere on the GPUs (M14 step 4).** `shaders/medium.slang` is the twin of `core/render/medium.h`
+(Slang has no expm1, log1p or cbrt: a two-term series below 1e-4, and pow(x, 1/3) where x is always positive), and
+`integrator.slang` follows the CPU integrator: the medium's own sampler dimensions, NEE through the medium at
+scattering points, the surface shadow rays multiplied by the transmittance only when there is a medium (so images
+without one keep their bits). The layers travel in `FrameData` (`medium_count` + 3 x 40-byte layers; Frame 172 ->
+296 bytes). CUDA layout checked on the laptop with slangc's reflection: `medium_count` at 172, `medium` at 176,
+FrameData 296 bytes, as gpu::Frame; slangc does not report the nested MediumLayer on its own, so it is covered by
+the FrameData size. Vulkan and CUDA no longer refuse an atmosphere. Tests: `slots_atmosphere` (CPU, 1, 2 and 3
+slots give the same bits with sky, air, haze and fog); GPU (run on a box at the gate): `atmosphere_vs_cpu` (relMSE
+< 1e-3 at 4,096 spp) and `furnace_fog` on Vulkan and CUDA.
+
+**D-122 The Swiss Alps scene and penumbra-terrain (M14 steps 5-6).**
+- **UI (step 5):** the Render page has a "Sky and atmosphere" section (open when the scene uses them): physical
+  sky (sun elevation, azimuth, disc strength, air, dust, ozone, altitude) and atmosphere (haze, fog density and
+  height with logarithmic sliders, fog base, scene altitude). The framing preview re-applies them to a copy of the
+  loaded scene (`applyEnvironment`, the environment/sky/medium part of loadScene), since the sky is baked at load.
+  The exposure slider reaches -12 (a physical sky needs about -8).
+- **Region:** Eiger, Mönch, Jungfrau (Bernese Oberland) instead of the Matterhorn: entirely in Switzerland, while
+  swisstopo's data stops at the Italian border on the Matterhorn's south side. 16 x 16 km, LV95 E 2632-2648 km,
+  N 1150-1166 km; camera 2700 m over the Männlichen ridge (668 m above the ground) towards the Mönch, 40 degree
+  vertical field of view; evening sun (22 degrees, azimuth 300) on the north faces; light valley fog at 1100 m. The
+  data checks: highest point 4158.2 m (the Jungfrau) and 4107.1 m in the Mönch's tile, both at their summits.
+- **Data:** swissALTI3D 2 m (float32 GeoTIFF, LZW, 500 x 500 per km) and SWISSIMAGE 2 m (RGB, JPEG in YCbCr), the
+  newest year of each tile (tiles are listed once per survey year). The STAC API lists every asset with a SHA-256
+  (`checksum:multihash`, prefix 1220): get-scenes verifies every tile. 512 tiles, 323 MB, 27 s on the laptop.
+- **penumbra-terrain** (`tools/terrain.cpp`, C++ as decided): `--stac-next` / `--stac-list` read the STAC JSON so
+  the scripts need no JSON parser (Ubuntu has no jq; mawk lacks gawk's match arrays); the conversion mosaics the
+  tiles, writes one grid mesh (a vertex every --grid m, smooth normals from central differences), the photo
+  texture (--texture m per pixel, JPEG via stb) and a glTF with a camera placed from LV95 coordinates. Axes: x east,
+  y metres above sea level, -z north, so `atmosphere.altitude` is 0 and a sky azimuth is a compass bearing.
+  The full scene: 4000 x 4000 vertices, 32 M triangles, 0.9 GB, an 8000 x 8000 texture; 30 s to build.
+- **libtiff with JPEG:** vcpkg's tiff was built with zip only; the photo tiles need its jpeg feature (libjpeg-turbo
+  is already a dependency, so no new library; tiff is rebuilt once, about a minute).
+
+**D-123 M14 on the GPU and the 8K mountains (rented RTX 5090, 32 GB, driver 595.71, Ubuntu 24.04, CUDA 13).**
+- **GPU suite** (`ctest -L gpu`, m14 53bb80c): 45 of 46 passed at first, including `vulkan_atmosphere_vs_cpu` and
+  `cuda_atmosphere_vs_cpu` (sky, air, haze and fog against the CPU, relMSE < 1e-3 at 4,096 spp), `cuda_furnace_fog`,
+  and every earlier golden, furnace and cross-backend test on both backends (so images without an atmosphere are
+  unchanged). `vulkan_furnace_fog` gave mean 0.898. Not the fog: with the fog density at 1e-9 Vulkan still gave
+  0.937 against CUDA's 1.000. The furnace ground was two triangles 20 km across; with vertices 10 km out, the
+  hardware's hit points near the camera carried ~1 mm of float error and shadow rays caught their own triangle.
+  The ground is now 100 x 100 quads of 200 m (`tools/scenegen.cpp`): Vulkan, CUDA and CPU fog furnaces pass, so 46
+  of 46. Only giant triangles are affected (the terrain's are 4 m); not changed in the renderer.
+- **The Swiss Alps at 8K** (7680 x 4320, 1024 spp, Vulkan): `get-scenes.sh swiss-alps` from scratch on the box
+  (512 tiles checked, scene built) in 59 s; the render 78.4 s, 34.0 G samples, 433 M samples/s, 3.6 GB of VRAM
+  (tier 0), GPU ~86% busy by nvidia-smi over the whole run including the load. Eiger, Mönch and Jungfrau with their
+  glaciers, the evening sun on the north faces, the physical sky.
+- **Known limit of the data:** on near-vertical faces (the Eiger's north face) the orthophoto, taken from above, is
+  stretched into vertical streaks. Inherent to draping an aerial photo; fixing it (e.g. triplanar texturing of the
+  steep parts) would be a renderer feature, not part of M14.
+- The M9 CI run for cda991b finished later: Linux and Windows passed (D-117 had left Linux unconfirmed).
+
+**D-124 M14 gate passed (2026-10-29, approved by the user).** Transmittance equals the closed form (unit test);
+the fog furnace is uniform on CPU, Vulkan and CUDA; CPU, Vulkan and CUDA match with sky, air, haze and fog (relMSE
+< 1e-3 at 4,096 spp, RTX 5090); 1, 2 and 3 slots give the same bits; with no atmosphere every golden and comparison
+is unchanged on all three backends; the sky is within 5% of Blender's Nishita sky above 10 degrees (the horizon
+difference is Blender's integration bias, D-120); the Swiss Alps render at 8K on the RTX 5090 in 78 s (D-123).
+Windows full suite 192/192; Linux CI passed through e16d266, the last four commits' runs were still going at the
+merge (the converter and libtiff's JPEG were built and run on Ubuntu 24.04 on the box). Next: M11 (denoise,
+tonemapping, AOVs), then M12; M13 optional; the CUDA traversal rework (D-115) separate.

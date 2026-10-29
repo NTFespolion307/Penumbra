@@ -8,7 +8,7 @@ the image. Any number of **workers**, each with one or more GPUs, join with the 
 code, render tiles and send them back. A render on one machine is the same thing with no workers, and every
 combination of machines, GPUs and backends converges to the same image.
 
-> **Status: milestone M9 (performance and benchmarks; M14 comes next).** Penumbra renders glTF and OBJ scenes on GPUs with hardware ray
+> **Status: milestone M14 (atmosphere and physical sky; M11 comes next).** Penumbra renders glTF and OBJ scenes on GPUs with hardware ray
 > tracing (Vulkan RT), on any NVIDIA GPU through CUDA, and on the CPU (Embree), with a path tracer (next-event
 > estimation, MIS), the glTF PBR material with its common extensions and HDRI lighting, at any size up to 160K,
 > with checkpoints, `--resume` and `merge`, writing EXR, PNG, JPEG, TIFF or WebP. Every machine uses all its GPUs
@@ -21,7 +21,8 @@ combination of machines, GPUs and backends converges to the same image.
 > devices or the network is recovered without changing the image. The UI hosts, joins and runs renders with
 > clicks only: Dashboard, Hosts, Render, a live Viewport and Settings, on Windows and Linux. `penumbra --benchmark`
 > measures every device (measured numbers: [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)); workers with a slow uplink
-> get larger items. An atmosphere and physical sky arrive in M14. Features marked *(planned, Mx)* below are not built yet. The roadmap is in
+> get larger items. A physical sky from the sun's position and an atmosphere (air, haze, ground fog) render on
+> every backend; `scripts/get-scenes swiss-alps` builds the Eiger, Mönch and Jungfrau from swisstopo's open data. Features marked *(planned, Mx)* below are not built yet. The roadmap is in
 > [`docs/GUIDE.md`](docs/GUIDE.md).
 
 
@@ -407,6 +408,29 @@ reference photos by Katica Putica and Princino.photo. The full credits and licen
 `scenes/intel-sponza/main_sponza/credits_license.txt` after the download. Downloaded from Intel, not
 redistributed here.
 
+**The Swiss Alps** *(M14)*: Eiger, Mönch and Jungfrau from real elevation data and aerial photos, under the
+physical sky with haze, seen from above the Männlichen ridge. 16 × 16 km: a mesh with a vertex every 4 m (32 million
+triangles, 0.9 GB) and a 2 m photo texture.
+
+1. Build Penumbra first: the script uses `penumbra-terrain`, which the build makes. Then, in the Penumbra folder:
+   ```
+   .\scripts\get-scenes.ps1 -Scene swiss-alps
+   ```
+   On Linux: `./scripts/get-scenes.sh swiss-alps`. It downloads 512 tiles (about 330 MB) from swisstopo, checks each
+   against the SHA-256 that swisstopo lists for it, and builds the scene. Success: the last lines say
+   `Ready: scenes/swiss-alps.pen.json`.
+2. Render it (8K on a GPU; about 6 GB of VRAM):
+   ```
+   build/windows-msvc-release/bin/penumbra.exe --terminal scenes/swiss-alps.pen.json --res 8k --spp 1024 -o alps.exr
+   ```
+   Change the time of day in `scenes/swiss-alps.pen.json` (`sky.sun_elevation_deg`, `sun_azimuth_deg`) or on the
+   Render page.
+
+Elevation (swissALTI3D) and photos (SWISSIMAGE) © swisstopo, open government data
+([terms of use](https://www.swisstopo.admin.ch/en/terms-of-use-free-geodata-and-geoservices)). Downloaded from
+swisstopo, not redistributed here. Any other area works the same way with `penumbra-terrain` (see the comment at the
+top of `tools/terrain.cpp`).
+
 **Test scenes and image comparison.** The build also makes two tools next to `penumbra`:
 
 1. Write all test scenes (the three above plus the furnace spheres and a big-texture scene) into a folder:
@@ -430,7 +454,7 @@ Start `penumbra` with no arguments (or double-click it). The sidebar has five pa
 | --- | --- |
 | **Dashboard** | The join code and address to give workers, every connected host with its GPUs, cluster CPU, RAM and GPU use, recent events |
 | **Hosts** | One row per machine (this one first); click a row for its GPUs, temperatures, scene cache and log, and to rename, kick or switch off a host or single GPU |
-| **Render** | Open a scene (`.glb`, `.gltf`, `.obj`, `.pen.json`), check what was found in it, pick camera, resolution preset, samples, output file and format, see a quick framing preview and the time estimate, then **Start render**. A file name without a folder is saved in the output folder from Settings (default `Pictures\Penumbra`, `~/Pictures/Penumbra` on Linux) |
+| **Render** | Open a scene (`.glb`, `.gltf`, `.obj`, `.pen.json`), check what was found in it, pick camera, resolution preset, samples, sky and atmosphere (sun position, haze, fog), output file and format, see a quick framing preview and the time estimate, then **Start render**. A file name without a folder is saved in the output folder from Settings (default `Pictures\Penumbra`, `~/Pictures/Penumbra` on Linux) |
 | **Viewport** | The image as it renders, with each tile coloured by the host that rendered it; zoom (mouse wheel) and pan (drag), exposure, **Pause**, **Save image now**, **Stop** (keeps the checkpoint for `--resume`) |
 | **Settings** | LAN and internet hosting, "ask before accepting new workers", the join code (**Copy**, **Regenerate**), the port, this machine's devices (which GPUs render, whether the CPU renders too, CPU threads kept free for the UI), default output and film folders, **Open logs folder**, **Run diagnostics**, and **Join a render** |
 
@@ -791,6 +815,47 @@ More `.pen.json` options:
 
 Light units: glTF point and spot intensities (candela) and sun illuminance (lux) are divided by 683 lm/W, which
 matches Blender's "Standard" export; emissive materials use emissive colour × strength as radiance.
+
+**Atmosphere** *(M14; CPU, Vulkan and CUDA)*. An `"atmosphere"` object fills the scene with
+air, haze and an optional ground fog. Each layer thins out exponentially with height, so distant objects fade and
+turn blue, and light shafts form. With a `"sky"`, air and haze follow its `air` and `dust` values, so the haze
+matches the sky.
+
+```json
+"atmosphere": { "altitude": 1600, "fog_density": 0.002, "fog_height": 60, "fog_base": 0 }
+```
+
+| Key | Meaning (default) |
+| --- | --- |
+| `air`, `haze` | Earth's air (Rayleigh, blue) and haze (Mie) as multiples of sea level; 0 turns a layer off (1, or the sky's `air` / `dust`) |
+| `haze_anisotropy` | Henyey-Greenstein *g* of the haze: how strongly it scatters forward, around the sun (0.76) |
+| `altitude` | Metres above sea level at y = 0; air and haze are thinner higher up (0) |
+| `meters_per_unit` | Metres per scene unit, for scenes not modelled in metres (1) |
+| `fog_density` | Ground fog: extinction per metre at `fog_base`; 0.004 is about 1 km visibility (0: no fog) |
+| `fog_height` | Fog scale height in metres: the density falls by e every this many metres up (100) |
+| `fog_base`, `fog_color`, `fog_anisotropy` | Fog base height (scene units, y), its colour `[r, g, b]` (single-scattering albedo, [1, 1, 1]) and *g* (0) |
+
+**Physical sky** *(M14; every backend: it becomes the environment map)*. A `"sky"` object replaces the environment with a sky computed from
+the sun's position, like Blender's Nishita sky: air, haze and ozone scatter sunlight over a round Earth, computed per
+wavelength, with the sun's disc. It is in real units (the sun is 1361 W/m² above the air), so use an exposure of
+about -6 to -10 (`--exposure -8`), as with Blender's.
+
+```json
+"sky": { "sun_elevation_deg": 12, "sun_azimuth_deg": -60, "altitude": 1600 }
+```
+
+| Key | Meaning (default) |
+| --- | --- |
+| `sun_elevation_deg`, `sun_azimuth_deg` | Sun height above the horizon, and its direction from -Z (glTF forward) turning towards +X (30, 0) |
+| `sun_size_deg`, `sun_strength`, `sun_disc` | Sun's angular diameter (0.545), brightness of the disc only (1), and whether the disc is drawn (true) |
+| `altitude` | Viewer's metres above sea level (0) |
+| `air`, `dust`, `ozone` | Densities as multiples of Earth's (1 each) |
+| `strength` | Multiplier for the whole sky (1) |
+| `resolution` | Width of the computed sky map; its height is half (2048) |
+
+Compared with Blender 4.2's Nishita sky at the same settings, brightness and colour agree within about 5% above
+10° elevation. Near the horizon Penumbra's sky is brighter and bluer: Blender integrates the air along the view coarsely
+there. Penumbra's sun disc is limb-darkened but keeps the sun's full power, about 18% more than Blender's.
 
 ## Troubleshooting
 

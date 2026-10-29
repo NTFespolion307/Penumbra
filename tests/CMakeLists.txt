@@ -9,6 +9,8 @@ add_executable(penumbra_unit_tests
   unit/test_cli.cpp
   unit/test_config.cpp
   unit/test_film.cpp
+  unit/test_medium.cpp
+  unit/test_sky.cpp
   unit/test_memory.cpp
   unit/test_net.cpp
   unit/test_package.cpp
@@ -96,6 +98,11 @@ endfunction()
 # has no variance beyond reflect/refract choices, which all return 1.
 pen_render_test(furnace_diffuse uniform furnace_diffuse.pen.json "--res|32x32|--spp|16384" -DTOLERANCE=0.005)
 pen_render_test(furnace_glass uniform furnace_glass.pen.json "--spp|256" -DTOLERANCE=0.005)
+# M14: non-absorbing height fog over a white ground in a white environment stays white (every pixel within 1%).
+pen_render_test(furnace_fog uniform furnace_fog.pen.json "--res|16x16|--spp|65536" -DTOLERANCE=0.01)
+# M14: the atmosphere (sky, air, haze, fog) gives the same bits for any number of slots and threads.
+pen_render_test(slots_atmosphere devices spheres_atmosphere.pen.json "--res|160x90|--spp|32" "-DDEVICE_SETS=cpu+cpu,cpu,cpu"
+                -DSMALL_CHUNKS=1)
 # The same image for any thread count, bit for bit.
 pen_render_test(threads_cornell threads cornell.pen.json "--res|64x64|--spp|16" "-DTHREADS=1|2|0")
 pen_render_test(threads_spheres threads spheres.pen.json "--res|96x54|--spp|8" "-DTHREADS=1|3|0")
@@ -302,6 +309,10 @@ foreach(_b IN LISTS _pen_gpu_backends)
   pen_gpu_test(${_b} ao_vs_cpu pair spheres.pen.json "--res|160x90|--spp|256|--integrator|ao" "-DARGS_A=--backend|cpu"
                "-DARGS_B=--backend|${_b}" -DMAXRELMSE=1e-3)
   pen_gpu_test(${_b} debug_normal runs spheres.pen.json "--res|160x90|--spp|1|--integrator|debug:normal|--backend|${_b}")
+  # M14 gate: the atmosphere matches the CPU at 4,096 spp; non-absorbing fog stays white.
+  pen_gpu_test(${_b} atmosphere_vs_cpu pair spheres_atmosphere.pen.json "--res|320x180|--spp|4096" "-DARGS_A=--backend|cpu"
+               "-DARGS_B=--backend|${_b}" -DMAXRELMSE=1e-3)
+  pen_gpu_test(${_b} furnace_fog uniform furnace_fog.pen.json "--res|16x16|--spp|65536|--backend|${_b}" -DTOLERANCE=0.01)
   # M7, several GPUs (skipped on a machine with one): all GPUs give the same bits as one GPU of the same backend,
   # and a GPU that fails or hangs mid-render changes nothing (DECISIONS D-091, D-094).
   pen_gpu_test(${_b} multi_gpu devices cornell.pen.json "--res|1080p|--scale|0.5|--spp|256|--backend|${_b}"

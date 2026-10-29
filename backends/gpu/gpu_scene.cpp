@@ -241,6 +241,17 @@ gpu::Frame makeGpuFrame(const FrameSetup& frame, const Scene& scene) {
   f.env_is_black = env.isBlack() ? 1 : 0;
   f.env_dist_sum = env.hasMap() ? env.sampling.sum() : 0;
   f.env_light_index = scene.environmentLightIndex();
+  f.medium_count = scene.medium.count;
+  for (uint32_t i = 0; i < scene.medium.count; ++i) {
+    const MediumLayer& l = scene.medium.layers[i];
+    gpu::MediumLayer& g = f.medium[i];
+    copy3(g.sigma_s, l.sigma_s);
+    copy3(g.sigma_t, l.sigma_t);
+    g.base = l.base;
+    g.inv_height = l.inv_height;
+    g.g = l.g;
+    g.rayleigh = l.rayleigh ? 1 : 0;
+  }
   return f;
 }
 

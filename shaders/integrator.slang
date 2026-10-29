@@ -7,6 +7,7 @@
 // pathtrace.slang implements them with Vulkan ray tracing, pathtrace_cuda.slang with the software BVH (bvh.slang).
 #pragma once
 #include "lights.slang"
+#include "medium.slang"
 #include "camera.slang"
 #include "sampler.slang"
 
@@ -15,6 +16,21 @@
 // PathSampler dimension layout, as core/render/integrator.h.
 static const uint kCameraDims = 2;
 static const uint kDimsPerBounce = 5;
+static const uint kMediumDims = 0x10000;  // the atmosphere's own range (M14)
+static const uint kMediumDimsPerBounce = 8;
+
+// What reaches o from the light sample: 0 when blocked, else the atmosphere's transmittance (1 without one).
+float3 shadowTransmittance(float3 o, LightSample ls) {
+  if (isinf(ls.dist)) {
+    if (occluded(o, ls.wi, kInfinity)) return float3(0, 0, 0);
+    return g_frame.medium_count == 0 ? float3(1, 1, 1) : mediumTransmittance(o, ls.wi, kInfinity);
+  }
+  float3 target = offsetRayOrigin(ls.p_light, dot(ls.n_light, -ls.wi) >= 0 ? ls.n_light : -ls.n_light);
+  float3 toTarget = (ls.delta ? ls.p_light : target) - o;
+  float d = length(toTarget);
+  if (occluded(o, toTarget / d, d * (1 - 1e-4))) return float3(0, 0, 0);
+  return g_frame.medium_count == 0 ? float3(1, 1, 1) : mediumTransmittance(o, toTarget / d, d);
+}
 
 void orientForShading(inout SurfaceInteraction si, float3 wo) {
   bool transmissive = si.bsdf.transmission > 0 && si.bsdf.metallic < 1;
@@ -40,6 +56,49 @@ float3 tracePath(float3 origin, float3 dir, inout PathSampler sampler) {
 
   for (uint depth = 0;; ++depth) {
     Hit hit = intersect(origin, dir);
+
+    // The atmosphere: the path may scatter before it reaches the surface (or the sky).
+    if (f.medium_count != 0) {
+      sampler.setDimension(kMediumDims + depth * kMediumDimsPerBounce);
+      float uChannel = sampler.next1D();
+      float uDist[3];
+      for (uint k = 0; k < 3; ++k) uDist[k] = sampler.next1D();
+      MediumEvent ev = sampleMedium(origin, dir, hit.valid ? hit.t : kInfinity, uChannel, uDist);
+      beta *= ev.weight;
+      if (isBlack(beta) || !isFinite3(beta)) break;
+      if (ev.scattered) {
+        if (lastBounce) break;
+        MediumLayer layer = f.medium[ev.layer];
+        float3 p = origin + dir * ev.t;
+        float uSel = sampler.next1D();
+        float2 uLt = sampler.next2D();
+        LightSample mls;
+        if (sampleLight(p, uSel, uLt, mls)) {
+          float phase = phaseValue(layer, dir, mls.wi);
+          float3 tr = shadowTransmittance(p, mls);
+          if (phase > 0 && !isBlack(tr)) {
+            float w = mls.delta ? 1.0 : powerHeuristic(mls.pdf, phase);
+            L += beta * tr * mls.L * (phase * w / mls.pdf);
+          }
+        }
+        float phasePdf = 0;
+        float3 wiM = samplePhase(layer, dir, sampler.next2D(), phasePdf);
+        specular = false;
+        prevPdf = phasePdf;
+        prevP = p;
+        if (depth + 1 > f.max_bounces) lastBounce = true;
+        float uRRm = sampler.next1D();
+        if (f.russian_roulette != 0 && depth >= 3 && !lastBounce) {
+          float q = max(0.05, 1 - maxComponent(beta));
+          if (uRRm < q) break;
+          beta = beta / (1 - q);
+        }
+        origin = p;
+        dir = wiM;
+        continue;
+      }
+    }
+
     if (!hit.valid) {
       if (f.env_is_black == 0) {
         float3 Le = environmentRadiance(dir);
@@ -75,18 +134,12 @@ float3 tracePath(float3 origin, float3 dir, inout PathSampler sampler) {
           float3 fv = bsdf.eval(woLocal, wiLocal, bsdfPdf);
           if (!isBlack(fv)) {
             float3 o = offsetRayOrigin(si.p, side > 0 ? si.ng : -si.ng);
-            bool blocked;
-            if (isinf(ls.dist)) {
-              blocked = occluded(o, ls.wi, kInfinity);
-            } else {
-              float3 target = offsetRayOrigin(ls.p_light, dot(ls.n_light, -ls.wi) >= 0 ? ls.n_light : -ls.n_light);
-              float3 toTarget = (ls.delta ? ls.p_light : target) - o;
-              float d = length(toTarget);
-              blocked = occluded(o, toTarget / d, d * (1 - 1e-4));
-            }
-            if (!blocked) {
+            float3 tr = shadowTransmittance(o, ls);
+            if (!isBlack(tr)) {
               float w = ls.delta ? 1.0 : powerHeuristic(ls.pdf, bsdfPdf);
-              L += beta * fv * ls.L * (w / ls.pdf);
+              float3 c = beta * fv * ls.L * (w / ls.pdf);
+              if (f.medium_count != 0) c *= tr;
+              L += c;
             }
           }
         }

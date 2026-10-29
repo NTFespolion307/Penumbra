@@ -3,7 +3,10 @@
 //   cornell.gltf          classic Cornell box (Lambert walls, area light)            -> cornell.pen.json
 //   furnace_diffuse.gltf  white Lambert sphere in a uniform white environment         -> furnace_diffuse.pen.json
 //   furnace_glass.gltf    smooth glass sphere in a uniform white environment          -> furnace_glass.pen.json
+//   furnace_fog.gltf      white Lambert ground under non-absorbing height fog, white environment (M14)
+//                         -> furnace_fog.pen.json
 //   spheres.gltf + sky.hdr glass, gold, clear-coated and sheen spheres on a procedural HDRI -> spheres.pen.json
+//                         and under the physical sky with fog (M14) -> spheres_atmosphere.pen.json
 //   bigtex.gltf + bigtex.bin + textures/noise.png   a quad with a 12 MB noise texture, external buffer and a
 //                         texture in a subfolder: scene package transfer tests -> bigtex.pen.json
 //   cutout.gltf           orthographic camera (axis-parallel rays), an alpha-masked checker quad, one sphere mesh
@@ -256,6 +259,34 @@ void sphereScene(const fs::path& dir, const std::string& name, const json& mat, 
             {{"scene", name + ".gltf"}, {"environment", {{"color", {1.0, 1.0, 1.0}}}}, {"render", render}});
 }
 
+// The atmosphere's furnace (M14): a white Lambert ground 20 km wide under height fog that scatters without
+// absorbing, in a uniform white environment. Everything conserves energy, so every pixel is 1. The ground stops
+// rays going down, where the fog keeps getting denser (as real terrain would).
+void furnaceFog(const fs::path& dir) {
+  GltfWriter w;
+  w.useExtension("KHR_materials_specular");
+  const int white = w.material(lambert("white", {1, 1, 1}));
+  // 100 x 100 quads of 200 m, not two 20 km triangles: with vertices 10 km out, Vulkan's hardware hit points near
+  // the camera were off by about a millimetre and shadow rays caught their own triangle (6% too dark, D-123).
+  MeshData ground;
+  for (int j = 0; j < 100; ++j)
+    for (int i = 0; i < 100; ++i) {
+      const float x0 = -1e4f + 200.0f * i, z0 = -1e4f + 200.0f * j;
+      addQuad(ground, {x0, 0, z0}, {x0 + 200, 0, z0}, {x0 + 200, 0, z0 + 200}, {x0, 0, z0 + 200}, {x0 + 100, 10, z0 + 100}, 1);
+    }
+  w.node({{"name", "ground"}, {"mesh", w.mesh("ground", ground, white)}});
+  const int cam = w.camera({{"type", "perspective"}, {"perspective", {{"yfov", 0.9}, {"znear", 0.01}}}});
+  // 3 units up, looking 10 degrees down, so the image holds ground, fog and the horizon.
+  w.node({{"name", "Camera"}, {"camera", cam}, {"translation", {0, 3.0, 10.0}}, {"rotation", {-0.0871557, 0, 0, 0.9961947}}});
+  w.write(dir / "furnace_fog.gltf");
+  writeJson(dir / "furnace_fog.pen.json",
+            {{"scene", "furnace_fog.gltf"},
+             {"environment", {{"color", {1.0, 1.0, 1.0}}}},
+             {"atmosphere", {{"air", 0.0}, {"haze", 0.0}, {"fog_density", 0.05}, {"fog_height", 20.0}, {"fog_base", 0.0},
+                             {"fog_anisotropy", 0.3}, {"fog_color", {1.0, 1.0, 1.0}}}},
+             {"render", {{"res", "64x64"}, {"max_bounces", 512}}}});
+}
+
 void skyHdr(const fs::path& path) {
   constexpr int W = 512, H = 256;
   std::vector<float> px(W * H * 3);
@@ -312,6 +343,12 @@ void spheres(const fs::path& dir) {
   writeJson(dir / "spheres.pen.json", {{"scene", "spheres.gltf"},
                                         {"environment", {{"hdri", "sky.hdr"}, {"strength", 1.0}, {"rotation_deg", 0}}},
                                         {"render", {{"res", "720p"}}}});
+  // M14: the same spheres under the physical sky (low sun) in air, haze and a ground fog, metres as units.
+  writeJson(dir / "spheres_atmosphere.pen.json",
+            {{"scene", "spheres.gltf"},
+             {"sky", {{"sun_elevation_deg", 12.0}, {"sun_azimuth_deg", -60.0}, {"resolution", 1024}}},
+             {"atmosphere", {{"fog_density", 0.05}, {"fog_height", 1.0}, {"fog_base", 0.0}, {"fog_anisotropy", 0.6}}},
+             {"render", {{"res", "720p"}, {"exposure", -6.5}}}});
 }
 
 // A lit quad whose base colour is a 2048x2048 noise PNG (about 12 MB, barely compressible): big enough for the
@@ -424,6 +461,7 @@ int main(int argc, char** argv) {
                {"pbrMetallicRoughness", {{"baseColorFactor", {1, 1, 1, 1}}, {"metallicFactor", 0.0}, {"roughnessFactor", 0.0}}},
                {"extensions", {{"KHR_materials_transmission", {{"transmissionFactor", 1.0}}}, {"KHR_materials_ior", {{"ior", 1.5}}}}}},
               {{"res", "64x64"}, {"max_bounces", 128}, {"no_rr", true}});
+  furnaceFog(dir);
   spheres(dir);
   bigtex(dir);
   cutout(dir);

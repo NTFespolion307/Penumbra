@@ -12,6 +12,7 @@
 #include <limits>
 
 #include "core/render/lights.h"
+#include "core/render/medium.h"
 #include "core/render/surface.h"
 #include "core/sampling/sampler.h"
 #include "core/sampling/warp.h"
@@ -43,6 +44,11 @@ struct IntegratorParams {
 // light select, light point, BSDF lobe, BSDF direction, Russian roulette.
 inline constexpr uint32_t kCameraDims = 2;
 inline constexpr uint32_t kDimsPerBounce = 5;
+// The atmosphere (M14) draws from its own range, so renders without one keep their exact numbers: per bounce the
+// colour channel, one distance per layer, then at a scattering point light select, light point, phase direction,
+// Russian roulette.
+inline constexpr uint32_t kMediumDims = 0x10000;
+inline constexpr uint32_t kMediumDimsPerBounce = 8;
 
 namespace detail {
 
@@ -64,6 +70,20 @@ inline void orientForShading(SurfaceInteraction& si, Vec3f wo) {
   }
 }
 
+// What reaches o from the light sample: 0 when blocked, else the atmosphere's transmittance (1 without one).
+template <class Tracer>
+Vec3f shadowTransmittance(const Scene& scene, const Tracer& tracer, Vec3f o, const LightSample& ls) {
+  if (std::isinf(ls.dist)) {
+    if (tracer.occluded(o, ls.wi, kInf)) return Vec3f(0);
+    return scene.medium.empty() ? Vec3f(1) : mediumTransmittance(scene.medium, o, ls.wi, kInf);
+  }
+  const Vec3f target = offsetRayOrigin(ls.p_light, dot(ls.n_light, -ls.wi) >= 0 ? ls.n_light : -ls.n_light);
+  const Vec3f toTarget = (ls.delta ? ls.p_light : target) - o;
+  const float d = length(toTarget);
+  if (tracer.occluded(o, toTarget / d, d * (1 - 1e-4f))) return Vec3f(0);
+  return scene.medium.empty() ? Vec3f(1) : mediumTransmittance(scene.medium, o, toTarget / d, d);
+}
+
 }  // namespace detail
 
 template <class Tracer>
@@ -78,6 +98,50 @@ Vec3f tracePath(const Scene& scene, const Tracer& tracer, const IntegratorParams
 
   for (uint32_t depth = 0;; ++depth) {
     const Hit hit = tracer.intersect(origin, dir, detail::kInf);
+
+    // The atmosphere: the path may scatter before it reaches the surface (or the sky).
+    if (!scene.medium.empty()) {
+      sampler.setDimension(kMediumDims + depth * kMediumDimsPerBounce);
+      const float uChannel = sampler.next1D();
+      float uDist[Medium::kMaxLayers];
+      for (float& u : uDist) u = sampler.next1D();
+      const MediumEvent ev =
+          sampleMedium(scene.medium, origin, dir, hit.valid ? hit.t : detail::kInf, uChannel, uDist);
+      beta *= ev.weight;
+      if (isBlack(beta) || !isFinite(beta)) break;
+      if (ev.scattered) {
+        if (lastBounce) break;  // no further scattering; what lies beyond counts in the unscattered branch
+        const MediumLayer& layer = scene.medium.layers[ev.layer];
+        const Vec3f p = origin + dir * ev.t;
+        const float uSelect = sampler.next1D();
+        const Vec2f uLight = sampler.next2D();
+        LightSample ls;
+        if (sampleLight(scene, p, uSelect, uLight, ls)) {
+          const float phase = phaseValue(layer, dir, ls.wi);
+          const Vec3f tr = detail::shadowTransmittance(scene, tracer, p, ls);
+          if (phase > 0 && !isBlack(tr)) {
+            const float w = ls.delta ? 1.0f : powerHeuristic(ls.pdf, phase);
+            L += beta * tr * ls.L * (phase * w / ls.pdf);
+          }
+        }
+        float phasePdf = 0;
+        const Vec3f wi = samplePhase(layer, dir, sampler.next2D(), phasePdf);  // weight phase / pdf = 1
+        specular = false;
+        prevPdf = phasePdf;
+        prevP = p;
+        if (depth + 1 > params.max_bounces) lastBounce = true;
+        const float uRR = sampler.next1D();
+        if (params.russian_roulette && depth >= 3 && !lastBounce) {
+          const float q = std::fmax(0.05f, 1 - maxComponent(beta));
+          if (uRR < q) break;
+          beta = beta / (1 - q);
+        }
+        origin = p;
+        dir = wi;
+        continue;
+      }
+    }
+
     if (!hit.valid) {
       if (!scene.environment.isBlack()) {
         const Vec3f Le = environmentRadiance(scene.environment, dir);
@@ -113,18 +177,12 @@ Vec3f tracePath(const Scene& scene, const Tracer& tracer, const IntegratorParams
           const Vec3f f = bsdf.eval(woLocal, wiLocal, bsdfPdf);
           if (!isBlack(f)) {
             const Vec3f o = offsetRayOrigin(si.p, side > 0 ? si.ng : -si.ng);
-            bool blocked;
-            if (std::isinf(ls.dist)) {
-              blocked = tracer.occluded(o, ls.wi, detail::kInf);
-            } else {
-              const Vec3f target = offsetRayOrigin(ls.p_light, dot(ls.n_light, -ls.wi) >= 0 ? ls.n_light : -ls.n_light);
-              const Vec3f toTarget = (ls.delta ? ls.p_light : target) - o;
-              const float d = length(toTarget);
-              blocked = tracer.occluded(o, toTarget / d, d * (1 - 1e-4f));
-            }
-            if (!blocked) {
+            const Vec3f tr = detail::shadowTransmittance(scene, tracer, o, ls);
+            if (!isBlack(tr)) {
               const float w = ls.delta ? 1.0f : powerHeuristic(ls.pdf, bsdfPdf);
-              L += beta * f * ls.L * (w / ls.pdf);
+              Vec3f c = beta * f * ls.L * (w / ls.pdf);
+              if (!scene.medium.empty()) c *= tr;
+              L += c;
             }
           }
         }

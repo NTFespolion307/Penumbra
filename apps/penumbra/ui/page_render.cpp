@@ -92,8 +92,10 @@ void updatePreview(RenderPage& rp) {
   const double aspect = double(rp.form.outputWidth()) / double(std::max(1u, rp.form.outputHeight()));
   rp.preview_w = aspect >= 16.0 / 9.0 ? 480u : std::max(16u, uint32_t(270 * aspect));
   rp.preview_h = aspect >= 16.0 / 9.0 ? std::max(16u, uint32_t(480 / aspect)) : 270u;
-  rp.preview = std::async(std::launch::async, [scene = rp.info->scene, s = rp.form, w = rp.preview_w,
-                                               h = rp.preview_h] { return renderPreview(*scene, s, w, h, 8); });
+  rp.preview = std::async(std::launch::async, [scene = rp.info->scene, loaded = rp.info->settings, s = rp.form,
+                                               w = rp.preview_w, h = rp.preview_h] {
+    return renderPreview(*scene, loaded, s, w, h, 8);
+  });
 }
 
 struct FormatChoice {
@@ -315,6 +317,46 @@ void imageCard(UiState& ui, float w, float h) {
     ImGui::SetNextItemWidth(half);
     if (ImGui::InputScalar("Time limit (minutes, 0 = none)", ImGuiDataType_U32, &minutes)) f.time_limit_s = uint64_t(minutes) * 60;
   }
+  // M14: the physical sky and the atmosphere (.pen.json "sky" and "atmosphere"; README "Atmosphere").
+  if (f.sky.enabled || f.atmosphere.enabled) ImGui::SetNextItemOpen(true, ImGuiCond_Once);  // the scene uses them
+  if (ImGui::CollapsingHeader("Sky and atmosphere")) {
+    bool touched = false;
+    const auto slider = [&](const char* label, double& v, float lo, float hi, const char* format,
+                            ImGuiSliderFlags flags = 0) {
+      float x = float(v);
+      ImGui::SetNextItemWidth(half);
+      if (ImGui::SliderFloat(label, &x, lo, hi, format, flags)) {
+        v = x;
+        touched = true;
+      }
+    };
+    touched |= ImGui::Checkbox("Physical sky from the sun (replaces the HDRI)", &f.sky.enabled);
+    if (f.sky.enabled) {
+      slider("Sun elevation (deg)", f.sky.sun_elevation_deg, -10, 90, "%.1f");
+      slider("Sun azimuth (deg)", f.sky.sun_azimuth_deg, -180, 180, "%.0f");
+      slider("Sun disc strength", f.sky.sun_strength, 0, 4, "%.2f");
+      slider("Air", f.sky.air, 0, 10, "%.2f");
+      slider("Dust", f.sky.dust, 0, 10, "%.2f");
+      slider("Ozone", f.sky.ozone, 0, 10, "%.2f");
+      slider("Altitude (m)", f.sky.altitude, 0, 8000, "%.0f");
+      small("The sky is in real units: use an exposure around -6 to -10.");
+    }
+    touched |= ImGui::Checkbox("Atmosphere: air, haze and fog in the scene", &f.atmosphere.enabled);
+    if (f.atmosphere.enabled) {
+      double haze = f.atmosphere.haze.value_or(f.sky.enabled ? f.sky.dust : 1.0);
+      const double before = haze;
+      slider("Haze", haze, 0, 20, "%.2f");
+      if (haze != before) f.atmosphere.haze = haze;
+      slider("Fog density (per m)", f.atmosphere.fog_density, 0, 0.1f, "%.5f", ImGuiSliderFlags_Logarithmic);
+      slider("Fog height (m)", f.atmosphere.fog_height, 0.1f, 2000, "%.1f", ImGuiSliderFlags_Logarithmic);
+      slider("Fog base (scene units)", f.atmosphere.fog_base, -100, 100, "%.1f");
+      slider("Scene altitude (m)", f.atmosphere.altitude, 0, 8000, "%.0f");
+    }
+    if (touched) {
+      rp.preview_wanted = true;
+      rp.changed = std::chrono::steady_clock::now();
+    }
+  }
   endCard();
 }
 
@@ -370,7 +412,7 @@ void outputCard(UiState& ui, float w, float h) {
   fieldLabel("Exposure (EV)");
   ImGui::SetNextItemWidth(fieldW);
   float ev = float(f.exposure);
-  if (ImGui::SliderFloat("##ev", &ev, -5.0f, 5.0f, "%+.1f")) {
+  if (ImGui::SliderFloat("##ev", &ev, -12.0f, 5.0f, "%+.1f")) {  // a physical sky needs about -8 (M14)
     f.exposure = ev;
     rp.preview_wanted = true;
     rp.changed = std::chrono::steady_clock::now();

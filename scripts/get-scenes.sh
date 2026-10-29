@@ -4,6 +4,7 @@
 #
 #   ./scripts/get-scenes.sh                 Sponza (Khronos, ~58 MB) with an HDRI sky: scenes/sponza.pen.json
 #   ./scripts/get-scenes.sh intel-sponza    Intel's New Sponza (4 GB download, 2.8 GB kept): scenes/intel-sponza.pen.json
+#   ./scripts/get-scenes.sh swiss-alps      Eiger, Moench, Jungfrau (swisstopo, 330 MB; needs Penumbra built): scenes/swiss-alps.pen.json
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -70,10 +71,51 @@ get_intel_sponza() {
   echo -e "\033[32mReady: scenes/intel-sponza.pen.json\033[0m"
 }
 
+# The Swiss Alps (M14): Eiger, Moench and Jungfrau from swisstopo's open data (swissALTI3D 2 m elevation, SWISSIMAGE
+# 2 m photos), 16 x 16 km, the newest tile of each square kilometre. The STAC listing gives every tile's SHA-256;
+# penumbra-terrain (built with Penumbra) reads the listing and turns the tiles into a glTF. (c) swisstopo.
+get_swiss_alps() {
+  local dir="$root/scenes/swiss-alps" bbox=2632,1150,2648,1166 wgs=7.84,46.49,8.09,46.655
+  local stac="https://data.geo.admin.ch/api/stac/v0.9/collections" tool c url i
+  tool="$(ls "$root"/build/*/bin/penumbra-terrain 2>/dev/null | head -1 || true)"
+  [ -n "$tool" ] || fail "penumbra-terrain not found: build Penumbra first (./scripts/build.sh)"
+  mkdir -p "$dir/tiles" "$dir/stac"
+  step "Listing the swisstopo tiles"
+  rm -f "$dir"/stac/*.json
+  for c in ch.swisstopo.swissalti3d ch.swisstopo.swissimage-dop10; do
+    url="$stac/$c/items?bbox=$wgs&limit=100"
+    i=0
+    while [ -n "$url" ]; do
+      curl -fsSL --retry 3 -o "$dir/stac/$c-$i.json" "$url" || fail "could not list $url"
+      url="$("$tool" --stac-next "$dir/stac/$c-$i.json")"
+      i=$((i + 1))
+    done
+  done
+  "$tool" --stac-list --bbox "$bbox" "$dir"/stac/*.json > "$dir/tiles.txt" || fail "the swisstopo listing is incomplete"
+  step "Downloading $(wc -l < "$dir/tiles.txt") tiles (about 330 MB) into $dir/tiles"
+  get_tile() {  # sha256 url dir: keeps a correct file, else downloads and checks it
+    local f="$3/tiles/${2##*/}" try
+    [ -f "$f" ] && [ "$(sha256sum "$f" | cut -d' ' -f1)" = "$1" ] && return 0
+    for try in 1 2 3; do
+      curl -fsSL --retry 3 -o "$f" "$2" && [ "$(sha256sum "$f" | cut -d' ' -f1)" = "$1" ] && return 0
+    done
+    echo "could not download $2 (or it does not match its SHA-256)" >&2
+    return 1
+  }
+  export -f get_tile
+  xargs -P 8 -L 1 bash -c 'get_tile "$0" "$1" "$2"' < <(sed "s|\$| $dir|" "$dir/tiles.txt") ||
+    fail "some tiles failed; run the script again"
+  step "Building the terrain (4 m mesh, 2 m photo texture)"
+  "$tool" --tiles "$dir/tiles" --out "$dir" --name alps --bbox "$bbox" --grid 4 --texture 2 \
+    --camera 2638300,1162250,2700 --target 2642835,1156511,3300 --yfov 40 || fail "penumbra-terrain failed"
+  echo -e "\033[32mReady: scenes/swiss-alps.pen.json\033[0m"
+}
+
 case "$scene" in
   sponza) get_sponza; exe="scenes/sponza.pen.json" ;;
   intel-sponza) get_intel_sponza; exe="scenes/intel-sponza.pen.json" ;;
-  -h|--help) sed -n '2,7p' "$0"; exit 0 ;;
-  *) fail "unknown scene '$scene' (sponza, intel-sponza)" ;;
+  swiss-alps) get_swiss_alps; exe="scenes/swiss-alps.pen.json" ;;
+  -h|--help) sed -n '2,8p' "$0"; exit 0 ;;
+  *) fail "unknown scene '$scene' (sponza, intel-sponza, swiss-alps)" ;;
 esac
 echo "Render it with: build/linux-gcc-release/bin/penumbra --terminal $exe --spp 1024 -o render.png"

@@ -106,6 +106,16 @@ struct PunctualLight {
   float cos_outer;
 };
 
+// One exponential height layer of the atmosphere (backends/gpu/gpu_types.h MediumLayer, M14).
+struct MediumLayer {
+  float3 sigma_s;
+  float3 sigma_t;
+  float base;
+  float inv_height;
+  float g;
+  uint rayleigh;
+};
+
 struct FrameData {
   uint projection;
   float cam_to_world[12];
@@ -137,6 +147,8 @@ struct FrameData {
   uint env_is_black;
   float env_dist_sum;
   uint env_light_index;
+  uint medium_count;
+  MediumLayer medium[3];
 };
 
 struct PushConstants {
