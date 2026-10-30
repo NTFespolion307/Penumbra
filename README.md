@@ -257,6 +257,7 @@ The binary is `build/<preset>/bin/penumbra` (`penumbra.exe` on Windows).
 | `PEN_ENABLE_OPTIX` | `OFF` | OptiX backend and denoiser *(planned, M13, optional)* |
 | `PEN_ENABLE_UI` | `ON` | The user interface (M10); off for headless servers (`build.sh` turns it off when there is no display). `--terminal` and `--worker` never need display libraries either way |
 | `PEN_CUDA_ARCHS` | `75;80;86;89;90;120` | CUDA architectures to compile for. Newer GPUs run the embedded PTX. CUDA 13 cannot build for GTX 10-series (61) or V100 (70); for those, build with CUDA 12.x and add the architecture, e.g. `-DPEN_CUDA_ARCHS="61;75;86"` |
+| `PEN_ENABLE_OIDN` | `ON` | Denoising with Intel Open Image Denoise 2.5.1: configure downloads Intel's release binaries (about 60 MB, SHA-256 checked) into the build folder once, and the build copies its libraries next to `penumbra`. `OFF` builds without denoising |
 | `PEN_CUDA_NVCC_FLAGS` | (empty) | Extra nvcc flags for the CUDA kernels, separated by semicolons, e.g. `-DPEN_CUDA_NVCC_FLAGS="-maxrregcount=96"`. For tuning experiments; the build log shows each kernel's registers and spills |
 | `PEN_BUILD_TESTS` | `ON` | Unit, smoke and lint tests |
 
@@ -319,7 +320,10 @@ float; BigTIFF above 4 GB) and WebP. Display formats (PNG, JPEG, WebP, 8/16-bit 
 grey response), `aces` (the ACES fit) or `none` (the sRGB curve with clipping, Blender's "Standard"). EXR and
 32-bit TIFF stay linear. `--aov albedo,normal,depth` also writes those passes as `<name>.albedo.exr`,
 `<name>.normal.exr` (in [-1, 1]) and `<name>.depth.exr` (scene units) next to the image; each is rendered at 16
-samples per pixel at the first hit, a few percent of the render's time. Images are written in bands of 256 rows, so even a 160K output never sits in memory whole. With
+samples per pixel at the first hit, a few percent of the render's time. `--denoise oidn` removes the noise with
+Intel Open Image Denoise, guided by the albedo and normal passes (rendered for it automatically): on the
+controller's NVIDIA GPU when it has one, else on its CPU, tile by tile, with the same result as denoising the whole
+image at once (no seams at any size). It is off by default in `--terminal`, so renders stay unbiased. Images are written in bands of 256 rows, so even a 160K output never sits in memory whole. With
 `--region` the output file contains only that region. On the controller machine the CPU leaves 2 threads free
 unless you pass `--threads`.
 

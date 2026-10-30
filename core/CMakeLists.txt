@@ -18,6 +18,7 @@ add_library(penumbra_core STATIC
   image/image.cpp
   image/image_io.cpp
   log/log.cpp
+  output/denoise.cpp
   output/output.cpp
   output/tonemap.cpp
   output/writers.cpp
@@ -50,4 +51,8 @@ target_link_libraries(penumbra_core
   PRIVATE tinyobjloader::tinyobjloader OpenEXR::OpenEXR PNG::PNG JPEG::JPEG TIFF::TIFF WebP::webp BLAKE3::blake3)
 if(WIN32)
   target_link_libraries(penumbra_core PRIVATE shell32 ole32 advapi32)
+endif()
+if(PEN_ENABLE_OIDN)
+  target_link_libraries(penumbra_core PRIVATE OpenImageDenoise)
+  target_compile_definitions(penumbra_core PRIVATE PEN_HAS_OIDN=1)
 endif()

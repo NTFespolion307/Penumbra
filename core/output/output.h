@@ -12,10 +12,11 @@
 
 namespace pen {
 
-// Exposure, display transform and encoding, streamed band by band from the film into the output file.
-// The output covers the whole image, or only --region when one is set. `notes` receives info lines to log.
+// Denoise (--denoise, with the albedo and normal films), exposure, display transform and encoding, streamed band
+// by band from the film into the output file. The output covers the whole image, or only --region when one is
+// set. `notes` receives info lines to log.
 void writeOutput(const Film& film, const RenderSettings& settings, const ImageMetadata& metadata,
-                 std::vector<std::string>& notes);
+                 std::vector<std::string>& notes, const Film* albedo = nullptr, const Film* normal = nullptr);
 
 // Same, from any source of linear radiance rows (used by `penumbra merge`).
 using RowSource = std::function<void(const TileRect& rows, std::vector<Vec3f>& out)>;
@@ -26,7 +27,7 @@ void writeImage(const RowSource& source, uint32_t width, uint32_t height, const 
 Vec3f displayEncode(Vec3f linear, float exposureScale, Tonemap tonemap);
 
 // An AOV film (M11, D-127) as <output name>.<pass>.exr next to the output: linear float, no exposure or tonemap;
-// albedo as it is, normals back from the debug view's 0.5 n + 0.5 to [-1, 1], depth in scene units (32-bit).
+// albedo, normals in [-1, 1] (0 where nothing was hit), depth in scene units (32-bit).
 void writeAov(const Film& film, Pass pass, const RenderSettings& s, const ImageMetadata& metadata,
               std::vector<std::string>& notes);
 std::filesystem::path aovOutputPath(const std::filesystem::path& output, Pass pass);

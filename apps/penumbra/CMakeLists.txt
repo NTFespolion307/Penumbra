@@ -11,6 +11,9 @@ if(WIN32)
   target_sources(penumbra PRIVATE penumbra.manifest)
 endif()
 target_link_libraries(penumbra PRIVATE penumbra_cli penumbra_controller penumbra_net)
+if(PEN_ENABLE_OIDN)
+  pen_copy_oidn_runtime(penumbra)  # Open Image Denoise's libraries next to the binary (cmake/Oidn.cmake)
+endif()
 set_target_properties(penumbra PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 # ---- UI (M10, docs/GUIDE.md "UI"; DECISIONS D-100) ----

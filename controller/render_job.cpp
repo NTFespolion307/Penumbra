@@ -7,6 +7,7 @@
 #include <fmt/format.h>
 
 #include "core/exit_codes.h"
+#include "core/output/denoise.h"
 #include "core/output/output.h"
 #include "core/output/writers.h"
 #include "core/render/camera.h"
@@ -31,7 +32,14 @@ int validate(const RenderSettings& s) {
                   "reports (Embree and Vulkan ray tracing do not); add --backend cuda");
     return toInt(ExitCode::BadArguments);
   }
-  if (s.denoise != Denoiser::None) spdlog::warn("--denoise {} is built in milestone M11; not applied", toString(s.denoise));
+  if (s.denoise == Denoiser::Optix) {
+    spdlog::error("--denoise optix comes with the OptiX milestone (M13); use --denoise oidn");
+    return toInt(ExitCode::BadArguments);
+  }
+  if (s.denoise == Denoiser::Oidn && !denoiserAvailable()) {
+    spdlog::error("--denoise oidn: this build has no Open Image Denoise (it was configured with PEN_ENABLE_OIDN=OFF)");
+    return toInt(ExitCode::BadArguments);
+  }
   return -1;
 }
 
@@ -362,7 +370,8 @@ int finishRender(RenderJob& job, const RenderOutcome& outcomeIn) {
   // Output (also for interrupted renders: "the current image is saved").
   try {
     std::vector<std::string> notes;
-    writeOutput(*job.film, s, metadataFor(s, outcome), notes);
+    writeOutput(*job.film, s, metadataFor(s, outcome), notes, job.aov_films[size_t(Pass::Albedo)].get(),
+                job.aov_films[size_t(Pass::Normal)].get());
     for (size_t p = 1; p < kPassCount; ++p)
       if (job.aov_films[p] && std::find(s.aov.begin(), s.aov.end(), passName(Pass(p))) != s.aov.end())
         writeAov(*job.aov_films[p], Pass(p), s, metadataFor(s, outcome), notes);

@@ -1194,3 +1194,21 @@ pass works whatever the main format. The denoiser needs albedo and normal, so `-
 (written only if listed). Not covered: `penumbra merge` combines the images only. Tests: scheduler (AOVs first,
 after a stop, totals), `render.slots_aov` (any slots, same bits, with all three AOVs), `net.aov` (workers render
 the AOV passes; the image equals the solo render bit for bit).
+
+**D-128 The denoiser (M11 step 3).** Intel Open Image Denoise 2.5.1 from Intel's release (`cmake/Oidn.cmake`:
+downloaded at configure time, SHA-256 checked, `PEN_ENABLE_OIDN`, ON by default); the core, CPU and CUDA device
+libraries and TBB are copied next to `penumbra` and the unit tests (the AMD and Intel GPU devices are left out). The
+"RT" filter, HDR, guided by the albedo and normal passes (D-127), runs in the output stage before exposure and
+tonemap: each 256-row band in tiles of 1024 px wide. OIDN picks the device (CUDA on an NVIDIA GPU, else the CPU),
+logged with the tiling. Seams, measured (2560 x 1440 against the same image denoised whole in one call):
+- With the guide's 32 px border and OIDN's per-call automatic input scale: relMSE 3.8e-7 overall, but the
+  differences sat at the tile and band edges (up to 40x the median difference there).
+- OIDN's documentation: for manual tiling the HDR `inputScale` *must* be set by the user (else each tile gets its
+  own), and tiles must overlap by `tileOverlap` (read after a filter is committed with images: 96 px, alignment
+  16; before a commit it reads 0). Now one input scale for the whole image (OIDN's own formula, 0.18 over the
+  geometric-mean luminance, from about 512 rows of the film) and a border of max(32, tileOverlap) rounded to the
+  alignment: the tiled result equals the whole-image one bit for bit. Test `render.denoise_seams` (exact, using
+  the test hook `PENUMBRA_TEST_DENOISE_WHOLE`, logged when active).
+- The normal pass now stores raw normals (0 where nothing is hit) instead of the debug view's 0.5 n + 0.5: decoding
+  2v - 1 made the sky's normal (-1, -1, -1), which put a two-pixel artifact on the image border.
+- `--denoise optix` is refused (M13); `--denoise oidn` in a build without OIDN is refused with the reason.

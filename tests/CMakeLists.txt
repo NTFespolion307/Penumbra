@@ -22,6 +22,9 @@ add_executable(penumbra_unit_tests
   unit/test_scheduler.cpp
   unit/test_settings.cpp)
 target_link_libraries(penumbra_unit_tests PRIVATE penumbra_cli penumbra_controller penumbra_net Catch2::Catch2WithMain)
+if(PEN_ENABLE_OIDN)
+  pen_copy_oidn_runtime(penumbra_unit_tests)  # Open Image Denoise's libraries next to the binary (cmake/Oidn.cmake)
+endif()
 target_compile_definitions(penumbra_unit_tests PRIVATE PEN_TEST_DATA_DIR="${PEN_TEST_DATA}")
 # Unit tests count chunks of the M3 size (2^22 pixel-samples, DECISIONS D-083) unless they pass a budget.
 catch_discover_tests(penumbra_unit_tests PROPERTIES LABELS unit ENVIRONMENT "PENUMBRA_TEST_CHUNK_BUDGET=4194304")
@@ -105,6 +108,12 @@ pen_render_test(furnace_fog uniform furnace_fog.pen.json "--res|16x16|--spp|6553
 # M11: AOV passes do not change the image: any slots, same bits, with albedo, normal and depth rendered too.
 pen_render_test(slots_aov devices cornell.pen.json "--res|1080p|--scale|0.5|--spp|32|--aov|albedo,normal,depth"
                 "-DDEVICE_SETS=cpu+cpu,cpu+cpu,cpu,cpu" -DSMALL_CHUNKS=1)
+# M11 (D-128): the denoiser, tile by tile with OIDN's overlap and one input scale, equals denoising the whole image
+# in one call, bit for bit: no seams (2560 x 1440: 3 tiles across, 6 bands).
+if(PEN_ENABLE_OIDN)
+  pen_render_test(denoise_seams pair spheres.pen.json "--res|2560x1440|--spp|4|--denoise|oidn" "-DARGS_A=" "-DARGS_B="
+                  -DENV_B=PENUMBRA_TEST_DENOISE_WHOLE=1 -DMAXRELMSE=0)
+endif()
 pen_render_test(slots_atmosphere devices spheres_atmosphere.pen.json "--res|160x90|--spp|32" "-DDEVICE_SETS=cpu+cpu,cpu,cpu"
                 -DSMALL_CHUNKS=1)
 # The same image for any thread count, bit for bit.

@@ -161,6 +161,7 @@ class CpuBackend final : public IBackend {
     const float invN = item.samples() > 0 ? 1.0f / static_cast<float>(item.samples()) : 0.0f;
     IntegratorParams params = f.params;
     params.mode = passIntegrator(item.pass, f.params.mode);  // an AOV pass renders its debug view (M11)
+    params.raw_normals = item.pass == Pass::Normal;
 
     arena_->execute([&] {
       tbb::parallel_for(tbb::blocked_range2d<uint32_t>(r.y0, r.y1, 4, r.x0, r.x1, 16), [&](const auto& range) {

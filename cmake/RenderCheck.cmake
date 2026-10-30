@@ -5,6 +5,7 @@
 #   reference    REFERENCE, MAXRELMSE      relMSE against a golden image
 #   runs         -                         the render must succeed
 #   pair         ARGS_A, ARGS_B, MAXRELMSE two renders that differ only in ARGS_A / ARGS_B agree within MAXRELMSE
+#                (optional ENV_B: an environment variable for the second render only, e.g. a test hook)
 #                (EXPECT_LOG: a regex the second render's log must match)
 # Renders use the CPU unless ARGS names a backend, so a test means the same on a machine with a GPU.
 
@@ -129,6 +130,9 @@ elseif(MODE STREQUAL "pair")
   string(REPLACE "|" ";" a "${ARGS_A}")
   string(REPLACE "|" ";" b "${ARGS_B}")
   render("${NAME}_a.exr" ${a})
+  if(DEFINED ENV_B)
+    set(RENDER_ENV "${ENV_B}")
+  endif()
   render("${NAME}_b.exr" ${b})
   if(DEFINED EXPECT_LOG AND NOT last_log MATCHES "${EXPECT_LOG}")  # checked against the second render
     message(FATAL_ERROR "the log of the second render does not show '${EXPECT_LOG}':\n${last_log}")

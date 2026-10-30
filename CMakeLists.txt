@@ -53,6 +53,7 @@ if(NOT DEFINED PEN_ENABLE_CUDA)
   endif()
   option(PEN_ENABLE_CUDA "CUDA compute backend (built from M6); ON if the CUDA toolkit is found" ${_pen_cuda_default})
 endif()
+option(PEN_ENABLE_OIDN "Denoising with Intel Open Image Denoise 2 (downloads its release binaries, ~60 MB)" ON)
 set(PEN_CUDA_ARCHS "75;80;86;89;90;120" CACHE STRING
     "CUDA architectures to compile for (machine code for each; the oldest also as PTX for newer GPUs)")
 set(PEN_CUDA_NVCC_FLAGS "" CACHE STRING
@@ -83,6 +84,9 @@ find_package(BLAKE3 CONFIG REQUIRED)
 find_path(CGLTF_INCLUDE_DIRS "cgltf.h" REQUIRED)
 find_path(STB_INCLUDE_DIRS "stb_image.h" REQUIRED)
 find_package(Git QUIET)
+if(PEN_ENABLE_OIDN)
+  include(cmake/Oidn.cmake)
+endif()
 
 add_subdirectory(core)
 add_subdirectory(net)

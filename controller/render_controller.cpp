@@ -714,7 +714,8 @@ bool RenderController::writeImageNow(const RenderSettings& settings, std::string
   std::lock_guard lock(mutex_);  // no merge while the image is written
   try {
     std::vector<std::string> notes;
-    writeOutput(film_, settings, {{"Software", "Penumbra"}, {"Incomplete", "true"}}, notes);
+    writeOutput(film_, settings, {{"Software", "Penumbra"}, {"Incomplete", "true"}}, notes,
+                films_[size_t(Pass::Albedo)], films_[size_t(Pass::Normal)]);
     for (const auto& n : notes) spdlog::info("{}", n);
     spdlog::info("saved the current image to {}", pathToUtf8(settings.output));
     return true;
