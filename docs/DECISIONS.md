@@ -1245,3 +1245,8 @@ AppImage) stays an M12 option.
   below the 99.9th percentile of ordinary columns and rows. No seams (and at 2560 x 1440 the tiled result equals
   the whole-image one bit for bit, D-128). A crop around a tile corner shows continuous stone.
 - Gate: no seams on a 40K render (above); AgX close to Blender (mean 1.4 8-bit steps, D-126).
+
+**D-131 Swiss Alps light after AgX (2026-10-30, the user found the render too dim).** The scene's exposure (-6.3)
+was chosen in M14 for the plain sRGB display; AgX darkens mid-tones, so it is now -4.8. The sun moved from 22 deg
+at azimuth 300 (behind the north faces, which the camera sees, so they were lit by the sky only) to 28 deg at
+azimuth 25: side light on the Eiger, Moench and Jungfrau faces shows their relief.
