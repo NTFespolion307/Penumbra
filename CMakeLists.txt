@@ -53,6 +53,7 @@ if(NOT DEFINED PEN_ENABLE_CUDA)
   endif()
   option(PEN_ENABLE_CUDA "CUDA compute backend (built from M6); ON if the CUDA toolkit is found" ${_pen_cuda_default})
 endif()
+option(PEN_PORTABLE "Linux release builds: link libstdc++ and libgcc statically (scripts/package.sh)" OFF)
 option(PEN_ENABLE_OIDN "Denoising with Intel Open Image Denoise 2 (downloads its release binaries, ~60 MB)" ON)
 set(PEN_CUDA_ARCHS "75;80;86;89;90;120" CACHE STRING
     "CUDA architectures to compile for (machine code for each; the oldest also as PTX for newer GPUs)")
@@ -66,6 +67,9 @@ if(MSVC)
 else()
   # No fused multiply-add contraction: the same code must produce the same bits on every host.
   add_compile_options(-Wall -Wextra -Wpedantic -ffp-contract=off)
+  if(PEN_PORTABLE)  # the release runs on any Linux with glibc 2.35+, whatever C++ runtime it has (D-129)
+    add_link_options(-static-libstdc++ -static-libgcc)
+  endif()
 endif()
 
 find_package(CLI11 CONFIG REQUIRED)

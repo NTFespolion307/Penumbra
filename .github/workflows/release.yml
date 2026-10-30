@@ -1,0 +1,70 @@
+name: Release
+
+# The Linux release tarball (docs/DECISIONS.md D-129): built on Ubuntu 22.04 (the oldest supported system) with the
+# CUDA toolkit, so it has the Vulkan, CUDA and CPU backends and Open Image Denoise. Every push to main publishes it
+# as the latest release: https://github.com/NTFespolion307/Penumbra/releases/latest/download/penumbra-linux-x64.tar.gz
+# On milestone branches (m11, m12...) it only builds the tarball and keeps it as an artifact (for testing).
+on:
+  push:
+    branches: [main, 'm[0-9]*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    runs-on: ubuntu-22.04
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/../vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/../vcpkg-cache
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read vcpkg baseline
+        id: baseline
+        run: echo "commit=$(grep -oE '"builtin-baseline": *"[0-9a-f]+"' vcpkg.json | grep -oE '[0-9a-f]{40}')" >> "$GITHUB_OUTPUT"
+
+      - name: Packages and the CUDA 13 compiler (no GPU needed to compile)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-12 g++-12 ninja-build curl zip unzip tar pkg-config
+          curl -fsSLO https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb
+          sudo apt-get update
+          sudo apt-get install -y cuda-nvcc-13-0 cuda-cudart-dev-13-0 cuda-driver-dev-13-0
+          echo "/usr/local/cuda-13.0/bin" >> "$GITHUB_PATH"
+
+      - name: Clone and bootstrap vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-linux-gcc-release-${{ steps.baseline.outputs.commit }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-linux-gcc-release-
+
+      - name: Build the release
+        run: ./scripts/package.sh
+
+      - name: Keep the tarball (every branch)
+        uses: actions/upload-artifact@v4
+        with:
+          name: penumbra-linux-x64
+          path: |
+            dist/penumbra-linux-x64.tar.gz
+            dist/penumbra-linux-x64.tar.gz.sha256
+
+      - name: Publish the release (main)
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          short="$(git rev-parse --short=12 HEAD)"
+          gh release create "build-$short" dist/penumbra-linux-x64.tar.gz dist/penumbra-linux-x64.tar.gz.sha256 \
+            --title "Penumbra build $short" --latest \
+            --notes "Linux x64 release of $(git log -1 --format='%h %s'). Every machine of a render must run the same build."

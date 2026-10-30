@@ -77,7 +77,7 @@ get_intel_sponza() {
 get_swiss_alps() {
   local dir="$root/scenes/swiss-alps" bbox=2632,1150,2648,1166 wgs=7.84,46.49,8.09,46.655
   local stac="https://data.geo.admin.ch/api/stac/v0.9/collections" tool c url i
-  tool="$(ls "$root"/build/*/bin/penumbra-terrain 2>/dev/null | head -1 || true)"
+  tool="$(ls "$root"/penumbra-terrain "$root"/build/*/bin/penumbra-terrain 2>/dev/null | head -1 || true)"  # release or build
   [ -n "$tool" ] || fail "penumbra-terrain not found: build Penumbra first (./scripts/build.sh)"
   mkdir -p "$dir/tiles" "$dir/stac"
   step "Listing the swisstopo tiles"

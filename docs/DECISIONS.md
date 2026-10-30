@@ -1212,3 +1212,17 @@ logged with the tiling. Seams, measured (2560 x 1440 against the same image deno
 - The normal pass now stores raw normals (0 where nothing is hit) instead of the debug view's 0.5 n + 0.5: decoding
   2v - 1 made the sky's normal (-1, -1, -1), which put a two-pixel artifact on the image border.
 - `--denoise optix` is refused (M13); `--denoise oidn` in a build without OIDN is refused with the reason.
+
+**D-129 The Linux release tarball (user request, 2026-10-30, brought forward from M12).** Goal: put Penumbra on a
+rented server in seconds instead of building it there. `scripts/package.sh` builds a headless release
+(`build/linux-package`: no UI, since servers lack the X11 libraries a UI build loads; no tests) with
+`PEN_PORTABLE` (libstdc++ and libgcc linked statically) and the CUDA backend when the toolkit is installed, runs a
+smoke render, stages `penumbra`, `penumbra-terrain`, Open Image Denoise and TBB (found through `$ORIGIN`),
+`scripts/get-scenes.sh`, the small sample scenes, the licences (Penumbra, OIDN and its third-party notices) and a
+short README.txt, checks with ldd that nothing else is missing, and writes `dist/penumbra-linux-x64.tar.gz` and its
+SHA-256. `.github/workflows/release.yml` builds it on Ubuntu 22.04 (the oldest supported glibc, 2.35) with
+NVIDIA's CUDA 13 compiler packages (no GPU needed to compile): on milestone branches as an artifact, on every push
+to `main` as a GitHub release `build-<commit>` marked latest, so
+`releases/latest/download/penumbra-linux-x64.tar.gz` is always the newest. The README gets "Download a release
+(Linux)" first; Windows still builds from source (SmartScreen) until M12. A single-file build (static OIDN or an
+AppImage) stays an M12 option.
