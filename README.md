@@ -50,6 +50,8 @@ On the GPU, an image matches the CPU's within float rounding (relMSE about 1e-8 
 10. [Scenes from Blender](#scenes-from-blender)
 11. [Troubleshooting](#troubleshooting)
 12. [Updating](#updating)
+13. [License](#license)
+14. [Credits](#credits)
 
 ## Download a release (Linux)
 
@@ -951,3 +953,45 @@ on **every** one:
 ## License
 
 MIT; see [LICENSE](LICENSE).
+
+## Credits
+
+Penumbra stands on the work of many people. Thank you.
+
+**Data and scenes** (downloaded from their publishers by `scripts/get-scenes`, not redistributed here):
+
+| What | By | License |
+| --- | --- | --- |
+| Elevation (swissALTI3D) and aerial photos (SWISSIMAGE) for the Swiss scenes | Federal Office of Topography swisstopo | Open government data, [terms of use](https://www.swisstopo.admin.ch/en/terms-of-use-free-geodata-and-geoservices) |
+| Sponza | Crytek (Frank Meinl), glTF version by the Khronos Group ([glTF-Sample-Assets](https://github.com/KhronosGroup/glTF-Sample-Assets)) | Cryengine Limited License Agreement |
+| Intel Sponza 2022 | Frank Meinl and Anton Kaplanyan, Intel (reference photos by Katica Putica and Princino.photo) | CC BY 4.0 |
+| Kloofendal 48d Partly Cloudy (Pure Sky) HDRI | Greg Zaal and Jarod Guest, [Poly Haven](https://polyhaven.com) | CC0 |
+
+**Libraries** (through vcpkg unless noted):
+
+| Library | License | Library | License |
+| --- | --- | --- | --- |
+| [Embree](https://github.com/RenderKit/embree) | Apache-2.0 | [Open Image Denoise](https://github.com/RenderKit/oidn) (release binaries) | Apache-2.0 |
+| [oneTBB](https://github.com/uxlfoundation/oneTBB) | Apache-2.0 | [Slang](https://github.com/shader-slang/slang) | Apache-2.0 with LLVM exception |
+| [Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers) | Apache-2.0 / MIT | [volk](https://github.com/zeux/volk) | MIT |
+| [Vulkan Memory Allocator](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) | MIT | [tinybvh](https://github.com/jbikker/tinybvh) (vendored) | MIT |
+| [Dear ImGui](https://github.com/ocornut/imgui) (vendored) | MIT | [GLFW](https://www.glfw.org) (vendored) | zlib |
+| [IBM Plex](https://github.com/IBM/plex) fonts (vendored) | SIL OFL 1.1 | [cgltf](https://github.com/jkuhlmann/cgltf) | MIT |
+| [tinyobjloader](https://github.com/tinyobjloader/tinyobjloader) | MIT | [stb](https://github.com/nothings/stb) | MIT / public domain |
+| [OpenEXR](https://github.com/AcademySoftwareFoundation/openexr) | BSD-3-Clause | [libpng](http://www.libpng.org) | libpng |
+| [libjpeg-turbo](https://libjpeg-turbo.org) | IJG / BSD-3-Clause / zlib | [libwebp](https://chromium.googlesource.com/webm/libwebp) | BSD-3-Clause |
+| [libtiff](https://libtiff.gitlab.io/libtiff/) | libtiff | [zstd](https://github.com/facebook/zstd) | BSD-3-Clause |
+| [BLAKE3](https://github.com/BLAKE3-team/BLAKE3) | CC0 / Apache-2.0 | [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) | Apache-2.0 |
+| [Asio](https://think-async.com/Asio/) | BSL-1.0 | [FlatBuffers](https://github.com/google/flatbuffers) | Apache-2.0 |
+| [MiniUPnPc](https://miniupnp.tuxfamily.org) | BSD-3-Clause | [CLI11](https://github.com/CLIUtils/CLI11) | BSD-3-Clause |
+| [fmt](https://github.com/fmtlib/fmt) | MIT | [spdlog](https://github.com/gabime/spdlog) | MIT |
+| [nlohmann/json](https://github.com/nlohmann/json) | MIT | [Catch2](https://github.com/catchorg/Catch2) (tests only) | BSL-1.0 |
+
+The CUDA backend is compiled with NVIDIA's CUDA Toolkit. The release tarball includes the license files of the
+libraries it ships in its `licenses/` folder.
+
+**Methods** Penumbra implements from published work: the Sobol sequence with Owen scrambling (Burley, "Practical
+Hash-based Owen Scrambling", with Vegdahl's Laine-Karras hash), multiple importance sampling (Veach), the glTF PBR material model (Khronos), the AgX
+and Filmic view transforms (Troy Sobotka, matched to Blender), the ACES filmic fit (Stephen Hill), single-scattering
+sky after Nishita et al. with the CIE colour matching fit by Wyman, Sloan and Shirley, and Henyey-Greenstein and
+Rayleigh phase functions. Blender was the reference for the sky, the tonemaps and the material checks.
