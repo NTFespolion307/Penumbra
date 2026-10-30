@@ -8,7 +8,7 @@ the image. Any number of **workers**, each with one or more GPUs, join with the 
 code, render tiles and send them back. A render on one machine is the same thing with no workers, and every
 combination of machines, GPUs and backends converges to the same image.
 
-> **Status: milestone M14 (atmosphere and physical sky; M11 comes next).** Penumbra renders glTF and OBJ scenes on GPUs with hardware ray
+> **Status: milestone M11 (denoising, tonemapping and AOVs; M12, the release polish, comes next).** Penumbra renders glTF and OBJ scenes on GPUs with hardware ray
 > tracing (Vulkan RT), on any NVIDIA GPU through CUDA, and on the CPU (Embree), with a path tracer (next-event
 > estimation, MIS), the glTF PBR material with its common extensions and HDRI lighting, at any size up to 160K,
 > with checkpoints, `--resume` and `merge`, writing EXR, PNG, JPEG, TIFF or WebP. Every machine uses all its GPUs
@@ -22,7 +22,10 @@ combination of machines, GPUs and backends converges to the same image.
 > clicks only: Dashboard, Hosts, Render, a live Viewport and Settings, on Windows and Linux. `penumbra --benchmark`
 > measures every device (measured numbers: [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)); workers with a slow uplink
 > get larger items. A physical sky from the sun's position and an atmosphere (air, haze, ground fog) render on
-> every backend; `scripts/get-scenes swiss-alps` builds the Eiger, Mönch and Jungfrau from swisstopo's open data. Features marked *(planned, Mx)* below are not built yet. The roadmap is in
+> every backend; `scripts/get-scenes swiss-alps` builds the Eiger, Mönch and Jungfrau from swisstopo's open data.
+> Images can be denoised with Open Image Denoise (`--denoise oidn`, tiled without seams up to 160K), tonemapped with
+> AgX, Filmic or ACES, and written with albedo, normal and depth AOVs; a ready-built Linux tarball is published
+> with every release. Features marked *(planned, Mx)* below are not built yet. The roadmap is in
 > [`docs/GUIDE.md`](docs/GUIDE.md).
 
 
