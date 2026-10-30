@@ -1,0 +1,11 @@
+# Copernicus DEM GLO-30 tiles used by scripts/get-scenes (far field and areas outside Switzerland), from
+# https://copernicus-dem-30m.s3.amazonaws.com/<name>/<name>.tif. SHA-256 measured on 2026-10-30.
+# (c) DLR e.V. 2010-2014 and (c) Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the
+# European Union and ESA; all rights reserved.
+638c155dd9a5f0b7ee818146def740093da33cee4606071b2bbf7ce3fa00ab95  Copernicus_DSM_COG_10_N45_00_E007_00_DEM
+426e3d1492d94e4f23d444843f852ff5be675da5c4c14e661b5642006864047d  Copernicus_DSM_COG_10_N46_00_E007_00_DEM
+47769664394ee1ff3b51f5c1b43a3441d7f7bce8d086d0ed2f3a892b895fae3e  Copernicus_DSM_COG_10_N46_00_E008_00_DEM
+6a7eccb6d198f01a1fdfcca0e1cef837ef294456fb7243ec4d0966e089b1e7fc  Copernicus_DSM_COG_10_N46_00_E009_00_DEM
+5012dc32581b4aebbe71dec6f22507a2944b5e6b7f8fa301b0876f947976298b  Copernicus_DSM_COG_10_N47_00_E007_00_DEM
+4e2917429d65e049a4f1ddee2093f7fc50f11d22d0fd7cee85f5c8334186d7fe  Copernicus_DSM_COG_10_N47_00_E008_00_DEM
+ca0b7567f5e12b8c814500bcf434855fb2a1084248bb80d3c80a91169887817c  Copernicus_DSM_COG_10_N47_00_E009_00_DEM

@@ -1,0 +1,6 @@
+{
+  "scene": "swiss-lauterbrunnen/lauterbrunnen.gltf",
+  "sky": { "sun_elevation_deg": 30, "sun_azimuth_deg": 135, "altitude": 800 },
+  "atmosphere": { "altitude": 0, "fog_density": 0.003, "fog_height": 80, "fog_base": 800 },
+  "render": { "res": "1080p", "exposure": -4.4 }
+}

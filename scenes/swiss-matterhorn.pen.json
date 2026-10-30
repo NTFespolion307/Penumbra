@@ -1,0 +1,6 @@
+{
+  "scene": "swiss-matterhorn/matterhorn.gltf",
+  "sky": { "sun_elevation_deg": 1, "sun_azimuth_deg": 80, "altitude": 3100 },
+  "atmosphere": { "altitude": 0, "fog_density": 0.001, "fog_height": 150, "fog_base": 1600 },
+  "render": { "res": "1080p", "exposure": -3.0 }
+}

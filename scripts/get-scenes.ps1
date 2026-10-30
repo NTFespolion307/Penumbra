@@ -7,10 +7,13 @@
   .\scripts\get-scenes.ps1                       # Sponza (Khronos, ~58 MB) with an HDRI sky: scenes\sponza.pen.json
   .\scripts\get-scenes.ps1 -Scene intel-sponza   # Intel's New Sponza (4 GB download, 2.8 GB kept): scenes\intel-sponza.pen.json
   .\scripts\get-scenes.ps1 -Scene swiss-alps     # Eiger, Moench, Jungfrau (swisstopo, 330 MB; needs Penumbra built)
+  .\scripts\get-scenes.ps1 -Scene swiss-lauterbrunnen   # The Lauterbrunnen valley (swisstopo, 330 MB)
+  .\scripts\get-scenes.ps1 -Scene swiss-matterhorn      # The Matterhorn at sunrise (swisstopo + GLO-30, 340 MB)
+  .\scripts\get-scenes.ps1 -Scene swiss-rigi            # A sea of fog from Rigi (swisstopo + GLO-30, 770 MB)
 #>
 [CmdletBinding()]
 param(
-  [ValidateSet('sponza', 'intel-sponza', 'swiss-alps')] [string] $Scene = 'sponza'
+  [ValidateSet('sponza', 'intel-sponza', 'swiss-alps', 'swiss-lauterbrunnen', 'swiss-matterhorn', 'swiss-rigi')] [string] $Scene = 'sponza'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -111,13 +114,15 @@ function Get-IntelSponza {
   Write-Host 'Ready: scenes\intel-sponza.pen.json' -ForegroundColor Green
 }
 
-# The Swiss Alps (M14): Eiger, Moench and Jungfrau from swisstopo's open data (swissALTI3D 2 m elevation, SWISSIMAGE
-# 2 m photos), 16 x 16 km, the newest tile of each square kilometre. The STAC listing gives every tile's SHA-256;
-# penumbra-terrain (built with Penumbra) reads the listing and turns the tiles into a glTF. (c) swisstopo.
-function Get-SwissAlps {
-  $dir = Join-Path $root 'scenes\swiss-alps'
-  $bbox = '2632,1150,2648,1166'
-  $wgs = '7.84,46.49,8.09,46.655'
+# Swiss terrain (M14): real mountains from swisstopo's open data (swissALTI3D 2 m elevation, SWISSIMAGE 2 m photos),
+# the newest tile of each square kilometre. The STAC listing gives every tile's SHA-256; penumbra-terrain (built with
+# Penumbra) reads the listing and turns the tiles into a glTF. (c) swisstopo.
+# $bbox: LV95 kilometres; $wgs: the same area in WGS84 degrees (for the listing); camera/target: LV95 metres.
+# With $farBox (LV95 km) and $glo (GLO-30 tile names, e.g. 'N46_00_E007_00 N47_00_E007_00'), Copernicus GLO-30 tiles
+# (scenes\copernicus.sha256) add the distant mountains around the area and fill the parts outside Switzerland.
+function Get-Swiss([string] $name, [string] $base, [string] $bbox, [string] $wgs, [string] $size, [string] $camera,
+                   [string] $target, [string] $yfov, [string] $farBox = '', [string] $glo = '') {
+  $dir = Join-Path $root "scenes\$name"
   $tool = Get-ChildItem (Join-Path $root 'build\*\bin\penumbra-terrain.exe') -ErrorAction SilentlyContinue | Select-Object -First 1
   if (-not $tool) { Fail 'penumbra-terrain.exe not found: build Penumbra first (.\scripts\build.ps1)' }
   $tool = $tool.FullName
@@ -134,10 +139,30 @@ function Get-SwissAlps {
       $i++
     }
   }
+  $partial = @()
+  $far = @()
+  if ($farBox) {
+    $gdir = Join-Path $root 'scenes\copernicus'
+    New-Item -ItemType Directory -Force $gdir | Out-Null
+    Step "Downloading the far-field elevation (Copernicus GLO-30) into $gdir"
+    $manifest = Get-Content (Join-Path $root 'scenes\copernicus.sha256')
+    foreach ($t in $glo -split ' ') {
+      $f = "Copernicus_DSM_COG_10_${t}_DEM"
+      $want = ($manifest | Where-Object { $_ -match " $f$" } | Select-Object -First 1) -split ' ' | Select-Object -First 1
+      if (-not $want) { Fail "$f is not in scenes\copernicus.sha256" }
+      $file = Join-Path $gdir "$f.tif"
+      if ((Test-Path $file) -and (Sha $file) -eq $want) { continue }
+      try { Invoke-WebRequest -UseBasicParsing -Uri "https://copernicus-dem-30m.s3.amazonaws.com/$f/$f.tif" -OutFile $file }
+      catch { Fail "could not download ${f}: $_" }
+      if ((Sha $file) -ne $want) { Fail "$f.tif does not match scenes\copernicus.sha256 (damaged download?); run the script again" }
+    }
+    $partial = @('--partial')
+    $far = @('--far', $gdir, '--far-bbox', $farBox)
+  }
   $pages = Get-ChildItem (Join-Path $dir 'stac\*.json') | ForEach-Object { $_.FullName }
-  $list = & $tool --stac-list --bbox $bbox @pages
+  $list = & $tool --stac-list --bbox $bbox @partial @pages
   if ($LASTEXITCODE -ne 0) { Fail 'the swisstopo listing is incomplete' }
-  Step "Downloading $($list.Count) tiles (about 330 MB) into $dir\tiles"
+  Step "Downloading $($list.Count) tiles (about $size) into $dir\tiles"
   $n = 0
   foreach ($line in $list) {
     $sha, $url = $line.Trim() -split ' ', 2
@@ -152,13 +177,33 @@ function Get-SwissAlps {
   }
   Write-Host "    $n tile(s) downloaded"
   Step 'Building the terrain (4 m mesh, 2 m photo texture)'
-  & $tool --tiles (Join-Path $dir 'tiles') --out $dir --name alps --bbox $bbox --grid 4 --texture 2 `
-    --camera 2638300,1162250,2700 --target 2642835,1156511,3300 --yfov 40
+  & $tool --tiles (Join-Path $dir 'tiles') --out $dir --name $base --bbox $bbox --grid 4 --texture 2 `
+    --camera $camera --target $target --yfov $yfov @far
   if ($LASTEXITCODE -ne 0) { Fail 'penumbra-terrain failed' }
-  Write-Host 'Ready: scenes\swiss-alps.pen.json' -ForegroundColor Green
+  Write-Host "Ready: scenes\$name.pen.json" -ForegroundColor Green
 }
 
 if ($Scene -eq 'intel-sponza') { Get-IntelSponza; $pen = 'scenes\intel-sponza.pen.json' }
-elseif ($Scene -eq 'swiss-alps') { Get-SwissAlps; $pen = 'scenes\swiss-alps.pen.json' }
+elseif ($Scene -eq 'swiss-alps') {  # Eiger, Moench and Jungfrau, 16 x 16 km
+  Get-Swiss swiss-alps alps '2632,1150,2648,1166' '7.84,46.49,8.09,46.655' '330 MB' `
+    '2638300,1162250,2700' '2642835,1156511,3300' 40
+  $pen = 'scenes\swiss-alps.pen.json'
+}
+elseif ($Scene -eq 'swiss-lauterbrunnen') {  # the Lauterbrunnen valley from the north, 16 x 16 km
+  Get-Swiss swiss-lauterbrunnen lauterbrunnen '2628,1148,2644,1164' '7.78,46.47,8.03,46.64' '330 MB' `
+    '2636250,1162900,1500' '2635300,1152000,1100' 45
+  $pen = 'scenes\swiss-lauterbrunnen.pen.json'
+}
+elseif ($Scene -eq 'swiss-matterhorn') {  # the Matterhorn from the Gornergrat, 16 x 16 km; the Italian side from GLO-30
+  Get-Swiss swiss-matterhorn matterhorn '2612,1084,2628,1100' '7.57,45.89,7.82,46.07' '340 MB' `
+    '2626800,1092500,3140' '2617050,1091700,3900' 30 '2612,1084,2628,1100' 'N45_00_E007_00 N46_00_E007_00'
+  $pen = 'scenes\swiss-matterhorn.pen.json'
+}
+elseif ($Scene -eq 'swiss-rigi') {  # a sea of fog from Rigi Kulm: 20 x 20 km at 2 m, GLO-30 out to the Bernese Alps
+  Get-Swiss swiss-rigi rigi '2670,1198,2690,1218' '8.34,46.92,8.64,47.12' '770 MB' `
+    '2679500,1212200,1820' '2672000,1160000,1300' 40 '2610,1125,2730,1235' `
+    'N46_00_E007_00 N46_00_E008_00 N46_00_E009_00 N47_00_E007_00 N47_00_E008_00 N47_00_E009_00'
+  $pen = 'scenes\swiss-rigi.pen.json'
+}
 else { Get-Sponza; $pen = 'scenes\sponza.pen.json' }
 Write-Host "Render it with: build\windows-msvc-release\bin\penumbra.exe --terminal $pen --spp 1024 -o render.png"
