@@ -25,20 +25,24 @@ constexpr int kHostColorCount = int(std::size(kHostColors));
 
 ImU32 withAlpha(ImU32 c, float a) { return (c & 0x00FFFFFF) | (ImU32(a * 255) << 24); }
 
-// RGBA8 through the output's display transform (exposure, sRGB curve until M11).
-void encode(const std::vector<Vec3f>& rgb, double ev, std::vector<uint8_t>& out) {
+// RGBA8 through the output's display transform (exposure, then the tonemap).
+void encode(const std::vector<Vec3f>& rgb, double ev, Tonemap tonemap, std::vector<uint8_t>& out) {
   const float scale = float(std::exp2(ev));
   out.resize(rgb.size() * 4);
   for (size_t i = 0; i < rgb.size(); ++i) {
-    for (int c = 0; c < 3; ++c) out[i * 4 + c] = uint8_t(std::lround(255.0f * displayEncode(rgb[i][c], scale)));
+    const Vec3f d = displayEncode(rgb[i], scale, tonemap);
+    for (int c = 0; c < 3; ++c) out[i * 4 + c] = uint8_t(std::lround(255.0f * d[c]));
     out[i * 4 + 3] = 255;
   }
 }
 
+// One number for the display settings (exposure and tonemap): the image is re-encoded when it changes.
+double displayKey(const UiState& ui) { return ui.runner->exposure() + 100.0 * int(ui.runner->tonemap()); }
+
 struct ViewportState {
   LiveView view;  // the last one seen (stays after the render ends)
   uint64_t shown_version = ~0ull;
-  double shown_ev = 1e9;
+  double shown_ev = 1e9;  // exposure + 100 x tonemap of what is shown (displayKey)
   ImageTexture image;
   std::vector<uint8_t> rgba;
   // Zoom: 1 = fit; pan in film pixels (the centre of the view).
@@ -48,7 +52,7 @@ struct ViewportState {
   // Full-resolution detail of the visible region when zoomed past the live view's resolution.
   ImageTexture detail;
   TileRect detail_rect;
-  double detail_ev = 1e9;
+  double detail_ev = 1e9;  // displayKey of the detail view
   std::chrono::steady_clock::time_point detail_wanted{};
   std::chrono::steady_clock::time_point detail_at{};
   std::string save_note;
@@ -125,15 +129,15 @@ void drawImage(Model& model, UiState& ui, ViewportState& s, ImVec2 size) {
     const bool moved = !(want == s.detail_rect);
     if (moved) s.detail_wanted = now;
     const bool settled = now - s.detail_wanted > std::chrono::milliseconds(250);
-    const bool stale = now - s.detail_at > std::chrono::seconds(2) || s.detail_ev != ui.runner->exposure();
+    const bool stale = now - s.detail_at > std::chrono::seconds(2) || s.detail_ev != displayKey(ui);
     if (settled && (moved || stale) && want.pixels() > 0 && want.pixels() <= 4096u * 4096u) {
       std::vector<Vec3f> px;
       if (model.session().readFilm(want, px)) {
         std::vector<uint8_t> rgba;
-        encode(px, ui.runner->exposure(), rgba);
+        encode(px, ui.runner->exposure(), ui.runner->tonemap(), rgba);
         s.detail.set(rgba.data(), int(want.width()), int(want.height()));
         s.detail_rect = want;
-        s.detail_ev = ui.runner->exposure();
+        s.detail_ev = displayKey(ui);
         s.detail_at = now;
       }
     }
@@ -249,15 +253,15 @@ void drawViewport(Model& model, UiState& ui) {
   ViewportState& s = vs();
   // The latest live view while a render runs; the last one stays after it ends.
   if (model.session().liveView(s.view, s.shown_version) &&
-      (s.view.version != s.shown_version || s.shown_ev != ui.runner->exposure())) {
-    encode(s.view.rgb, ui.runner->exposure(), s.rgba);
+      (s.view.version != s.shown_version || s.shown_ev != displayKey(ui))) {
+    encode(s.view.rgb, ui.runner->exposure(), ui.runner->tonemap(), s.rgba);
     s.image.set(s.rgba.data(), int(s.view.width), int(s.view.height));
     s.shown_version = s.view.version;
-    s.shown_ev = ui.runner->exposure();
-  } else if (s.image.valid() && s.shown_ev != ui.runner->exposure() && !s.view.rgb.empty()) {
-    encode(s.view.rgb, ui.runner->exposure(), s.rgba);  // after the render: exposure still adjusts the last image
+    s.shown_ev = displayKey(ui);
+  } else if (s.image.valid() && s.shown_ev != displayKey(ui) && !s.view.rgb.empty()) {
+    encode(s.view.rgb, ui.runner->exposure(), ui.runner->tonemap(), s.rgba);  // after the render: exposure still adjusts the last image
     s.image.set(s.rgba.data(), int(s.view.width), int(s.view.height));
-    s.shown_ev = ui.runner->exposure();
+    s.shown_ev = displayKey(ui);
   }
 
   const RenderSettings& rs = ui.runner->settings();

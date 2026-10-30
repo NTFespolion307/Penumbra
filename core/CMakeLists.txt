@@ -19,6 +19,7 @@ add_library(penumbra_core STATIC
   image/image_io.cpp
   log/log.cpp
   output/output.cpp
+  output/tonemap.cpp
   output/writers.cpp
   package/package.cpp
   render/camera.cpp

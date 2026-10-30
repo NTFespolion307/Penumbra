@@ -1160,3 +1160,20 @@ default); (4) metadata in EXR headers and PNG text; (5) the UI's Denoise and Ton
 to Blender. User answer: vcpkg has no OIDN port, so the build scripts download Intel's prebuilt OIDN 2.x release
 for Windows and Linux (CPU and CUDA devices), pinned to a version and SHA-256, and ship its libraries next to
 penumbra (the guide lists OIDN, Apache-2.0).
+
+**D-126 Tonemapping (M11 step 1).** `core/output/tonemap.cpp`, applied after the exposure in the output stage, the
+UI preview and the live viewport (the viewport's tonemap is live like its exposure). Reference: 217 linear colours
+(grey from -10 to +8 EV, 12 hues x 3 saturations x 5 EVs) through Blender 4.2.23's view transforms (sRGB display,
+look None), headless from the portable copy; the table is `tests/data/tonemap_blender.json` (Blender's output
+numbers), checked by a unit test.
+- **AgX:** the published Rec. 2020 inset and outset matrices (Filament, three.js) with the log2 range -12.47 to
+  +4.03 EV. The widely copied 6th-order polynomial for the sigmoid is not Blender 4.2's curve (18% grey 0.50 instead
+  of 0.46; mean 6.8, max 52 8-bit steps off), so the curve is Blender's measured one (the value before the outset
+  that reproduces its grey, every half EV). Result: grey within a step, mean 1.4 steps over all colours, max 35 on
+  fully saturated primaries. Fitting the outset matrix to Blender's output did not help (mean 1.5, max 27), so
+  the remaining difference is in Blender's inset/outset construction; accepted as "close to Blender" (gate).
+- **Filmic:** Blender's Filmic (Medium Contrast) grey response, measured the same way, per channel: grey exact,
+  colours mean 2.5 steps (Blender also desaturates bright colours with a 3D LUT, not reproduced).
+- **ACES:** Stephen Hill's fit of the RRT and sRGB ODT (BakingLab, MIT). **None:** the sRGB curve with clipping,
+  equal to Blender's Standard (max 0.004 steps).
+- No code or LUT from Blender: its output numbers for our inputs are measurements.

@@ -21,8 +21,8 @@ using RowSource = std::function<void(const TileRect& rows, std::vector<Vec3f>& o
 void writeImage(const RowSource& source, uint32_t width, uint32_t height, const RenderSettings& settings,
                 const ImageMetadata& metadata, std::vector<std::string>& notes);
 
-// Display encoding for 8/16-bit formats until M11 (DECISIONS D-019): exposure, then sRGB curve with clipping.
-float displayEncode(float linear, float exposureScale);
+// Display encoding for 8/16-bit formats: exposure, then the tonemap (core/output/tonemap.h).
+Vec3f displayEncode(Vec3f linear, float exposureScale, Tonemap tonemap);
 
 // The pixel rectangle the output file covers: --region, or the whole image.
 TileRect outputRect(const RenderSettings& s);

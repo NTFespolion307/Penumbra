@@ -31,6 +31,9 @@ class RenderRunner {
   // viewport shows it at once and the output uses the latest value.
   void setExposure(double ev) { exposure_ = ev; }
   double exposure() const { return exposure_.load(); }
+  // The tonemap is live too: it applies after the film (docs/GUIDE.md "Live output adjustments").
+  void setTonemap(Tonemap t) { tonemap_ = t; }
+  Tonemap tonemap() const { return tonemap_.load(); }
 
   State state() const { return state_.load(); }
   bool busy() const { return state_ == State::Preparing || state_ == State::Rendering; }
@@ -46,6 +49,7 @@ class RenderRunner {
   std::atomic<State> state_{State::Idle};
   std::atomic<bool> stop_{false};
   std::atomic<double> exposure_{0.0};
+  std::atomic<Tonemap> tonemap_{Tonemap::Agx};
   RenderSettings settings_;
   mutable std::mutex mutex_;
   std::string message_;

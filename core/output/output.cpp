@@ -5,13 +5,12 @@
 #include <fmt/format.h>
 
 #include "core/image/image.h"
+#include "core/output/tonemap.h"
 #include "core/output/writers.h"
 
 namespace pen {
 
-float displayEncode(float linear, float exposureScale) {
-  return linearToSrgb(std::fmin(std::fmax(linear * exposureScale, 0.0f), 1.0f));
-}
+Vec3f displayEncode(Vec3f linear, float exposureScale, Tonemap mode) { return tonemap(mode, linear * exposureScale); }
 
 TileRect outputRect(const RenderSettings& s) {
   if (s.region) return {s.region->x0, s.region->y0, s.region->x1, s.region->y1};
@@ -27,10 +26,6 @@ void writeImage(const RowSource& source, uint32_t width, uint32_t height, const 
     if (s.tonemap != Tonemap::None)
       notes.push_back(fmt::format("{}-bit {} output is linear; --tonemap {} applies to display formats only",
                                   s.bit_depth, toString(format), toString(s.tonemap)));
-  } else if (s.tonemap != Tonemap::None) {
-    notes.push_back(fmt::format("tonemap {} is built in milestone M11; this render uses the sRGB curve with "
-                                "clipping (--tonemap none)",
-                                toString(s.tonemap)));
   }
 
   std::vector<Vec3f> band;
@@ -40,8 +35,8 @@ void writeImage(const RowSource& source, uint32_t width, uint32_t height, const 
     source({0, y0, width, y0 + rows}, band);
     rgb.resize(band.size() * 3);
     for (size_t i = 0; i < band.size(); ++i) {
-      for (int c = 0; c < 3; ++c)
-        rgb[i * 3 + c] = writer->wantsLinear() ? band[i][c] * exposure : displayEncode(band[i][c], exposure);
+      const Vec3f v = writer->wantsLinear() ? band[i] * exposure : displayEncode(band[i], exposure, s.tonemap);
+      for (int c = 0; c < 3; ++c) rgb[i * 3 + c] = v[c];
     }
     writer->writeBand(y0, rows, rgb);
   }
