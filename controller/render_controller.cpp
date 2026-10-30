@@ -55,13 +55,28 @@ uint32_t killAfterItems() {
 }
 }  // namespace
 
+namespace {
+// The AOV passes that have a film, with their sample counts (aovPassesFor).
+std::vector<AovPass> wantedAovs(const RenderSettings& s, const std::array<Film*, kPassCount>& films) {
+  std::vector<AovPass> v;
+  for (const AovPass& a : aovPassesFor(s))
+    if (films[size_t(a.pass)]) v.push_back(a);
+  return v;
+}
+}  // namespace
+
 RenderController::RenderController(const RenderSettings& settings, std::shared_ptr<const Scene> scene,
-                                   std::shared_ptr<const ScenePackage> package, Film& film, PassOrder order)
+                                   std::shared_ptr<const ScenePackage> package, Film& film, PassOrder order,
+                                   const std::array<Film*, kPassCount>& aovFilms)
     : settings_(settings),
       offer_{std::move(scene), std::move(package), settings},
       film_(film),
-      scheduler_(film.layout(), sampleBegin(settings), sampleEnd(settings), settings.region, order),
-      sample_begin_(sampleBegin(settings)) {}
+      films_(aovFilms),
+      scheduler_(film.layout(), sampleBegin(settings), sampleEnd(settings), settings.region, order,
+                 wantedAovs(settings, aovFilms)),
+      sample_begin_(sampleBegin(settings)) {
+  films_[0] = &film_;
+}
 
 WorkerId RenderController::addWorker(const std::function<std::unique_ptr<WorkerLink>(WorkerId)>& make) {
   WorkerLink* link = nullptr;
@@ -87,6 +102,9 @@ std::vector<WorkerLink*> RenderController::workerSnapshotLocked() const {
 uint32_t RenderController::restoreFromFilm() {
   std::lock_guard lock(mutex_);
   scheduler_.restore([&](uint32_t tile) { return film_.tileSamples(tile); });
+  for (uint32_t p = 1; p < kPassCount; ++p)
+    if (films_[p] && scheduler_.hasPass(Pass(p)))
+      scheduler_.restore([&](uint32_t tile) { return films_[p]->tileSamples(tile); }, Pass(p));
   return film_.tilesWithData();
 }
 
@@ -214,10 +232,13 @@ void RenderController::requeueLostLocked(LeaseId id, const LeaseInfo& lease) {
 }
 
 bool RenderController::mergeLocked(const TileResult& r) {
+  const Pass pass = WorkItem::idPass(r.item_id);
+  Film& film = *films_[size_t(pass)];
   try {
-    film_.merge(r, r.sample_end - sample_begin_);
+    // An AOV pass starts at sample 0; the image at --sample-range's first sample.
+    film.merge(r, r.sample_end - (pass == Pass::Beauty ? sample_begin_ : 0));
     if (auto o = early_owner_.find(r.item_id); o != early_owner_.end()) {
-      if (live_w_) liveMergeLocked(r, o->second);
+      if (live_w_ && pass == Pass::Beauty) liveMergeLocked(r, o->second);
       early_owner_.erase(o);
     }
   } catch (const DiskFullError& e) {
@@ -232,12 +253,12 @@ bool RenderController::mergeLocked(const TileResult& r) {
     stopLocked();
     return false;
   }
-  const uint32_t tile = static_cast<uint32_t>(r.item_id >> 32);
-  scheduler_.markMergedUntil(tile, r.sample_end);
+  const uint32_t tile = WorkItem::idTile(r.item_id);
+  scheduler_.markMergedUntil(tile, r.sample_end, pass);
   ++merged_items_;
-  if (scheduler_.tileComplete(tile)) {
+  if (scheduler_.tileComplete(tile, pass)) {
     try {
-      film_.flushTile(tile);
+      film.flushTile(tile);
     } catch (const FileError& e) {
       spdlog::error("cannot write the film: {}", e.what());
       film_error_ = e.what();
@@ -249,9 +270,9 @@ bool RenderController::mergeLocked(const TileResult& r) {
   return true;
 }
 
-void RenderController::mergeReadyLocked(uint32_t tile) {
+void RenderController::mergeReadyLocked(uint32_t tile, Pass pass) {
   for (;;) {
-    const uint64_t id = WorkItem::makeId(tile, scheduler_.mergedChunks(tile));
+    const uint64_t id = WorkItem::makeId(tile, scheduler_.mergedChunks(tile, pass), pass);
     auto it = early_.find(id);
     if (it == early_.end()) return;
     TileResult r = std::move(it->second);
@@ -302,7 +323,7 @@ void RenderController::onTileResult(WorkerId worker, TileResult&& r) {
   if (mine.size() > kDeviceDurationWindow) mine.pop_front();
 
   // Already merged (a late copy of a re-issued item) or already waiting: the first valid result won.
-  if (item.chunk < scheduler_.mergedChunks(item.tile) || early_.count(item.id)) {
+  if (item.chunk < scheduler_.mergedChunks(item.tile, item.pass) || early_.count(item.id)) {
     workers_[worker]->ackTile(r.lease, AckStatus::Duplicate);
     checkFinishedLocked();
     return;
@@ -327,13 +348,14 @@ void RenderController::onTileResult(WorkerId worker, TileResult&& r) {
 
   early_owner_[item.id] = worker;  // the live view colours each tile by the worker that merged it
   early_.emplace(item.id, std::move(r));
-  mergeReadyLocked(item.tile);
+  mergeReadyLocked(item.tile, item.pass);
   checkFinishedLocked();
 }
 
 void RenderController::checkFinishedLocked() {
   if (finished_) return;
-  if (scheduler_.done() || (scheduler_.stopped() && leases_.empty())) {
+  // Stopped (time limit, Ctrl+C... ): finished once nothing is out and the AOVs are in (the denoiser needs them).
+  if (scheduler_.done() || (scheduler_.stopped() && leases_.empty() && scheduler_.aovsDone())) {
     finished_ = true;
     cv_.notify_all();
   }
@@ -531,7 +553,8 @@ RenderOutcome RenderController::run(const RenderRunOptions& options) {
       if (kill || std::chrono::duration<double>(now - lastCheckpoint).count() >= settings_.checkpoint_s) {
         lastCheckpoint = now;
         try {
-          film_.checkpoint();
+          for (Film* f : films_)
+            if (f) f->checkpoint();
           spdlog::info("checkpoint: {} of {} tiles finished, {} with data", scheduler_.tilesComplete(),
                        scheduler_.tileCount(), film_.tilesWithData());
         } catch (const FileError& e) {
@@ -634,7 +657,7 @@ void RenderController::liveMergeLocked(const TileResult& r, WorkerId worker) {
       live_weight_[p] += n;
     }
   }
-  const uint32_t tile = static_cast<uint32_t>(r.item_id >> 32);
+  const uint32_t tile = WorkItem::idTile(r.item_id);
   if (tile < tile_owner_.size()) tile_owner_[tile] = int32_t(worker);
   ++live_version_;
 }
@@ -691,7 +714,8 @@ bool RenderController::writeImageNow(const RenderSettings& settings, std::string
   std::lock_guard lock(mutex_);  // no merge while the image is written
   try {
     std::vector<std::string> notes;
-    writeOutput(film_, settings, {{"Software", "Penumbra"}, {"Incomplete", "true"}}, notes);
+    writeOutput(film_, settings, {{"Software", "Penumbra"}, {"Incomplete", "true"}}, notes,
+                films_[size_t(Pass::Albedo)], films_[size_t(Pass::Normal)]);
     for (const auto& n : notes) spdlog::info("{}", n);
     spdlog::info("saved the current image to {}", pathToUtf8(settings.output));
     return true;

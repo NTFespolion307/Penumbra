@@ -72,8 +72,8 @@ std::vector<uint8_t> renderPreview(const Scene& loaded, const RenderSettings& lo
     const float scale = static_cast<float>(std::exp2(settings.exposure));
     std::vector<uint8_t> rgba(size_t(width) * height * 4);
     for (size_t i = 0; i < out.mean.size(); ++i) {
-      for (int c = 0; c < 3; ++c)
-        rgba[i * 4 + c] = static_cast<uint8_t>(std::lround(255.0f * displayEncode(out.mean[i][c], scale)));
+      const Vec3f d = displayEncode(out.mean[i], scale, settings.tonemap);
+      for (int c = 0; c < 3; ++c) rgba[i * 4 + c] = static_cast<uint8_t>(std::lround(255.0f * d[c]));
       rgba[i * 4 + 3] = 255;
     }
     return rgba;

@@ -16,6 +16,7 @@
 #include "apps/penumbra/ui/theme.h"
 #include "apps/penumbra/ui/widgets.h"
 #include "core/film/film.h"
+#include "core/output/denoise.h"
 #include "core/output/writers.h"
 #include "core/settings/presets.h"
 #include "core/settings/schema.h"
@@ -394,21 +395,38 @@ void outputCard(UiState& ui, float w, float h) {
   ImGui::BeginGroup();
   fieldLabel("Denoise");
   ImGui::SetNextItemWidth(half);
-  ImGui::BeginDisabled();
-  int off = 0;
-  ImGui::Combo("##denoise", &off, "Off\0");
+  ImGui::BeginDisabled(!denoiserAvailable());
+  enumCombo("##denoise", f.denoise, {{Denoiser::None, "Off"}, {Denoiser::Oidn, "Open Image Denoise"}});
   ImGui::EndDisabled();
   ImGui::EndGroup();
   ImGui::SameLine();
   ImGui::BeginGroup();
   fieldLabel("Tonemap");
   ImGui::SetNextItemWidth(half);
-  ImGui::BeginDisabled();
-  int srgb = 0;
-  ImGui::Combo("##tonemap", &srgb, "sRGB curve\0");
-  ImGui::EndDisabled();
+  if (enumCombo("##tonemap", f.tonemap,
+                {{Tonemap::Agx, "AgX"}, {Tonemap::Filmic, "Filmic"}, {Tonemap::Aces, "ACES"}, {Tonemap::None, "None (sRGB curve)"}})) {
+    rp.preview_wanted = true;
+    rp.changed = std::chrono::steady_clock::now();
+  }
   ImGui::EndGroup();
-  small("Denoising (OIDN), AgX/Filmic/ACES and extra passes arrive in milestone M11.");
+  {
+    bool albedo = std::find(f.aov.begin(), f.aov.end(), "albedo") != f.aov.end();
+    bool normal = std::find(f.aov.begin(), f.aov.end(), "normal") != f.aov.end();
+    bool depth = std::find(f.aov.begin(), f.aov.end(), "depth") != f.aov.end();
+    fieldLabel("Extra passes (AOVs, written as <name>.<pass>.exr)");
+    bool changed = ImGui::Checkbox("Albedo", &albedo);
+    ImGui::SameLine();
+    changed |= ImGui::Checkbox("Normal", &normal);
+    ImGui::SameLine();
+    changed |= ImGui::Checkbox("Depth", &depth);
+    if (changed) {
+      f.aov.clear();
+      if (albedo) f.aov.push_back("albedo");
+      if (normal) f.aov.push_back("normal");
+      if (depth) f.aov.push_back("depth");
+    }
+  }
+  if (!denoiserAvailable()) small("This build has no Open Image Denoise (built with PEN_ENABLE_OIDN=OFF).");
   fieldLabel("Exposure (EV)");
   ImGui::SetNextItemWidth(fieldW);
   float ev = float(f.exposure);

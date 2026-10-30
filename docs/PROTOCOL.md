@@ -1,6 +1,6 @@
 # Penumbra wire protocol
 
-Protocol version **4** (`kProtocolVersion` in `core/version.h`). Version 2 added scene packages (`SceneHave`, `SceneChunk`, package fields in `SceneOffer`); version 3 added skipped devices to `WorkerReady` (M7); version 4 added the round trip, upload rate and scene cache use to `Stats` (M10); version 5 added the bytes waiting to be sent to `Stats` (M9). The schema is `net/schema/penumbra.fbs`; this
+Protocol version **6** (`kProtocolVersion` in `core/version.h`). Version 2 added scene packages (`SceneHave`, `SceneChunk`, package fields in `SceneOffer`); version 3 added skipped devices to `WorkerReady` (M7); version 4 added the round trip, upload rate and scene cache use to `Stats` (M10); version 5 added the bytes waiting to be sent to `Stats` (M9); version 6 puts the pass (the image or an AOV) in a lease's item id (M11). The schema is `net/schema/penumbra.fbs`; this
 file explains it and must change in the same commit as the schema. Any change to a message bumps the protocol
 version.
 
@@ -46,7 +46,7 @@ magic "PNBR" (4 bytes) | protocol version u16 | message type u16 | flags u16 | p
 | `SceneChunk` | 12 | C → W | Package hash, chunk index, uncompressed size, zstd-compressed bytes. Bulk: sent in order from the first missing chunk. |
 | `WorkerReady` | 13 | W → C | Render id; per device: backend, memory tier, build time, summary, or `skipped` with a reason (protocol 3: a device that cannot take the scene; the worker renders with the others). Or `scene_rejected` with a reason when no device can. A worker gets no lease before this, and none for a skipped device. |
 | `RequestWork` | 20 | W → C | Device id and how many more items it can take. A request replaces the device's previous one (D-049). |
-| `Lease` | 21 | C → W | Lease id, device id, item id (`tile << 32 \| chunk`), tile rectangle, sample range, settings hash. |
+| `Lease` | 21 | C → W | Lease id, device id, item id (`pass << 56 \| tile << 32 \| chunk`), tile rectangle, sample range, settings hash. Protocol 6: pass 0 is the image; 1, 2, 3 are the albedo, normal and depth AOVs, which the device renders with `debug:albedo`, `debug:normal` or `debug:depth` (D-127). |
 | `TileResult` | 22 | W → C | Lease id, device id, item id, rectangle, sample range, encoding, pixels, NaN count, render time, BLAKE3-64 checksum of the decoded floats. |
 | `TileAck` | 23 | C → W | Lease id, `Accepted` / `Duplicate` / `Rejected` (+ reason). |
 | `Release` | 24 | W → C | Lease ids handed back unfinished (device failed, worker leaving, lease it cannot take); requeued at once. |

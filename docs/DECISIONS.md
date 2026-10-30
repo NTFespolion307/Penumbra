@@ -1148,3 +1148,100 @@ difference is Blender's integration bias, D-120); the Swiss Alps render at 8K on
 Windows full suite 192/192; Linux CI passed through e16d266, the last four commits' runs were still going at the
 merge (the converter and libtiff's JPEG were built and run on Ubuntu 24.04 on the box). Next: M11 (denoise,
 tonemapping, AOVs), then M12; M13 optional; the CUDA traversal rework (D-115) separate.
+
+**D-125 M11 starts (2026-10-30): plan approved; OIDN from Intel's release binaries.** Plan: (1) tonemapping in the
+output stage: AgX as Blender 4.x (published matrices and curve), Blender's Filmic, the ACES fit; checked against
+Blender's view transforms on the same EXR (portable Blender on D:); (2) AOVs albedo, normal, depth at the first
+non-specular hit on CPU, Vulkan and CUDA, stored as film channels merged like the image, sent with tiles (protocol
+6), written as EXR layers or sibling files; (3) OIDN 2 per output tile with a 32 px border, using albedo and normal,
+on the controller's CPU or its NVIDIA GPU (OIDN's CUDA device); on for UI previews, off for --terminal (guide
+default); (4) metadata in EXR headers and PNG text; (5) the UI's Denoise and Tonemap controls, live; (6) gate: a
+40K denoised render without seams (differences across tile edges against inside tiles) on a GPU box, and AgX close
+to Blender. User answer: vcpkg has no OIDN port, so the build scripts download Intel's prebuilt OIDN 2.x release
+for Windows and Linux (CPU and CUDA devices), pinned to a version and SHA-256, and ship its libraries next to
+penumbra (the guide lists OIDN, Apache-2.0).
+
+**D-126 Tonemapping (M11 step 1).** `core/output/tonemap.cpp`, applied after the exposure in the output stage, the
+UI preview and the live viewport (the viewport's tonemap is live like its exposure). Reference: 217 linear colours
+(grey from -10 to +8 EV, 12 hues x 3 saturations x 5 EVs) through Blender 4.2.23's view transforms (sRGB display,
+look None), headless from the portable copy; the table is `tests/data/tonemap_blender.json` (Blender's output
+numbers), checked by a unit test.
+- **AgX:** the published Rec. 2020 inset and outset matrices (Filament, three.js) with the log2 range -12.47 to
+  +4.03 EV. The widely copied 6th-order polynomial for the sigmoid is not Blender 4.2's curve (18% grey 0.50 instead
+  of 0.46; mean 6.8, max 52 8-bit steps off), so the curve is Blender's measured one (the value before the outset
+  that reproduces its grey, every half EV). Result: grey within a step, mean 1.4 steps over all colours, max 35 on
+  fully saturated primaries. Fitting the outset matrix to Blender's output did not help (mean 1.5, max 27), so
+  the remaining difference is in Blender's inset/outset construction; accepted as "close to Blender" (gate).
+- **Filmic:** Blender's Filmic (Medium Contrast) grey response, measured the same way, per channel: grey exact,
+  colours mean 2.5 steps (Blender also desaturates bright colours with a 3D LUT, not reproduced).
+- **ACES:** Stephen Hill's fit of the RRT and sRGB ODT (BakingLab, MIT). **None:** the sRGB curve with clipping,
+  equal to Blender's Standard (max 0.004 steps).
+- No code or LUT from Blender: its output numbers for our inputs are measurements.
+
+**D-127 AOVs as passes (M11 step 2).** An AOV (albedo, normal, depth) is its own pass of work items, rendered
+with the matching debug view (first hit; these already worked on CPU, Vulkan and CUDA) at 16 samples per pixel
+(`kAovSamples`: clean and antialiased for the denoiser, a few percent of a usual render), into its own film
+(`<name>.<pass>.penfilm` next to the image's). The scheduler holds every pass's tiles (AOV tiles first, so the
+denoiser's inputs are in early); a work item and its id carry the pass (`pass << 56 | tile << 32 | chunk`, tiles
+below 2^24), and a lease's item id brings it to workers (protocol 6; older workers would render the image instead).
+On the GPUs the pass rides in bits 8-15 of the launch's flags, so the kernel is unchanged otherwise. Everything else
+is the image's machinery: requeue, tail copies, late check, merging in chunk order, checkpoints, `--resume` (the
+AOV films are reopened or started again). AOV tiles are still handed out after a stop (time limit, Ctrl+C) and a
+stopped render finishes once they are in. Totals and progress count the image only. Output: each AOV listed in
+`--aov` as `<name>.<pass>.exr` next to the image (linear float, 32-bit for depth, normals back in [-1, 1]); not
+EXR layers or `name.albedo.png` as the guide sketched: normals and depth are not display images, and one EXR per
+pass works whatever the main format. The denoiser needs albedo and normal, so `--denoise` adds those passes
+(written only if listed). Not covered: `penumbra merge` combines the images only. Tests: scheduler (AOVs first,
+after a stop, totals), `render.slots_aov` (any slots, same bits, with all three AOVs), `net.aov` (workers render
+the AOV passes; the image equals the solo render bit for bit).
+
+**D-128 The denoiser (M11 step 3).** Intel Open Image Denoise 2.5.1 from Intel's release (`cmake/Oidn.cmake`:
+downloaded at configure time, SHA-256 checked, `PEN_ENABLE_OIDN`, ON by default); the core, CPU and CUDA device
+libraries and TBB are copied next to `penumbra` and the unit tests (the AMD and Intel GPU devices are left out). The
+"RT" filter, HDR, guided by the albedo and normal passes (D-127), runs in the output stage before exposure and
+tonemap: each 256-row band in tiles of 1024 px wide. OIDN picks the device (CUDA on an NVIDIA GPU, else the CPU),
+logged with the tiling. Seams, measured (2560 x 1440 against the same image denoised whole in one call):
+- With the guide's 32 px border and OIDN's per-call automatic input scale: relMSE 3.8e-7 overall, but the
+  differences sat at the tile and band edges (up to 40x the median difference there).
+- OIDN's documentation: for manual tiling the HDR `inputScale` *must* be set by the user (else each tile gets its
+  own), and tiles must overlap by `tileOverlap` (read after a filter is committed with images: 96 px, alignment
+  16; before a commit it reads 0). Now one input scale for the whole image (OIDN's own formula, 0.18 over the
+  geometric-mean luminance, from about 512 rows of the film) and a border of max(32, tileOverlap) rounded to the
+  alignment: the tiled result equals the whole-image one bit for bit. Test `render.denoise_seams` (exact, using
+  the test hook `PENUMBRA_TEST_DENOISE_WHOLE`, logged when active).
+- The normal pass now stores raw normals (0 where nothing is hit) instead of the debug view's 0.5 n + 0.5: decoding
+  2v - 1 made the sky's normal (-1, -1, -1), which put a two-pixel artifact on the image border.
+- `--denoise optix` is refused (M13); `--denoise oidn` in a build without OIDN is refused with the reason.
+
+**D-129 The Linux release tarball (user request, 2026-10-30, brought forward from M12).** Goal: put Penumbra on a
+rented server in seconds instead of building it there. `scripts/package.sh` builds a headless release
+(`build/linux-package`: no UI, since servers lack the X11 libraries a UI build loads; no tests) with
+`PEN_PORTABLE` (libstdc++ and libgcc linked statically) and the CUDA backend when the toolkit is installed, runs a
+smoke render, stages `penumbra`, `penumbra-terrain`, Open Image Denoise and TBB (found through `$ORIGIN`),
+`scripts/get-scenes.sh`, the small sample scenes, the licences (Penumbra, OIDN and its third-party notices) and a
+short README.txt, checks with ldd that nothing else is missing, and writes `dist/penumbra-linux-x64.tar.gz` and its
+SHA-256. `.github/workflows/release.yml` builds it on Ubuntu 22.04 (the oldest supported glibc, 2.35) with
+NVIDIA's CUDA 13 compiler packages (no GPU needed to compile): on milestone branches as an artifact, on every push
+to `main` as a GitHub release `build-<commit>` marked latest, so
+`releases/latest/download/penumbra-linux-x64.tar.gz` is always the newest. The README gets "Download a release
+(Linux)" first; Windows still builds from source (SmartScreen) until M12. A single-file build (static OIDN or an
+AppImage) stays an M12 option.
+
+**D-130 M11 on 8 x RTX 5090 (rented box, Ubuntu 24.04, driver 580.173, 215-CPU quota, 282 GB).**
+- **Linux runtime libraries:** the first run found nothing to run: `penumbra` found `libOpenImageDenoise.so.2`
+  through its RUNPATH, but not that library's own `libOpenImageDenoise_core.so` (a DT_RUNPATH applies to the
+  binary's direct dependencies only; Windows looks next to the exe anyway, so the laptop never showed it). Linked
+  with `--disable-new-dtags` (a DT_RPATH, searched for the whole chain) in `pen_copy_oidn_runtime`; the release
+  tarball depends on the same.
+- **GPU suite** (`ctest -L gpu`, 206a388): 46 of 46, so the AOV passes in the launch flags changed nothing else.
+- **AOVs on every backend** (spheres 640 x 360, 16 spp, each against the CPU): albedo relMSE 9.0e-8 (Vulkan),
+  8.2e-8 (CUDA); normal 1.9e-7 / 5.1e-7; depth 1.6e-10 / 1.3e-9 (a few edge pixels differ by rounding).
+- **40K denoised** (Sponza, 40960 x 23040, 64 spp, 8 GPUs with Vulkan): rendering 52.3 s, 90.6 G samples (60.4 G
+  for the image, 30.2 G for the albedo and normal passes, 33% extra here at 64 spp), 1,734 M samples/s, each GPU
+  ~36.5 s busy; OIDN on CUDA (one 5090), 96 px border, input scale 146.8; denoising plus writing the 2.8 G-pixel
+  PNG (430 MB) about 7 minutes, mostly PNG compression on one core. Peak RAM 63 GB (three 15 GB RAM films).
+- **Seams at 40K:** mean difference between neighbouring columns at the 39 tile edges 0.651 against 0.667
+  elsewhere (ratio 0.975), between rows at the 89 band edges 0.454 against 0.474 (0.959); the worst edge stays
+  below the 99.9th percentile of ordinary columns and rows. No seams (and at 2560 x 1440 the tiled result equals
+  the whole-image one bit for bit, D-128). A crop around a tile corner shows continuous stone.
+- Gate: no seams on a 40K render (above); AgX close to Blender (mean 1.4 8-bit steps, D-126).

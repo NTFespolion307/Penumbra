@@ -26,6 +26,7 @@ struct IntegratorParams {
   uint32_t max_diffuse = 12, max_glossy = 12, max_transmission = 12;
   bool russian_roulette = true;
   float ao_distance = 1;
+  bool raw_normals = false;  // debug:normal as the normal AOV pass wants it: n in [-1, 1], 0 where nothing is hit
 
   static IntegratorParams from(const RenderSettings& s, const Scene& scene) {
     IntegratorParams p;
@@ -246,7 +247,7 @@ Vec3f traceDebug(const Scene& scene, const Tracer& tracer, const IntegratorParam
     }
     case Integrator::DebugNormal: {
       const Vec3f n = dot(wo, si.ns) < 0 ? -si.ns : si.ns;
-      return n * 0.5f + Vec3f(0.5f);
+      return params.raw_normals ? n : n * 0.5f + Vec3f(0.5f);
     }
     case Integrator::DebugAlbedo: return si.bsdf.base_color;
     case Integrator::DebugDepth: return Vec3f(hit.t);

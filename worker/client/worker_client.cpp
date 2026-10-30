@@ -811,8 +811,9 @@ void Worker::onLease(const wire::LeaseT& m) {
   if (deviceFailed) return release(fmt::format("device {} has failed", m.device));
   WorkItem item;
   item.id = m.item_id;
-  item.tile = static_cast<uint32_t>(m.item_id >> 32);
-  item.chunk = static_cast<uint32_t>(m.item_id & 0xffffffffu);
+  item.tile = WorkItem::idTile(m.item_id);
+  item.chunk = WorkItem::idChunk(m.item_id);
+  item.pass = WorkItem::idPass(m.item_id);
   item.rect = {m.x0, m.y0, m.x1, m.y1};
   item.sample_begin = m.sample_begin;
   item.sample_end = m.sample_end;

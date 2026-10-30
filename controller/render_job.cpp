@@ -2,10 +2,12 @@
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <chrono>
 #include <fmt/format.h>
 
 #include "core/exit_codes.h"
+#include "core/output/denoise.h"
 #include "core/output/output.h"
 #include "core/output/writers.h"
 #include "core/render/camera.h"
@@ -30,8 +32,14 @@ int validate(const RenderSettings& s) {
                   "reports (Embree and Vulkan ray tracing do not); add --backend cuda");
     return toInt(ExitCode::BadArguments);
   }
-  if (s.denoise != Denoiser::None) spdlog::warn("--denoise {} is built in milestone M11; not applied", toString(s.denoise));
-  if (!s.aov.empty()) spdlog::warn("--aov is built in milestone M11; no extra passes are written");
+  if (s.denoise == Denoiser::Optix) {
+    spdlog::error("--denoise optix comes with the OptiX milestone (M13); use --denoise oidn");
+    return toInt(ExitCode::BadArguments);
+  }
+  if (s.denoise == Denoiser::Oidn && !denoiserAvailable()) {
+    spdlog::error("--denoise oidn: this build has no Open Image Denoise (it was configured with PEN_ENABLE_OIDN=OFF)");
+    return toInt(ExitCode::BadArguments);
+  }
   return -1;
 }
 
@@ -134,6 +142,21 @@ ImageMetadata metadataFor(const RenderSettings& s, const RenderOutcome& outcome)
       {"RenderTime", fmt::format("{:.2f}s", outcome.seconds)},
       {"Date", localTimestamp()},
   };
+  // How it was made to look (M11, M14): display transform, denoiser, passes, sky and atmosphere.
+  md["Tonemap"] = std::string(toString(s.tonemap));
+  md["Exposure"] = fmt::format("{:+.2f}", s.exposure);
+  md["Denoise"] = std::string(toString(s.denoise));
+  if (!s.aov.empty()) {
+    std::string aovs;
+    for (const auto& a : s.aov) aovs += (aovs.empty() ? "" : ",") + a;
+    md["AOVs"] = aovs;
+  }
+  if (s.sky.enabled)
+    md["Sky"] = fmt::format("physical, sun {:.1f} deg up, azimuth {:.1f} deg, altitude {:.0f} m", s.sky.sun_elevation_deg,
+                            s.sky.sun_azimuth_deg, s.sky.altitude);
+  if (s.atmosphere.enabled)
+    md["Atmosphere"] = fmt::format("altitude {:.0f} m, fog {:.4g}/m over {:.0f} m", s.atmosphere.altitude,
+                                   s.atmosphere.fog_density, s.atmosphere.fog_height);
   if (s.region) md["Region"] = fmt::format("{},{},{},{}", r.x0, r.y0, r.x1, r.y1);
   if (s.sample_range) md["SampleRange"] = fmt::format("{}-{}", s.sample_range->first, s.sample_range->last);
   if (!outcome.complete) md["Incomplete"] = "true";
@@ -173,7 +196,9 @@ int prepareNewRender(const RenderSettings& s, RenderJob& job) {
     return toInt(ExitCode::BadArguments);
   }
   // RAM films rewrite every tile at each checkpoint, alternating two slots per tile: up to twice the film.
-  if (const int rc = checkDisk(s, filmPath, Film::fileBytes(layout) * (inRam ? 2 : 1)); rc >= 0) return rc;
+  const std::vector<AovPass> aovs = aovPassesFor(s);
+  if (const int rc = checkDisk(s, filmPath, Film::fileBytes(layout) * (inRam ? 2 : 1) * (1 + aovs.size())); rc >= 0)
+    return rc;
 
   std::error_code ec;
   if (std::filesystem::exists(sessionPath, ec))
@@ -193,6 +218,9 @@ int prepareNewRender(const RenderSettings& s, RenderJob& job) {
   try {
     if (!filmPath.parent_path().empty()) std::filesystem::create_directories(filmPath.parent_path());
     film = Film::create(filmPath, layout, {session.settings_hash, session.scene_hash}, inRam);
+    for (const AovPass& a : aovs)
+      job.aov_films[size_t(a.pass)] =
+          Film::create(aovFilmPath(filmPath, a.pass), layout, {session.settings_hash, session.scene_hash}, inRam);
     session.save(sessionPath);
   } catch (const DiskFullError& e) {
     spdlog::error("{}", e.what());
@@ -282,6 +310,23 @@ int prepareResumedRender(const std::filesystem::path& sessionFile, const nlohman
   const uint64_t onDisk = std::filesystem::file_size(session.film);
   const uint64_t remaining = Film::fileBytes(layout) > onDisk ? Film::fileBytes(layout) - onDisk : 0;
   if (const int rc = checkDisk(s, session.film, remaining); rc >= 0) return rc;
+  // The AOV films: reopened when they belong to this render, else started again (they are cheap).
+  for (const AovPass& a : aovPassesFor(s)) {
+    const std::filesystem::path p = aovFilmPath(session.film, a.pass);
+    std::unique_ptr<Film> f;
+    std::error_code ec;
+    try {
+      if (std::filesystem::exists(p, ec)) {
+        f = Film::open(p, /*writable=*/true, filmInRam(s, layout));
+        if (!(f->layout() == layout) || f->identity().settings_hash != session.settings_hash) f.reset();
+      }
+      if (!f) f = Film::create(p, layout, {session.settings_hash, session.scene_hash}, filmInRam(s, layout));
+    } catch (const FileError& e) {
+      spdlog::error("{}", e.what());
+      return toInt(ExitCode::BadArguments);
+    }
+    job.aov_films[size_t(a.pass)] = std::move(f);
+  }
   job.settings = s;
   job.scene = std::move(scene);
   job.package = std::move(pkg);
@@ -289,6 +334,16 @@ int prepareResumedRender(const std::filesystem::path& sessionFile, const nlohman
   job.session = std::move(session);
   job.session_path = sessionFile;
   return -1;
+}
+
+std::filesystem::path aovFilmPath(const std::filesystem::path& film, Pass pass) {
+  return film.parent_path() / (pathToUtf8(film.stem()) + "." + passName(pass) + ".penfilm");
+}
+
+std::array<Film*, kPassCount> aovFilmPointers(const RenderJob& job) {
+  std::array<Film*, kPassCount> f{};
+  for (size_t p = 1; p < kPassCount; ++p) f[p] = job.aov_films[p].get();
+  return f;
 }
 
 void saveSessionProgress(RenderJob& job, const RenderProgress& p) {
@@ -301,6 +356,8 @@ int finishRender(RenderJob& job, const RenderOutcome& outcomeIn) {
   // Final checkpoint and session state.
   try {
     job.film->checkpoint();
+    for (auto& f : job.aov_films)
+      if (f) f->checkpoint();
   } catch (const FileError& e) {
     spdlog::error("final checkpoint failed: {}", e.what());
     outcome.out_of_disk = outcome.out_of_disk || dynamic_cast<const DiskFullError*>(&e) != nullptr;
@@ -328,7 +385,11 @@ int finishRender(RenderJob& job, const RenderOutcome& outcomeIn) {
   // Output (also for interrupted renders: "the current image is saved").
   try {
     std::vector<std::string> notes;
-    writeOutput(*job.film, s, metadataFor(s, outcome), notes);
+    writeOutput(*job.film, s, metadataFor(s, outcome), notes, job.aov_films[size_t(Pass::Albedo)].get(),
+                job.aov_films[size_t(Pass::Normal)].get());
+    for (size_t p = 1; p < kPassCount; ++p)
+      if (job.aov_films[p] && std::find(s.aov.begin(), s.aov.end(), passName(Pass(p))) != s.aov.end())
+        writeAov(*job.aov_films[p], Pass(p), s, metadataFor(s, outcome), notes);
     for (const auto& n : notes) spdlog::info("{}", n);
   } catch (const ImageIoError& e) {
     spdlog::error("{}", e.what());
@@ -364,9 +425,13 @@ int finishRender(RenderJob& job, const RenderOutcome& outcomeIn) {
 
   const std::filesystem::path filmPath = job.film->path();
   job.film->close();
+  for (auto& f : job.aov_films)
+    if (f) f->close();
   if (outcome.complete && !s.region && !s.sample_range) {
     std::error_code ec;
     std::filesystem::remove(filmPath, ec);
+    for (size_t p = 1; p < kPassCount; ++p)
+      if (job.aov_films[p]) std::filesystem::remove(aovFilmPath(filmPath, Pass(p)), ec);
     std::filesystem::remove(job.session_path, ec);
   } else if (outcome.complete) {
     spdlog::info("film kept for `penumbra merge`: {}", pathToUtf8(filmPath));

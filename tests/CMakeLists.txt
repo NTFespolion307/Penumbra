@@ -10,6 +10,7 @@ add_executable(penumbra_unit_tests
   unit/test_config.cpp
   unit/test_film.cpp
   unit/test_medium.cpp
+  unit/test_tonemap.cpp
   unit/test_sky.cpp
   unit/test_memory.cpp
   unit/test_net.cpp
@@ -21,6 +22,9 @@ add_executable(penumbra_unit_tests
   unit/test_scheduler.cpp
   unit/test_settings.cpp)
 target_link_libraries(penumbra_unit_tests PRIVATE penumbra_cli penumbra_controller penumbra_net Catch2::Catch2WithMain)
+if(PEN_ENABLE_OIDN)
+  pen_copy_oidn_runtime(penumbra_unit_tests)  # Open Image Denoise's libraries next to the binary (cmake/Oidn.cmake)
+endif()
 target_compile_definitions(penumbra_unit_tests PRIVATE PEN_TEST_DATA_DIR="${PEN_TEST_DATA}")
 # Unit tests count chunks of the M3 size (2^22 pixel-samples, DECISIONS D-083) unless they pass a budget.
 catch_discover_tests(penumbra_unit_tests PROPERTIES LABELS unit ENVIRONMENT "PENUMBRA_TEST_CHUNK_BUDGET=4194304")
@@ -101,6 +105,15 @@ pen_render_test(furnace_glass uniform furnace_glass.pen.json "--spp|256" -DTOLER
 # M14: non-absorbing height fog over a white ground in a white environment stays white (every pixel within 1%).
 pen_render_test(furnace_fog uniform furnace_fog.pen.json "--res|16x16|--spp|65536" -DTOLERANCE=0.01)
 # M14: the atmosphere (sky, air, haze, fog) gives the same bits for any number of slots and threads.
+# M11: AOV passes do not change the image: any slots, same bits, with albedo, normal and depth rendered too.
+pen_render_test(slots_aov devices cornell.pen.json "--res|1080p|--scale|0.5|--spp|32|--aov|albedo,normal,depth"
+                "-DDEVICE_SETS=cpu+cpu,cpu+cpu,cpu,cpu" -DSMALL_CHUNKS=1)
+# M11 (D-128): the denoiser, tile by tile with OIDN's overlap and one input scale, equals denoising the whole image
+# in one call, bit for bit: no seams (2560 x 1440: 3 tiles across, 6 bands).
+if(PEN_ENABLE_OIDN)
+  pen_render_test(denoise_seams pair spheres.pen.json "--res|2560x1440|--spp|4|--denoise|oidn" "-DARGS_A=" "-DARGS_B="
+                  -DENV_B=PENUMBRA_TEST_DENOISE_WHOLE=1 -DMAXRELMSE=0)
+endif()
 pen_render_test(slots_atmosphere devices spheres_atmosphere.pen.json "--res|160x90|--spp|32" "-DDEVICE_SETS=cpu+cpu,cpu,cpu"
                 -DSMALL_CHUNKS=1)
 # The same image for any thread count, bit for bit.
@@ -246,6 +259,10 @@ pen_net_test(bad_network 7517 1 cornell.pen.json "--res|1080p|--scale|0.5|--spp|
 set_tests_properties(net.worker_silent PROPERTIES LABELS "net;gate;slow")
 # M9 (D-116): workers that get items of 4 chunks (as an upload-bound worker would) next to the controller's own
 # single-chunk items; tiles merge several chunks at once, so the image matches the solo render to the last bits.
+# M11 (D-127): the AOV passes travel to workers in the lease's item id (protocol 6); the image stays the solo
+# render bit for bit and the AOV files are written.
+pen_net_test(aov 7524 2 cornell.pen.json "${PEN_NET_12}|--aov|albedo,normal,depth" "-DREF_ARGS=--devices|cpu"
+             "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|2" "-DEXPECT_LOG=wrote the depth AOV")
 pen_net_test(item_span 7523 2 cornell.pen.json "${PEN_NET_12}" "-DREF_ARGS=--devices|cpu"
              "-DCONTROLLER_ARGS=--threads|2" "-DWORKER_ARGS=--threads|2" -DITEM_SPAN=4 -DMAXRELMSE=1e-9
              "-DEXPECT_LOG=TEST HOOK ACTIVE .PENUMBRA_TEST_ITEM_SPAN.")

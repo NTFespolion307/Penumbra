@@ -155,6 +155,7 @@ struct PushConstants {
 static_assert(sizeof(PushConstants) == 32);
 constexpr uint32_t kItemAccumulate = 1;  // start from the sum in the output buffer instead of zero
 constexpr uint32_t kItemFinish = 2;      // write the mean (sum / sample_count) instead of the sum
+constexpr uint32_t kItemPassShift = 8;   // bits 8-15: the item's Pass (0 the image; an AOV renders its debug view)
 
 // ---- Software ray tracing (CUDA backend; shaders/bvh.slang) ----
 

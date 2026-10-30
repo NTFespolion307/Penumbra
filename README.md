@@ -8,7 +8,7 @@ the image. Any number of **workers**, each with one or more GPUs, join with the 
 code, render tiles and send them back. A render on one machine is the same thing with no workers, and every
 combination of machines, GPUs and backends converges to the same image.
 
-> **Status: milestone M14 (atmosphere and physical sky; M11 comes next).** Penumbra renders glTF and OBJ scenes on GPUs with hardware ray
+> **Status: milestone M11 (denoising, tonemapping and AOVs; M12, the release polish, comes next).** Penumbra renders glTF and OBJ scenes on GPUs with hardware ray
 > tracing (Vulkan RT), on any NVIDIA GPU through CUDA, and on the CPU (Embree), with a path tracer (next-event
 > estimation, MIS), the glTF PBR material with its common extensions and HDRI lighting, at any size up to 160K,
 > with checkpoints, `--resume` and `merge`, writing EXR, PNG, JPEG, TIFF or WebP. Every machine uses all its GPUs
@@ -22,7 +22,10 @@ combination of machines, GPUs and backends converges to the same image.
 > clicks only: Dashboard, Hosts, Render, a live Viewport and Settings, on Windows and Linux. `penumbra --benchmark`
 > measures every device (measured numbers: [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)); workers with a slow uplink
 > get larger items. A physical sky from the sun's position and an atmosphere (air, haze, ground fog) render on
-> every backend; `scripts/get-scenes swiss-alps` builds the Eiger, Mönch and Jungfrau from swisstopo's open data. Features marked *(planned, Mx)* below are not built yet. The roadmap is in
+> every backend; `scripts/get-scenes swiss-alps` builds the Eiger, Mönch and Jungfrau from swisstopo's open data.
+> Images can be denoised with Open Image Denoise (`--denoise oidn`, tiled without seams up to 160K), tonemapped with
+> AgX, Filmic or ACES, and written with albedo, normal and depth AOVs; a ready-built Linux tarball is published
+> with every release. Features marked *(planned, Mx)* below are not built yet. The roadmap is in
 > [`docs/GUIDE.md`](docs/GUIDE.md).
 
 
@@ -35,23 +38,54 @@ On the GPU, an image matches the CPU's within float rounding (relMSE about 1e-8 
 
 ## Contents
 
-1. [Why you build it yourself](#why-you-build-it-yourself)
-2. [Prerequisites](#prerequisites)
-3. [Build](#build)
-4. [Running on one machine](#running-on-one-machine)
-5. [Rendering with several machines](#rendering-with-several-machines)
-6. [CLI reference](#cli-reference)
-7. [Supported formats](#supported-formats)
-8. [Resolutions, backends, memory and formats](#resolutions-backends-memory-and-formats)
-9. [Scenes from Blender](#scenes-from-blender)
-10. [Troubleshooting](#troubleshooting)
-11. [Updating](#updating)
+1. [Download a release (Linux)](#download-a-release-linux)
+2. [Why you build it yourself](#why-you-build-it-yourself)
+3. [Prerequisites](#prerequisites)
+4. [Build](#build)
+5. [Running on one machine](#running-on-one-machine)
+6. [Rendering with several machines](#rendering-with-several-machines)
+7. [CLI reference](#cli-reference)
+8. [Supported formats](#supported-formats)
+9. [Resolutions, backends, memory and formats](#resolutions-backends-memory-and-formats)
+10. [Scenes from Blender](#scenes-from-blender)
+11. [Troubleshooting](#troubleshooting)
+12. [Updating](#updating)
+
+## Download a release (Linux)
+
+The quickest way onto a Linux server or worker: a ready-made, headless build (`--terminal` and `--worker`; no UI)
+with the Vulkan, CUDA and CPU backends and the denoiser. Nothing to install but a GPU driver.
+
+Needs: x86-64 Linux with glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+), and an NVIDIA driver 580+ (CUDA 13 and
+Vulkan ray tracing) or any Vulkan driver with ray tracing; without a GPU the CPU renders.
+
+1. Download and unpack it (into `./penumbra`):
+   ```
+   curl -fL https://github.com/NTFespolion307/Penumbra/releases/latest/download/penumbra-linux-x64.tar.gz | tar xz
+   ```
+2. Check it sees the GPUs:
+   ```
+   ./penumbra/penumbra --list-devices
+   ```
+   Success: your GPUs are listed with `vulkan` and/or `cuda`.
+3. Join a render as an always-on worker (use the controller's address and join code):
+   ```
+   ./penumbra/penumbra --worker --join 203.0.113.5 --code K7QD-M2XR-9FHT-4WNB --stay
+   ```
+   Success: `joined the controller as worker ...`.
+
+Every machine of a render must run the same build: the controller and all workers use the same release, or all
+build from the same commit (step 1 again on every machine to update). The tarball also holds
+`scripts/get-scenes.sh` and the small sample scenes; `./penumbra/scripts/get-scenes.sh swiss-alps` works from it.
+Each release is built from `main` by GitHub Actions; `penumbra-linux-x64.tar.gz.sha256` next to it is its checksum.
 
 ## Why you build it yourself
 
 Windows SmartScreen blocks unsigned `.exe` files downloaded from the internet, and Penumbra is not signed. An
-exe you build on your own machine carries no download mark and runs without a warning, so building from source
-is the supported way to install Penumbra on every machine, Windows or Linux.
+exe you build on your own machine carries no download mark and runs without a warning, so on Windows building
+from source is the way to install Penumbra (a Windows download comes with M12). On Linux you can build it the same
+way, or use the [release](#download-a-release-linux); build it yourself for the UI, a newer CUDA, or your own
+changes.
 
 ## Prerequisites
 
@@ -257,6 +291,8 @@ The binary is `build/<preset>/bin/penumbra` (`penumbra.exe` on Windows).
 | `PEN_ENABLE_OPTIX` | `OFF` | OptiX backend and denoiser *(planned, M13, optional)* |
 | `PEN_ENABLE_UI` | `ON` | The user interface (M10); off for headless servers (`build.sh` turns it off when there is no display). `--terminal` and `--worker` never need display libraries either way |
 | `PEN_CUDA_ARCHS` | `75;80;86;89;90;120` | CUDA architectures to compile for. Newer GPUs run the embedded PTX. CUDA 13 cannot build for GTX 10-series (61) or V100 (70); for those, build with CUDA 12.x and add the architecture, e.g. `-DPEN_CUDA_ARCHS="61;75;86"` |
+| `PEN_PORTABLE` | `OFF` | Linux: link libstdc++ and libgcc statically, as `scripts/package.sh` does for the release |
+| `PEN_ENABLE_OIDN` | `ON` | Denoising with Intel Open Image Denoise 2.5.1: configure downloads Intel's release binaries (about 60 MB, SHA-256 checked) into the build folder once, and the build copies its libraries next to `penumbra`. `OFF` builds without denoising |
 | `PEN_CUDA_NVCC_FLAGS` | (empty) | Extra nvcc flags for the CUDA kernels, separated by semicolons, e.g. `-DPEN_CUDA_NVCC_FLAGS="-maxrregcount=96"`. For tuning experiments; the build log shows each kernel's registers and spills |
 | `PEN_BUILD_TESTS` | `ON` | Unit, smoke and lint tests |
 
@@ -314,8 +350,15 @@ the same keys as the CLI reference (for example `{"tonemap": "filmic", "worker_n
 The join code is never read from or written to the config file.
 
 **Output.** EXR (linear, half or float, tiled), PNG (8/16-bit), JPEG, TIFF (8/16-bit display, 32-bit linear
-float; BigTIFF above 4 GB) and WebP. Until AgX/Filmic/ACES arrive in M11, display formats use the sRGB curve
-with clipping. Images are written in bands of 256 rows, so even a 160K output never sits in memory whole. With
+float; BigTIFF above 4 GB) and WebP. Display formats (PNG, JPEG, WebP, 8/16-bit TIFF) go through `--tonemap`:
+`agx` (default; Blender 4.x's AgX, within about 1.4 8-bit steps of Blender on average), `filmic` (Blender's Filmic
+grey response), `aces` (the ACES fit) or `none` (the sRGB curve with clipping, Blender's "Standard"). EXR and
+32-bit TIFF stay linear. `--aov albedo,normal,depth` also writes those passes as `<name>.albedo.exr`,
+`<name>.normal.exr` (in [-1, 1]) and `<name>.depth.exr` (scene units) next to the image; each is rendered at 16
+samples per pixel at the first hit, a few percent of the render's time. `--denoise oidn` removes the noise with
+Intel Open Image Denoise, guided by the albedo and normal passes (rendered for it automatically): on the
+controller's NVIDIA GPU when it has one, else on its CPU, tile by tile, with the same result as denoising the whole
+image at once (no seams at any size). It is off by default in `--terminal`, so renders stay unbiased. Images are written in bands of 256 rows, so even a 160K output never sits in memory whole. With
 `--region` the output file contains only that region. On the controller machine the CPU leaves 2 threads free
 unless you pass `--threads`.
 
@@ -884,7 +927,9 @@ Start with `penumbra --diagnose` and include its output in any bug report.
 
 ## Updating
 
-Controller and workers must run exactly the same version and git commit. On **every** machine:
+Controller and workers must run exactly the same version and git commit. Machines on the Linux
+[release](#download-a-release-linux): download it again (step 1 there) on each of them. Machines built from source,
+on **every** one:
 
 1. Get the latest code, in the `Penumbra` folder:
    ```
