@@ -69,11 +69,12 @@ int loadSceneChecked(const RenderSettings& s, std::shared_ptr<Scene>& scene) {
     for (const auto& w : warnings) spdlog::warn("scene: {}", w);
     const SceneStats st = scene->stats();
     spdlog::info("scene {}: {} triangles ({} unique), {} instances, {} materials, {} textures ({}), {} emissive "
-                 "triangles, {} punctual lights, environment {}; loaded in {:.2f}s",
+                 "triangles, {} punctual lights, environment {}, atmosphere {}; loaded in {:.2f}s",
                  pathToUtf8(s.scene.filename()), st.triangles, st.unique_triangles, st.instances, st.materials,
                  st.textures, formatBytes(st.texture_bytes), st.emissive_triangles, st.punctual_lights,
                  scene->environment.hasMap() ? scene->environment.name
                                              : (scene->environment.isBlack() ? "none" : "uniform colour"),
+                 scene->medium.empty() ? std::string("none") : fmt::format("{} layers", scene->medium.count),
                  std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
     if (scene->lightCount() == 0) spdlog::warn("the scene has no lights and no environment; the image will be black");
     std::vector<std::string> notes;
