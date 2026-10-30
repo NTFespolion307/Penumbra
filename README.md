@@ -317,7 +317,9 @@ The join code is never read from or written to the config file.
 float; BigTIFF above 4 GB) and WebP. Display formats (PNG, JPEG, WebP, 8/16-bit TIFF) go through `--tonemap`:
 `agx` (default; Blender 4.x's AgX, within about 1.4 8-bit steps of Blender on average), `filmic` (Blender's Filmic
 grey response), `aces` (the ACES fit) or `none` (the sRGB curve with clipping, Blender's "Standard"). EXR and
-32-bit TIFF stay linear. Images are written in bands of 256 rows, so even a 160K output never sits in memory whole. With
+32-bit TIFF stay linear. `--aov albedo,normal,depth` also writes those passes as `<name>.albedo.exr`,
+`<name>.normal.exr` (in [-1, 1]) and `<name>.depth.exr` (scene units) next to the image; each is rendered at 16
+samples per pixel at the first hit, a few percent of the render's time. Images are written in bands of 256 rows, so even a 160K output never sits in memory whole. With
 `--region` the output file contains only that region. On the controller machine the CPU leaves 2 threads free
 unless you pass `--threads`.
 

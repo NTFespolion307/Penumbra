@@ -159,6 +159,8 @@ class CpuBackend final : public IBackend {
     const Scene& scene = *scene_;
     const FrameSetup& f = frame_;
     const float invN = item.samples() > 0 ? 1.0f / static_cast<float>(item.samples()) : 0.0f;
+    IntegratorParams params = f.params;
+    params.mode = passIntegrator(item.pass, f.params.mode);  // an AOV pass renders its debug view (M11)
 
     arena_->execute([&] {
       tbb::parallel_for(tbb::blocked_range2d<uint32_t>(r.y0, r.y1, 4, r.x0, r.x1, 16), [&](const auto& range) {
@@ -173,7 +175,7 @@ class CpuBackend final : public IBackend {
               const Vec2f lens = sampler.next2D();
               Vec3f o, d;
               f.camera.generateRay(x + jitter.x, y + jitter.y, lens, o, d);
-              Vec3f L = traceSample(scene, tracer, f.params, o, d, sampler);
+              Vec3f L = traceSample(scene, tracer, params, o, d, sampler);
               if (!isFinite(L)) {
                 ++localNans;
                 L = Vec3f(0);

@@ -167,3 +167,36 @@ TEST_CASE("breadth-first hands out every chunk before it reports nothing left", 
   while (s.next()) ++handed;
   CHECK(handed == expected);
 }
+
+TEST_CASE("AOV passes come first, survive a stop and must finish (M11, D-127)", "[scheduler]") {
+  const FilmLayout layout = FilmLayout::make(512, 256, 256);  // 2 tiles, 64-sample chunks (test budget 2^22)
+  Scheduler s(layout, 0, 128, std::nullopt, PassOrder::BreadthFirst, {{Pass::Albedo, 16}, {Pass::Depth, 16}});
+  CHECK(s.hasPass(Pass::Albedo));
+  CHECK_FALSE(s.hasPass(Pass::Normal));
+  CHECK(s.tileCount() == 2);
+  CHECK(s.totalSamples() == uint64_t(512) * 256 * 128);  // the image only
+  // 2 passes x 2 tiles first, each 16 samples from sample 0, with the pass in the id.
+  for (int i = 0; i < 4; ++i) {
+    const WorkItem a = *s.next();
+    CHECK(a.pass != Pass::Beauty);
+    CHECK(a.sample_begin == 0);
+    CHECK(a.sample_end == 16);
+    CHECK(WorkItem::idPass(a.id) == a.pass);
+    CHECK(WorkItem::idTile(a.id) == a.tile);
+  }
+  CHECK(s.next()->pass == Pass::Beauty);
+  CHECK_FALSE(s.aovsDone());
+
+  // A stop: no more image work, but unissued AOV tiles would still be handed out.
+  Scheduler t(layout, 0, 128, std::nullopt, PassOrder::DepthFirst, {{Pass::Normal, 16}});
+  t.stopNew();
+  int aov = 0;
+  while (auto item = t.next()) {
+    CHECK(item->pass == Pass::Normal);
+    t.markMergedUntil(item->tile, item->sample_end, item->pass);
+    ++aov;
+  }
+  CHECK(aov == 2);
+  CHECK(t.aovsDone());
+  CHECK(t.mergedSamples() == 0);  // AOV samples are not the image's progress
+}

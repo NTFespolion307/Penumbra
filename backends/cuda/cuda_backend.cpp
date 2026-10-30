@@ -696,7 +696,7 @@ void CudaBackend::render(const WorkItem& item, TileResult& out) {
   constexpr unsigned kBlockX = 16, kBlockY = 8;  // shaders/pathtrace_cuda.slang numthreads
   for (uint32_t s = item.sample_begin; s < item.sample_end;) {
     const uint32_t e = std::min(item.sample_end, s + step);
-    gpu::PushConstants pc{r.x0, r.y0, r.width(), r.height(), s, e, total, 0};
+    gpu::PushConstants pc{r.x0, r.y0, r.width(), r.height(), s, e, total, uint32_t(item.pass) << gpu::kItemPassShift};
     if (s > item.sample_begin) pc.flags |= gpu::kItemAccumulate;
     if (e == item.sample_end) pc.flags |= gpu::kItemFinish;
     void* args[] = {&pc};

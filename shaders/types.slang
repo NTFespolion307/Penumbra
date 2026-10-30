@@ -163,6 +163,7 @@ struct PushConstants {
 };
 static const uint kItemAccumulate = 1;
 static const uint kItemFinish = 2;
+static const uint kItemPassShift = 8;  // bits 8-15: the item's pass (core/render/work.h Pass)
 
 // Software ray tracing (CUDA backend, bvh.slang).
 struct Blas {

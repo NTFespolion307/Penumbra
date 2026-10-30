@@ -97,7 +97,7 @@ table RequestWork {
 table Lease {
   lease_id:ulong;
   device:uint;
-  item_id:ulong;          // (tile << 32) | chunk
+  item_id:ulong;          // (pass << 56) | (tile << 32) | chunk; pass 0 the image, 1-3 albedo/normal/depth (protocol 6)
   x0:uint; y0:uint; x1:uint; y1:uint;
   sample_begin:uint;
   sample_end:uint;

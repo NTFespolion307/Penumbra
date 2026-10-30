@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <filesystem>
 #include <memory>
 #include <nlohmann/json.hpp>
@@ -21,6 +22,9 @@ struct RenderJob {
   std::shared_ptr<Scene> scene;
   std::shared_ptr<const ScenePackage> package;
   std::unique_ptr<Film> film;
+  // The AOV passes' films (M11, D-127), by Pass; null for passes not rendered. Next to the film:
+  // <name>.albedo.penfilm and so on.
+  std::array<std::unique_ptr<Film>, kPassCount> aov_films;
   Session session;
   std::filesystem::path session_path;
 };
@@ -32,6 +36,11 @@ int prepareNewRender(const RenderSettings& settings, RenderJob& job);
 // The same for `--resume`: the session file's settings plus `cliOverrides` (settings that do not change pixels).
 // job.session.hosting / join_code tell whether the render was hosting workers.
 int prepareResumedRender(const std::filesystem::path& sessionFile, const nlohmann::json& cliOverrides, RenderJob& job);
+
+// <film>.<pass>.penfilm next to the film.
+std::filesystem::path aovFilmPath(const std::filesystem::path& film, Pass pass);
+// The image film and the AOV films, for the controller.
+std::array<Film*, kPassCount> aovFilmPointers(const RenderJob& job);
 
 // Writes the session file with the progress so far (atomically; a failure is logged, not thrown).
 void saveSessionProgress(RenderJob& job, const RenderProgress& progress);

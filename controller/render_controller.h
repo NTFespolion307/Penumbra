@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -92,8 +93,10 @@ struct LiveView {
 // D-091); the first valid result wins.
 class RenderController final : public WorkerEvents {
  public:
+  // aovFilms[pass]: the film of each AOV pass to render (M11, D-127), nullptr for passes not wanted.
   RenderController(const RenderSettings& settings, std::shared_ptr<const Scene> scene,
-                   std::shared_ptr<const ScenePackage> package, Film& film, PassOrder order);
+                   std::shared_ptr<const ScenePackage> package, Film& film, PassOrder order,
+                   const std::array<Film*, kPassCount>& aovFilms = {});
 
   // `make` creates the link for the new worker id, with this controller as its WorkerEvents. Thread-safe and
   // allowed while the render runs: a worker added then is offered the scene at once (joining mid-render).
@@ -145,7 +148,7 @@ class RenderController final : public WorkerEvents {
   RenderProgress progressLocked() const;
   void stopLocked();               // no new work, cancel what is in flight, finish
   void serveLocked();              // hand out work to devices that asked for more
-  void mergeReadyLocked(uint32_t tile);
+  void mergeReadyLocked(uint32_t tile, Pass pass);
   bool mergeLocked(const TileResult& r);
   void checkFinishedLocked();
   void reissueLateLocked();
@@ -167,6 +170,7 @@ class RenderController final : public WorkerEvents {
   RenderSettings settings_;
   RenderOffer offer_;
   Film& film_;
+  std::array<Film*, kPassCount> films_{};  // by pass: [0] the image (film_), then the AOVs being rendered
   Scheduler scheduler_;
   uint32_t sample_begin_ = 0;
   std::vector<std::unique_ptr<WorkerLink>> workers_;

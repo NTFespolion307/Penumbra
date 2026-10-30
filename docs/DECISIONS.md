@@ -1177,3 +1177,20 @@ numbers), checked by a unit test.
 - **ACES:** Stephen Hill's fit of the RRT and sRGB ODT (BakingLab, MIT). **None:** the sRGB curve with clipping,
   equal to Blender's Standard (max 0.004 steps).
 - No code or LUT from Blender: its output numbers for our inputs are measurements.
+
+**D-127 AOVs as passes (M11 step 2).** An AOV (albedo, normal, depth) is its own pass of work items, rendered
+with the matching debug view (first hit; these already worked on CPU, Vulkan and CUDA) at 16 samples per pixel
+(`kAovSamples`: clean and antialiased for the denoiser, a few percent of a usual render), into its own film
+(`<name>.<pass>.penfilm` next to the image's). The scheduler holds every pass's tiles (AOV tiles first, so the
+denoiser's inputs are in early); a work item and its id carry the pass (`pass << 56 | tile << 32 | chunk`, tiles
+below 2^24), and a lease's item id brings it to workers (protocol 6; older workers would render the image instead).
+On the GPUs the pass rides in bits 8-15 of the launch's flags, so the kernel is unchanged otherwise. Everything else
+is the image's machinery: requeue, tail copies, late check, merging in chunk order, checkpoints, `--resume` (the
+AOV films are reopened or started again). AOV tiles are still handed out after a stop (time limit, Ctrl+C) and a
+stopped render finishes once they are in. Totals and progress count the image only. Output: each AOV listed in
+`--aov` as `<name>.<pass>.exr` next to the image (linear float, 32-bit for depth, normals back in [-1, 1]); not
+EXR layers or `name.albedo.png` as the guide sketched: normals and depth are not display images, and one EXR per
+pass works whatever the main format. The denoiser needs albedo and normal, so `--denoise` adds those passes
+(written only if listed). Not covered: `penumbra merge` combines the images only. Tests: scheduler (AOVs first,
+after a stop, totals), `render.slots_aov` (any slots, same bits, with all three AOVs), `net.aov` (workers render
+the AOV passes; the image equals the solo render bit for bit).

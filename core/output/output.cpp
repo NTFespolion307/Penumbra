@@ -7,6 +7,7 @@
 #include "core/image/image.h"
 #include "core/output/tonemap.h"
 #include "core/output/writers.h"
+#include "core/system/paths.h"
 
 namespace pen {
 
@@ -41,6 +42,29 @@ void writeImage(const RowSource& source, uint32_t width, uint32_t height, const 
     writer->writeBand(y0, rows, rgb);
   }
   writer->finish();
+}
+
+std::filesystem::path aovOutputPath(const std::filesystem::path& output, Pass pass) {
+  return output.parent_path() / (pathToUtf8(output.stem()) + "." + passName(pass) + ".exr");
+}
+
+void writeAov(const Film& film, Pass pass, const RenderSettings& s, const ImageMetadata& metadata,
+              std::vector<std::string>& notes) {
+  RenderSettings a = s;
+  a.output = aovOutputPath(s.output, pass);
+  a.format = ImageFormat::Exr;
+  a.bit_depth = pass == Pass::Depth ? 32 : 16;
+  a.exposure = 0;
+  a.tonemap = Tonemap::None;
+  const TileRect area = outputRect(s);
+  const RowSource source = [&](const TileRect& rows, std::vector<Vec3f>& out) {
+    film.readRect({area.x0 + rows.x0, area.y0 + rows.y0, area.x0 + rows.x1, area.y0 + rows.y1}, out);
+    if (pass == Pass::Normal)
+      for (Vec3f& v : out) v = v * 2.0f - Vec3f(1);
+  };
+  std::vector<std::string> ignored;
+  writeImage(source, area.width(), area.height(), a, metadata, ignored);
+  notes.push_back("wrote the " + std::string(passName(pass)) + " AOV: " + pathToUtf8(a.output));
 }
 
 void writeOutput(const Film& film, const RenderSettings& s, const ImageMetadata& metadata,

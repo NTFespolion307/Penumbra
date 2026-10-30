@@ -185,9 +185,8 @@ float3 tracePath(float3 origin, float3 dir, inout PathSampler sampler) {
   return L;
 }
 
-float3 traceDebug(float3 origin, float3 dir, inout PathSampler sampler) {
+float3 traceDebug(float3 origin, float3 dir, inout PathSampler sampler, uint mode) {
   Hit hit = intersect(origin, dir);
-  uint mode = g_frame.mode;
   if (mode == kModeDebugBvh) return float3(hit.steps, hit.steps, hit.steps);
   if (!hit.valid) return float3(0, 0, 0);
   float3 wo = -dir;
@@ -220,13 +219,16 @@ void renderPixel(uint2 local, PushConstants item) {
   uint o = local.y * item.width + local.x;
   float3 sum = (item.flags & kItemAccumulate) != 0 ? g_out[o] : float3(0, 0, 0);
   uint nans = 0;
+  // An AOV pass renders its debug view (M11): 1 albedo, 2 normal, 3 depth.
+  uint pass = (item.flags >> kItemPassShift) & 0xff;
+  uint mode = pass == 1 ? kModeDebugAlbedo : (pass == 2 ? kModeDebugNormal : (pass == 3 ? kModeDebugDepth : g_frame.mode));
   for (uint s = item.sample_begin; s < item.sample_end; ++s) {
     PathSampler sampler = makeSampler(x, y, s, g_frame.seed);
     float2 jitter = sampler.next2D();
     float2 lens = sampler.next2D();
     float3 ro, rd;
     generateRay(x + jitter.x, y + jitter.y, lens, ro, rd);
-    float3 L = g_frame.mode == kModePath ? tracePath(ro, rd, sampler) : traceDebug(ro, rd, sampler);
+    float3 L = mode == kModePath ? tracePath(ro, rd, sampler) : traceDebug(ro, rd, sampler, mode);
     if (!isFinite3(L)) {
       ++nans;
       L = float3(0, 0, 0);

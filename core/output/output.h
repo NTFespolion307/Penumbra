@@ -1,5 +1,6 @@
 #pragma once
 
+#include <filesystem>
 #include <functional>
 #include <string>
 #include <vector>
@@ -23,6 +24,12 @@ void writeImage(const RowSource& source, uint32_t width, uint32_t height, const 
 
 // Display encoding for 8/16-bit formats: exposure, then the tonemap (core/output/tonemap.h).
 Vec3f displayEncode(Vec3f linear, float exposureScale, Tonemap tonemap);
+
+// An AOV film (M11, D-127) as <output name>.<pass>.exr next to the output: linear float, no exposure or tonemap;
+// albedo as it is, normals back from the debug view's 0.5 n + 0.5 to [-1, 1], depth in scene units (32-bit).
+void writeAov(const Film& film, Pass pass, const RenderSettings& s, const ImageMetadata& metadata,
+              std::vector<std::string>& notes);
+std::filesystem::path aovOutputPath(const std::filesystem::path& output, Pass pass);
 
 // The pixel rectangle the output file covers: --region, or the whole image.
 TileRect outputRect(const RenderSettings& s);

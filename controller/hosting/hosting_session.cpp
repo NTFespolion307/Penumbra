@@ -161,7 +161,7 @@ RenderOutcome HostingSession::render(RenderJob& job, std::vector<std::unique_ptr
   const PassOrder order = job.film->inRam() ? PassOrder::BreadthFirst : PassOrder::DepthFirst;
   spdlog::info("pass order: {}", order == PassOrder::BreadthFirst ? "breadth-first (whole image, pass by pass)"
                                                                   : "depth-first (tile after tile)");
-  RenderController controller(job.settings, job.scene, job.package, *job.film, order);
+  RenderController controller(job.settings, job.scene, job.package, *job.film, order, aovFilmPointers(job));
   if (const uint32_t restored = controller.restoreFromFilm(); restored > 0) {
     const RenderProgress p = controller.progress();
     spdlog::info("resume: {} of {} tiles already have samples in the film ({:.1f}% of the samples)", restored,

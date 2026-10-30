@@ -102,6 +102,9 @@ pen_render_test(furnace_glass uniform furnace_glass.pen.json "--spp|256" -DTOLER
 # M14: non-absorbing height fog over a white ground in a white environment stays white (every pixel within 1%).
 pen_render_test(furnace_fog uniform furnace_fog.pen.json "--res|16x16|--spp|65536" -DTOLERANCE=0.01)
 # M14: the atmosphere (sky, air, haze, fog) gives the same bits for any number of slots and threads.
+# M11: AOV passes do not change the image: any slots, same bits, with albedo, normal and depth rendered too.
+pen_render_test(slots_aov devices cornell.pen.json "--res|1080p|--scale|0.5|--spp|32|--aov|albedo,normal,depth"
+                "-DDEVICE_SETS=cpu+cpu,cpu+cpu,cpu,cpu" -DSMALL_CHUNKS=1)
 pen_render_test(slots_atmosphere devices spheres_atmosphere.pen.json "--res|160x90|--spp|32" "-DDEVICE_SETS=cpu+cpu,cpu,cpu"
                 -DSMALL_CHUNKS=1)
 # The same image for any thread count, bit for bit.
@@ -247,6 +250,10 @@ pen_net_test(bad_network 7517 1 cornell.pen.json "--res|1080p|--scale|0.5|--spp|
 set_tests_properties(net.worker_silent PROPERTIES LABELS "net;gate;slow")
 # M9 (D-116): workers that get items of 4 chunks (as an upload-bound worker would) next to the controller's own
 # single-chunk items; tiles merge several chunks at once, so the image matches the solo render to the last bits.
+# M11 (D-127): the AOV passes travel to workers in the lease's item id (protocol 6); the image stays the solo
+# render bit for bit and the AOV files are written.
+pen_net_test(aov 7524 2 cornell.pen.json "${PEN_NET_12}|--aov|albedo,normal,depth" "-DREF_ARGS=--devices|cpu"
+             "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|2" "-DEXPECT_LOG=wrote the depth AOV")
 pen_net_test(item_span 7523 2 cornell.pen.json "${PEN_NET_12}" "-DREF_ARGS=--devices|cpu"
              "-DCONTROLLER_ARGS=--threads|2" "-DWORKER_ARGS=--threads|2" -DITEM_SPAN=4 -DMAXRELMSE=1e-9
              "-DEXPECT_LOG=TEST HOOK ACTIVE .PENUMBRA_TEST_ITEM_SPAN.")
