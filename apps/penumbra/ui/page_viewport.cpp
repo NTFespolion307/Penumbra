@@ -232,17 +232,14 @@ void progressPanel(Model& model, UiState& ui, ViewportState& s, float width) {
   small("Exposure (EV)");
   ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
   float ev = float(ui.runner->exposure());
-  if (ImGui::SliderFloat("##vev", &ev, -5.0f, 5.0f, "%+.1f")) ui.runner->setExposure(ev);
+  if (ImGui::SliderFloat("##vev", &ev, -12.0f, 5.0f, "%+.1f")) ui.runner->setExposure(ev);
   small("Tonemap");
-  ImGui::BeginDisabled();
-  int srgb = 0;
+  static constexpr const char* kTonemaps[] = {"AgX", "Filmic", "ACES", "None (sRGB curve)"};
+  int tm = static_cast<int>(ui.runner->tonemap());  // Tonemap order: Agx, Filmic, Aces, None
   ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-  ImGui::Combo("##vtm", &srgb, "sRGB curve\0");
-  bool denoise = false;
-  ImGui::Checkbox("Denoised preview", &denoise);
-  ImGui::EndDisabled();
+  if (ImGui::Combo("##vtm", &tm, kTonemaps, 4)) ui.runner->setTonemap(static_cast<Tonemap>(tm));
   ImGui::PushTextWrapPos(0);
-  small("AgX/Filmic/ACES and the denoised preview arrive in M11. Exposure also applies to the output.");
+  small("Exposure and tonemap also apply to the output. The denoiser runs on the output, after the render.");
   ImGui::PopTextWrapPos();
   endCard();
 }

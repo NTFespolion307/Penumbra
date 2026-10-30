@@ -142,6 +142,21 @@ ImageMetadata metadataFor(const RenderSettings& s, const RenderOutcome& outcome)
       {"RenderTime", fmt::format("{:.2f}s", outcome.seconds)},
       {"Date", localTimestamp()},
   };
+  // How it was made to look (M11, M14): display transform, denoiser, passes, sky and atmosphere.
+  md["Tonemap"] = std::string(toString(s.tonemap));
+  md["Exposure"] = fmt::format("{:+.2f}", s.exposure);
+  md["Denoise"] = std::string(toString(s.denoise));
+  if (!s.aov.empty()) {
+    std::string aovs;
+    for (const auto& a : s.aov) aovs += (aovs.empty() ? "" : ",") + a;
+    md["AOVs"] = aovs;
+  }
+  if (s.sky.enabled)
+    md["Sky"] = fmt::format("physical, sun {:.1f} deg up, azimuth {:.1f} deg, altitude {:.0f} m", s.sky.sun_elevation_deg,
+                            s.sky.sun_azimuth_deg, s.sky.altitude);
+  if (s.atmosphere.enabled)
+    md["Atmosphere"] = fmt::format("altitude {:.0f} m, fog {:.4g}/m over {:.0f} m", s.atmosphere.altitude,
+                                   s.atmosphere.fog_density, s.atmosphere.fog_height);
   if (s.region) md["Region"] = fmt::format("{},{},{},{}", r.x0, r.y0, r.x1, r.y1);
   if (s.sample_range) md["SampleRange"] = fmt::format("{}-{}", s.sample_range->first, s.sample_range->last);
   if (!outcome.complete) md["Incomplete"] = "true";
