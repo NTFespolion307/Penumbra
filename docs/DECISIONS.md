@@ -1226,3 +1226,22 @@ to `main` as a GitHub release `build-<commit>` marked latest, so
 `releases/latest/download/penumbra-linux-x64.tar.gz` is always the newest. The README gets "Download a release
 (Linux)" first; Windows still builds from source (SmartScreen) until M12. A single-file build (static OIDN or an
 AppImage) stays an M12 option.
+
+**D-130 M11 on 8 x RTX 5090 (rented box, Ubuntu 24.04, driver 580.173, 215-CPU quota, 282 GB).**
+- **Linux runtime libraries:** the first run found nothing to run: `penumbra` found `libOpenImageDenoise.so.2`
+  through its RUNPATH, but not that library's own `libOpenImageDenoise_core.so` (a DT_RUNPATH applies to the
+  binary's direct dependencies only; Windows looks next to the exe anyway, so the laptop never showed it). Linked
+  with `--disable-new-dtags` (a DT_RPATH, searched for the whole chain) in `pen_copy_oidn_runtime`; the release
+  tarball depends on the same.
+- **GPU suite** (`ctest -L gpu`, 206a388): 46 of 46, so the AOV passes in the launch flags changed nothing else.
+- **AOVs on every backend** (spheres 640 x 360, 16 spp, each against the CPU): albedo relMSE 9.0e-8 (Vulkan),
+  8.2e-8 (CUDA); normal 1.9e-7 / 5.1e-7; depth 1.6e-10 / 1.3e-9 (a few edge pixels differ by rounding).
+- **40K denoised** (Sponza, 40960 x 23040, 64 spp, 8 GPUs with Vulkan): rendering 52.3 s, 90.6 G samples (60.4 G
+  for the image, 30.2 G for the albedo and normal passes, 33% extra here at 64 spp), 1,734 M samples/s, each GPU
+  ~36.5 s busy; OIDN on CUDA (one 5090), 96 px border, input scale 146.8; denoising plus writing the 2.8 G-pixel
+  PNG (430 MB) about 7 minutes, mostly PNG compression on one core. Peak RAM 63 GB (three 15 GB RAM films).
+- **Seams at 40K:** mean difference between neighbouring columns at the 39 tile edges 0.651 against 0.667
+  elsewhere (ratio 0.975), between rows at the 89 band edges 0.454 against 0.474 (0.959); the worst edge stays
+  below the 99.9th percentile of ordinary columns and rows. No seams (and at 2560 x 1440 the tiled result equals
+  the whole-image one bit for bit, D-128). A crop around a tile corner shows continuous stone.
+- Gate: no seams on a 40K render (above); AgX close to Blender (mean 1.4 8-bit steps, D-126).

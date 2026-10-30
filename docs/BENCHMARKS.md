@@ -163,3 +163,16 @@ Raw TCP from the controller: 180 MB/s to the 5070 Ti, 62 MB/s to the 5060 Ti.
 
 The sky bake adds about 1.5 s to every scene load (laptop).
 
+## 2026-10-30, M11: 40K denoised on 8 x RTX 5090
+
+- **Machine:** rented, 8 x RTX 5090 32 GB (driver 580.173), 215-CPU quota, 282 GB RAM, Ubuntu 24.04. Branch `m11`
+  206a388, Release, GCC 12.4.
+
+| Render | Rendering | M samples/s | Then |
+| --- | --- | --- | --- |
+| Sponza 40K (40960 x 23040), 64 spp + albedo/normal passes, Vulkan on 8 GPUs | 52.3 s | 1,734 (60.4 G image + 30.2 G passes) | OIDN on CUDA + PNG writing: ~7 min (one core compresses 2.8 G pixels) |
+
+Each GPU rendered ~5,400 items in ~36.5 s of its 52 s. At low spp the AOV passes (16 spp each) are a large share;
+at the usual 256-1024 spp they are a few percent. The output stage (one core for PNG compression) now dominates a
+quick 40K render; a faster or parallel encoder is a later optimization.
+
