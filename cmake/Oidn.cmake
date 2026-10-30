@@ -52,6 +52,9 @@ function(pen_copy_oidn_runtime target)
                      COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${PEN_OIDN_RUNTIME} "$<TARGET_FILE_DIR:${target}>"
                      VERBATIM)
   if(NOT WIN32)
+    # DT_RPATH, not the newer DT_RUNPATH: a RUNPATH applies to the binary's own dependencies only, so
+    # libOpenImageDenoise.so.2 was found but its libOpenImageDenoise_core.so was not (D-128).
     set_target_properties(${target} PROPERTIES BUILD_RPATH "$ORIGIN" INSTALL_RPATH "$ORIGIN")
+    target_link_options(${target} PRIVATE "LINKER:--disable-new-dtags")
   endif()
 endfunction()
