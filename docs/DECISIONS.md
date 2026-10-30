@@ -1148,3 +1148,15 @@ difference is Blender's integration bias, D-120); the Swiss Alps render at 8K on
 Windows full suite 192/192; Linux CI passed through e16d266, the last four commits' runs were still going at the
 merge (the converter and libtiff's JPEG were built and run on Ubuntu 24.04 on the box). Next: M11 (denoise,
 tonemapping, AOVs), then M12; M13 optional; the CUDA traversal rework (D-115) separate.
+
+**D-125 M11 starts (2026-10-30): plan approved; OIDN from Intel's release binaries.** Plan: (1) tonemapping in the
+output stage: AgX as Blender 4.x (published matrices and curve), Blender's Filmic, the ACES fit; checked against
+Blender's view transforms on the same EXR (portable Blender on D:); (2) AOVs albedo, normal, depth at the first
+non-specular hit on CPU, Vulkan and CUDA, stored as film channels merged like the image, sent with tiles (protocol
+6), written as EXR layers or sibling files; (3) OIDN 2 per output tile with a 32 px border, using albedo and normal,
+on the controller's CPU or its NVIDIA GPU (OIDN's CUDA device); on for UI previews, off for --terminal (guide
+default); (4) metadata in EXR headers and PNG text; (5) the UI's Denoise and Tonemap controls, live; (6) gate: a
+40K denoised render without seams (differences across tile edges against inside tiles) on a GPU box, and AgX close
+to Blender. User answer: vcpkg has no OIDN port, so the build scripts download Intel's prebuilt OIDN 2.x release
+for Windows and Linux (CPU and CUDA devices), pinned to a version and SHA-256, and ship its libraries next to
+penumbra (the guide lists OIDN, Apache-2.0).
