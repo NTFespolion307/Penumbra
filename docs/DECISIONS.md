@@ -1250,3 +1250,14 @@ AppImage) stays an M12 option.
 was chosen in M14 for the plain sRGB display; AgX darkens mid-tones, so it is now -4.8. The sun moved from 22 deg
 at azimuth 300 (behind the north faces, which the camera sees, so they were lit by the sky only) to 28 deg at
 azimuth 25: side light on the Eiger, Moench and Jungfrau faces shows their relief.
+
+**D-132 More terrain scenes, GLO-30 far field and credits (2026-10-30, asked by the user).** `get-scenes` builds
+`swiss-lauterbrunnen` (valley fog, side light), `swiss-matterhorn` (sunrise alpenglow from the Gornergrat, sun 1 deg)
+and `swiss-rigi` (a sea of fog at about 1,050 m with the Alps 60-80 km away). Copernicus GLO-30 (30 m, worldwide,
+public on AWS, SHA-256 pinned in `scenes/copernicus.sha256`) is the second elevation source: `penumbra-terrain --far`
+adds a 45 m far-field mesh around the 2 m area (vertices under the 2 m area lowered 50 m so the seam stays hidden)
+and fills the tiles swisstopo does not have (the Italian side of the Matterhorn: 58 of 256). There are no photos
+that far, so far terrain is coloured by height and slope (forest, meadow, rock, snow, flat = lake). No earth
+curvature: the medium is flat too, and at 70 km the error is about 0.3 deg. The Rigi fog is a dense layer with a
+40 m scale height, so its top is sharp; more bounces (12 to 48) did not brighten it. The README ends with a Credits
+section (data, scenes, libraries, methods).

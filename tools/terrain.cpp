@@ -267,9 +267,7 @@ int stacList(const std::vector<double>& bb, const std::vector<fs::path>& pages, 
       }
     }
   const size_t want = size_t((bb[2] - bb[0]) * (bb[3] - bb[1])) * 2;
-  if (partial && best.size() < want)
-    std::fprintf(stderr, "penumbra-terrain: %zu of the %zu tiles exist (the rest is outside Switzerland)\n", best.size(), want);
-  else if (best.size() != want)
+  if (!partial && best.size() != want)
     die("the listing has " + std::to_string(best.size()) + " of the " + std::to_string(want) + " tiles of the bbox");
   for (const auto& [k, b] : best) std::printf("%s %s\n", b.sha.c_str(), b.url.c_str());
   return 0;

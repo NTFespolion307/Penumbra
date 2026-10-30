@@ -1,0 +1,6 @@
+{
+  "scene": "swiss-rigi/rigi.gltf",
+  "sky": { "sun_elevation_deg": 8, "sun_azimuth_deg": 115, "altitude": 1800 },
+  "atmosphere": { "altitude": 0, "fog_density": 0.03, "fog_height": 40, "fog_base": 1050 },
+  "render": { "res": "1080p", "exposure": -3.9 }
+}

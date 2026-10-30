@@ -476,6 +476,26 @@ Elevation (swissALTI3D) and photos (SWISSIMAGE) © swisstopo, open government da
 swisstopo, not redistributed here. Any other area works the same way with `penumbra-terrain` (see the comment at the
 top of `tools/terrain.cpp`).
 
+**More Swiss scenes**, built the same way (`get-scenes` with the scene name, then render the `.pen.json`):
+
+| Scene | What you see | Download |
+| --- | --- | --- |
+| `swiss-lauterbrunnen` | The Lauterbrunnen valley from the north: 1,000 m cliffs, morning side light, fog on the valley floor | 512 tiles, about 330 MB |
+| `swiss-matterhorn` | The Matterhorn from the Gornergrat at sunrise, haze in the valleys | 396 tiles + 2 GLO-30 tiles, about 340 MB |
+| `swiss-rigi` | A sea of fog from Rigi Kulm: the lakes under the fog, ridges and the Bernese Alps 60-80 km away | 800 tiles + 6 GLO-30 tiles, about 770 MB |
+
+```
+.\scripts\get-scenes.ps1 -Scene swiss-rigi
+build/windows-msvc-release/bin/penumbra.exe --terminal scenes/swiss-rigi.pen.json --res 8k --spp 1024 -o rigi.exr
+```
+
+On Linux: `./scripts/get-scenes.sh swiss-rigi`. The Matterhorn and Rigi scenes also use the Copernicus GLO-30
+elevation model (30 m, worldwide): `penumbra-terrain --far` adds coarse terrain around the 2 m area for the distant
+mountains, coloured by height and slope since there are no photos that far, and fills the parts of the area outside
+Switzerland (the Italian side of the Matterhorn). Copernicus DEM (c) DLR e.V. 2010-2014 and (c) Airbus Defence and
+Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA; downloaded from its public copy on AWS
+and checked against `scenes/copernicus.sha256`.
+
 **Test scenes and image comparison.** The build also makes two tools next to `penumbra`:
 
 1. Write all test scenes (the three above plus the furnace spheres and a big-texture scene) into a folder:
@@ -963,6 +983,7 @@ Penumbra stands on the work of many people. Thank you.
 | What | By | License |
 | --- | --- | --- |
 | Elevation (swissALTI3D) and aerial photos (SWISSIMAGE) for the Swiss scenes | Federal Office of Topography swisstopo | Open government data, [terms of use](https://www.swisstopo.admin.ch/en/terms-of-use-free-geodata-and-geoservices) |
+| Copernicus DEM GLO-30 (far field of the Matterhorn and Rigi scenes) | (c) DLR e.V. 2010-2014 and (c) Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA | Free use with this attribution ([registry](https://registry.opendata.aws/copernicus-dem/)) |
 | Sponza | Crytek (Frank Meinl), glTF version by the Khronos Group ([glTF-Sample-Assets](https://github.com/KhronosGroup/glTF-Sample-Assets)) | Cryengine Limited License Agreement |
 | Intel Sponza 2022 | Frank Meinl and Anton Kaplanyan, Intel (reference photos by Katica Putica and Princino.photo) | CC BY 4.0 |
 | Kloofendal 48d Partly Cloudy (Pure Sky) HDRI | Greg Zaal and Jarod Guest, [Poly Haven](https://polyhaven.com) | CC0 |

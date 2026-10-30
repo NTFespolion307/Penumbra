@@ -38,7 +38,7 @@ rm -rf "$stage" && mkdir -p "$stage/scripts" "$stage/scenes" "$stage/licenses"
 cp "$bin/penumbra" "$bin/penumbra-terrain" "$stage/"
 cp -P "$bin"/*.so* "$stage/"                     # Open Image Denoise and TBB (penumbra looks in its own folder)
 cp "$root/scripts/get-scenes.sh" "$stage/scripts/"
-cp "$root"/scenes/*.pen.json "$root"/scenes/*.gltf "$root"/scenes/*.png "$root"/scenes/*.hdr "$root"/scenes/sponza.sha256 \
+cp "$root"/scenes/*.pen.json "$root"/scenes/*.gltf "$root"/scenes/*.png "$root"/scenes/*.hdr "$root"/scenes/*.sha256 \
   "$root"/scenes/sponza-camera.txt "$stage/scenes/"
 cp "$root/LICENSE" "$stage/licenses/Penumbra-LICENSE.txt"
 oidn="$(ls -d "$build"/_deps/oidn-*/doc)"
@@ -55,7 +55,8 @@ driver: NVIDIA 580+ for CUDA 13 and Vulkan ray tracing, or any Vulkan driver wit
   ./penumbra --worker --join <controller address> --code <join code> --stay
 
 Every machine of a render must run the same version: download this release on all of them.
-Sample scenes: ./scripts/get-scenes.sh (Sponza), ./scripts/get-scenes.sh swiss-alps.
+Sample scenes: ./scripts/get-scenes.sh (Sponza), ./scripts/get-scenes.sh swiss-alps (or swiss-lauterbrunnen,
+swiss-matterhorn, swiss-rigi).
 Full documentation: https://github.com/NTFespolion307/Penumbra#readme
 EOF
 
