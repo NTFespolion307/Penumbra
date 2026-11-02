@@ -20,13 +20,12 @@ combination of machines, GPUs and backends converges to the same image.
 > the LAN or the internet join with a code (encrypted), download the scene once, and any failure of a worker, its
 > devices or the network is recovered without changing the image. The UI hosts, joins and runs renders with
 > clicks only: Dashboard, Hosts, Render, a live Viewport and Settings, on Windows and Linux. `penumbra --benchmark`
-> measures every device (measured numbers: [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)); workers with a slow uplink
+> measures every device; workers with a slow uplink
 > get larger items. A physical sky from the sun's position and an atmosphere (air, haze, ground fog) render on
 > every backend; `scripts/get-scenes swiss-alps` builds the Eiger, Mönch and Jungfrau from swisstopo's open data.
 > Images can be denoised with Open Image Denoise (`--denoise oidn`, tiled without seams up to 160K), tonemapped with
 > AgX, Filmic or ACES, and written with albedo, normal and depth AOVs; a ready-built Linux tarball is published
-> with every release. Features marked *(planned, Mx)* below are not built yet. The roadmap is in
-> [`docs/GUIDE.md`](docs/GUIDE.md).
+> with every release. Features marked *(planned, Mx)* below are not built yet.
 
 
 **Supported GPUs:** NVIDIA first: RTX 20 series and newer through Vulkan ray tracing (tested on an RTX 5060 Ti
@@ -794,7 +793,7 @@ Before a render starts Penumbra checks there is room for the film and the output
 | `--backend` | Runs on | Role |
 | --- | --- | --- |
 | `vulkan` | NVIDIA RTX 20+, AMD RDNA2+, Intel Arc | Default on GPUs with ray tracing; uses the RT cores |
-| `cuda` | NVIDIA, compute capability 7.5+ (older with a CUDA 12 build) | Default on NVIDIA GPUs without Vulkan ray tracing (software BVH, tinybvh CWBVH); 4-19x slower than Vulkan RT on RTX 50-series GPUs (measured, `docs/BENCHMARKS.md`). Also on RTX GPUs with `--backend cuda`, and the only backend for `--integrator debug:bvh` |
+| `cuda` | NVIDIA, compute capability 7.5+ (older with a CUDA 12 build) | Default on NVIDIA GPUs without Vulkan ray tracing (software BVH, tinybvh CWBVH); 4-19x slower than Vulkan RT on RTX 50-series GPUs (measured). Also on RTX GPUs with `--backend cuda`, and the only backend for `--integrator debug:bvh` |
 | `cpu` | Any x86-64 or ARM64 CPU | Fallback and reference; joins GPUs in hybrid mode |
 | `optix` *(planned, M13)* | NVIDIA RTX | Optional, only if it beats Vulkan RT |
 
