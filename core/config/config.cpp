@@ -14,7 +14,7 @@ using nlohmann::json;
 
 namespace {
 
-enum class Layer { ConfigFile, SceneDescription, CommandLine };
+enum class Layer { ConfigFile, SceneDescription, CommandLine, BatchJob };
 
 json readJsonObject(const std::filesystem::path& file, int exitCode, std::string_view what) {
   std::ifstream in(file, std::ios::binary);
@@ -201,18 +201,26 @@ ResolvedSettings resolveSettings(const SettingsSources& sources) {
     }
   }
 
-  // 2. Scene description (.pen.json), which carries its own render settings.
+  // 2. Scene description (.pen.json), which carries its own render settings. A batch job's scene replaces the
+  // command line's.
   json cli = sources.cli;
-  if (auto it = cli.find("scene"); it != cli.end()) {
-    if (!it->is_string() || it->get<std::string>().empty()) throw SettingsError(1, "--scene: empty path");
-    const std::filesystem::path scene = pathFromUtf8(it->get<std::string>());
+  json job = sources.job;
+  const bool jobScene = job.contains("scene");
+  json sceneValue = jobScene ? job["scene"] : cli.contains("scene") ? cli["scene"] : json();
+  cli.erase("scene");
+  job.erase("scene");
+  if (!sceneValue.is_null()) {
+    const std::string where = jobScene ? fmt::format("{}: scene", sources.job_label) : "--scene";
+    if (!sceneValue.is_string() || sceneValue.get<std::string>().empty())
+      throw SettingsError(1, fmt::format("{}: empty path", where));
+    const std::filesystem::path scene = pathFromUtf8(sceneValue.get<std::string>());
     if (endsWith(toLower(pathToUtf8(scene.filename())), ".pen.json")) loadSceneDescription(s, scene, out.warnings);
     else s.scene = scene;
-    cli.erase(it);
   }
 
-  // 3. Command line wins.
+  // 3. Command line, then the batch job, win.
   applyLayer(s, cli, Layer::CommandLine, "command line", out.warnings);
+  if (!job.empty()) applyLayer(s, job, Layer::BatchJob, sources.job_label, out.warnings);
   finalizeSettings(s);
 
   if (!s.scene.empty()) {

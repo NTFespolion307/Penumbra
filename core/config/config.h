@@ -11,8 +11,10 @@
 namespace pen {
 
 // The layers that make up the effective settings. Precedence, highest first:
-// command line -> .pen.json "render" section -> user config file -> built-in defaults.
+// --batch job -> command line -> .pen.json "render" section -> user config file -> built-in defaults.
 struct SettingsSources {
+  nlohmann::json job = nlohmann::json::object();     // a --batch job: setting key -> value, "scene" allowed
+  std::string job_label;                             // names the job in messages ("jobs.json, job 2")
   nlohmann::json cli = nlohmann::json::object();     // setting key -> value given on the command line
   std::optional<std::filesystem::path> config_file;  // --config (must exist); unset: the per-OS user config
   bool load_user_config = true;                      // tests turn this off for reproducibility

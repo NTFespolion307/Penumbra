@@ -19,6 +19,7 @@ std::string_view toString(Mode m) {
   switch (m) {
     case Mode::Ui: return "ui";
     case Mode::Terminal: return "terminal";
+    case Mode::Batch: return "batch";
     case Mode::Worker: return "worker";
     case Mode::Resume: return "resume";
     case Mode::Merge: return "merge";
@@ -54,6 +55,9 @@ const std::vector<OptionRow> kModeRowsBefore = {
     {"--config", "General", kValue, "path", "per-OS user config", "--config defaults.json", "Defaults file to use"},
     {"--resume", "Film", kValue, "session file", "", "--resume render.session.json",
      "Continue an interrupted render (add --terminal for headless)"},
+    {"--batch", "General", kValue, "jobs file (.json)", "", "--terminal --batch jobs.json",
+     "Render several jobs one after another (scenes, cameras, resolutions...; see README \"Batch renders\"). With "
+     "--host, workers stay connected for the whole batch; running it again skips finished jobs"},
     {"--host", "Controller", kFlag, "", "off", "--terminal --host scene.glb",
      "Accept workers (headless controller; needs --terminal)"},
     {"--worker", "Worker", kFlag, "", "off", "--worker --join 192.168.1.20 --code K7QD-M2XR-9FHT-4WNB",
@@ -102,6 +106,7 @@ constexpr std::string_view kFooter = R"(Modes:
   penumbra --terminal --host scene.glb        headless controller that accepts workers
   penumbra --worker --join ADDRESS --code CODE [--stay]   headless worker
   penumbra --resume render.session.json       resume an interrupted render
+  penumbra --terminal --batch jobs.json [--host]   render a list of jobs
   penumbra merge a.penfilm b.penfilm -o out.exr   combine partial films
 
 Exit codes: 0 success, 1 bad arguments, 2 scene load error, 3 no usable device, 4 out of disk,
@@ -176,6 +181,7 @@ ParseResult parse(std::span<const std::string> args, const ParseOptions& options
   if (given("--join")) inv.join = value("--join");
   if (given("--code")) inv.code = value("--code");
   if (given("--resume")) inv.resume = pathFromUtf8(value("--resume"));
+  if (given("--batch")) inv.batch_file = pathFromUtf8(value("--batch"));
 
   SettingsSources sources;
   sources.load_user_config = options.load_user_config;
@@ -220,8 +226,8 @@ ParseResult parse(std::span<const std::string> args, const ParseOptions& options
   const bool worker = given("--worker");
   if (worker) {
     if (inv.host) return fail("--worker and --host cannot be combined: a machine is either the controller or a worker");
-    if (sceneGiven || !inv.resume.empty())
-      return fail("a worker gets its scene from the controller; remove the scene and --resume");
+    if (sceneGiven || !inv.resume.empty() || !inv.batch_file.empty())
+      return fail("a worker gets its scene from the controller; remove the scene, --resume and --batch");
     if (inv.join.empty()) return fail("--worker needs --join <address>[:port]");
     if (inv.code.empty()) return fail("--worker needs --code XXXX-XXXX-XXXX-XXXX (or the PENUMBRA_CODE variable)");
     inv.mode = Mode::Worker;
@@ -231,7 +237,12 @@ ParseResult parse(std::span<const std::string> args, const ParseOptions& options
       return fail("--host is for headless controllers: add --terminal (in the UI, hosting is on the Settings page)");
     if (!inv.resume.empty() && sceneGiven)
       return fail("--resume continues the scene stored in the session file; remove the scene argument");
-    if (given("--benchmark")) {
+    if (!inv.batch_file.empty()) {
+      if (!inv.terminal) return fail("--batch renders headless: add --terminal");
+      if (!inv.resume.empty() || given("--benchmark"))
+        return fail("--batch cannot be combined with --resume or --benchmark (run the batch again to continue it)");
+      inv.mode = Mode::Batch;
+    } else if (given("--benchmark")) {
       if (!inv.resume.empty() || inv.host) return fail("--benchmark cannot be combined with --resume or --host");
       inv.mode = Mode::Benchmark;
       // -o names the JSON report, not an image: kept out of the settings.
@@ -253,6 +264,21 @@ ParseResult parse(std::span<const std::string> args, const ParseOptions& options
   const char* noLocalAlone = "--no-local renders nothing on this machine, so it needs --host to let workers join";
   if (inv.mode == Mode::Terminal && !inv.host && sources.cli.contains("no_local")) return fail(noLocalAlone);
   if (inv.mode == Mode::Resume) sources.load_user_config = false;  // the session file holds the settings
+  if (inv.mode == Mode::Batch) {
+    try {
+      inv.batch = loadBatch(inv.batch_file, sources, inv.host);
+    } catch (const SettingsError& e) {
+      return fail(e.what(), e.exit_code);
+    }
+    for (const BatchJob& job : inv.batch) {
+      if (job.settings.no_local && !inv.host) return fail(fmt::format("{}: {}", job.name, noLocalAlone));
+      for (const auto& w : job.warnings) inv.warnings.push_back(fmt::format("{}: {}", job.name, w));
+    }
+    inv.settings = inv.batch.front().settings;
+    inv.cli_settings = sources.cli;
+    result.invocation = std::move(inv);
+    return result;
+  }
   if (!resolveInto(inv)) return result;
   if (inv.mode == Mode::Terminal && inv.settings.no_local && !inv.host) return fail(noLocalAlone);
   result.invocation = std::move(inv);

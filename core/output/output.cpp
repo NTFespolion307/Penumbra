@@ -7,6 +7,8 @@
 #include <cstdlib>
 #include <memory>
 #include <string_view>
+#include <thread>
+#include <vector>
 #include <fmt/format.h>
 
 #include "core/image/image.h"
@@ -14,6 +16,7 @@
 #include "core/output/tonemap.h"
 #include "core/output/writers.h"
 #include "core/system/paths.h"
+#include "core/system/sysinfo.h"
 
 namespace pen {
 
@@ -37,14 +40,24 @@ void writeImage(const RowSource& source, uint32_t width, uint32_t height, const 
 
   std::vector<Vec3f> band;
   std::vector<float> rgb;
+  const bool linear = writer->wantsLinear();
+  const size_t threads = std::max<size_t>(usableCpuThreads(), 1);
   for (uint32_t y0 = 0; y0 < height; y0 += ImageWriter::kBandRows) {
     const uint32_t rows = std::min(ImageWriter::kBandRows, height - y0);
     source({0, y0, width, y0 + rows}, band);
     rgb.resize(band.size() * 3);
-    for (size_t i = 0; i < band.size(); ++i) {
-      const Vec3f v = writer->wantsLinear() ? band[i] * exposure : displayEncode(band[i], exposure, s.tonemap);
-      for (int c = 0; c < 3; ++c) rgb[i * 3 + c] = v[c];
-    }
+    // Pixels are independent, so the tonemap runs on every core (single-threaded it took most of the output time).
+    const auto encode = [&](size_t begin, size_t end) {
+      for (size_t i = begin; i < end; ++i) {
+        const Vec3f v = linear ? band[i] * exposure : displayEncode(band[i], exposure, s.tonemap);
+        for (int c = 0; c < 3; ++c) rgb[i * 3 + c] = v[c];
+      }
+    };
+    const size_t chunk = (band.size() + threads - 1) / threads;
+    std::vector<std::thread> pool;
+    for (size_t b = chunk; b < band.size(); b += chunk) pool.emplace_back(encode, b, std::min(b + chunk, band.size()));
+    encode(0, std::min(chunk, band.size()));
+    for (auto& t : pool) t.join();
     writer->writeBand(y0, rows, rgb);
   }
   writer->finish();

@@ -1,9 +1,15 @@
 #include <catch2/catch_test_macros.hpp>
+#include <png.h>
+
+#include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <random>
 #include <set>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -282,6 +288,97 @@ TEST_CASE("every output format writes a readable file", "[film][output]") {
       if (c.format == ImageFormat::Tiff) CHECK((std::string(magic, 2) == "II" || std::string(magic, 2) == "MM"));
       if (c.format == ImageFormat::Webp) CHECK(std::string(magic + 8, 4) == "WEBP");
     }
+  }
+}
+
+namespace {
+
+// Decodes a PNG with libpng: the raw samples (16-bit as big-endian pairs), the size, depth and the text chunks.
+struct DecodedPng {
+  uint32_t width = 0, height = 0;
+  int depth = 0, colour = -1;
+  std::vector<uint8_t> samples;
+  std::map<std::string, std::string> text;
+};
+
+DecodedPng decodePng(const fs::path& path) {
+  DecodedPng out;
+#if defined(_WIN32)
+  FILE* fp = _wfopen(path.wstring().c_str(), L"rb");
+#else
+  FILE* fp = std::fopen(path.c_str(), "rb");
+#endif
+  REQUIRE(fp);
+  png_structp png = png_create_read_struct(PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
+  png_infop info = png_create_info_struct(png);
+  if (setjmp(png_jmpbuf(png))) {
+    png_destroy_read_struct(&png, &info, nullptr);
+    std::fclose(fp);
+    FAIL("libpng could not decode " << path.string());
+  }
+  png_init_io(png, fp);
+  png_read_info(png, info);
+  out.width = png_get_image_width(png, info);
+  out.height = png_get_image_height(png, info);
+  out.depth = png_get_bit_depth(png, info);
+  out.colour = png_get_color_type(png, info);
+  const size_t rowBytes = png_get_rowbytes(png, info);
+  out.samples.resize(rowBytes * out.height);
+  for (uint32_t y = 0; y < out.height; ++y) png_read_row(png, out.samples.data() + y * rowBytes, nullptr);
+  png_read_end(png, info);
+  png_textp texts = nullptr;
+  const int n = png_get_text(png, info, &texts, nullptr);
+  for (int i = 0; i < n; ++i) out.text[texts[i].key] = std::string(texts[i].text, texts[i].text_length);
+  png_destroy_read_struct(&png, &info, nullptr);
+  std::fclose(fp);
+  return out;
+}
+
+}  // namespace
+
+TEST_CASE("PNG output decodes to exactly the quantized values, bands deflated in parallel", "[film][output]") {
+  TempDir dir;
+  struct Case {
+    uint32_t w, h, depth;
+  };
+  // Two bands with a partial one, a single exact band, a 1-pixel-wide image of three bands, and 16 bits.
+  for (const Case c : {Case{300, 270, 8}, Case{1000, 256, 8}, Case{1, 600, 16}, Case{257, 513, 16}}) {
+    INFO(c.w << "x" << c.h << " " << c.depth << "-bit");
+    // Smooth gradients, flat areas and noise, so every filter type gets chosen somewhere.
+    std::mt19937 rng(c.w * 31 + c.h);
+    const auto value = [&](uint32_t x, uint32_t y, int ch) -> float {
+      if (y % 64 < 16) return 0.25f;
+      if (y % 64 < 40) return float((x + 2 * y + 40 * ch) % 997) / 996.0f;
+      return float(rng() % 70001) / 70000.0f * 1.2f - 0.1f;  // outside [0,1] too: clamped
+    };
+    std::vector<float> all(size_t(c.w) * c.h * 3);
+    for (uint32_t y = 0; y < c.h; ++y)
+      for (uint32_t x = 0; x < c.w; ++x)
+        for (int ch = 0; ch < 3; ++ch) all[(size_t(y) * c.w + x) * 3 + ch] = value(x, y, ch);
+    const fs::path path = dir.path / "p.png";
+    auto writer = makeImageWriter(path, ImageFormat::Png, c.depth, c.w, c.h, {{"Software", "test"}, {"Scene", "a b"}});
+    for (uint32_t y0 = 0; y0 < c.h; y0 += ImageWriter::kBandRows) {
+      const uint32_t rows = std::min(ImageWriter::kBandRows, c.h - y0);
+      writer->writeBand(y0, rows, std::span<const float>(all.data() + size_t(y0) * c.w * 3, size_t(rows) * c.w * 3));
+    }
+    writer->finish();
+
+    const DecodedPng png = decodePng(path);
+    REQUIRE(png.width == c.w);
+    REQUIRE(png.height == c.h);
+    CHECK(png.depth == int(c.depth));
+    CHECK(png.colour == PNG_COLOR_TYPE_RGB);
+    CHECK(png.text.at("Software") == "test");
+    CHECK(png.text.at("Scene") == "a b");
+    const float maxV = c.depth == 16 ? 65535.0f : 255.0f;
+    size_t mismatches = 0;
+    for (size_t i = 0; i < all.size(); ++i) {
+      const float v = std::clamp(all[i], 0.0f, 1.0f);
+      const uint32_t expected = static_cast<uint32_t>(std::lround(v * maxV));
+      const uint32_t got = c.depth == 16 ? (uint32_t(png.samples[i * 2]) << 8 | png.samples[i * 2 + 1]) : png.samples[i];
+      if (got != expected) ++mismatches;
+    }
+    CHECK(mismatches == 0);
   }
 }
 

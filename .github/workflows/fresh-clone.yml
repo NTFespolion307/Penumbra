@@ -1,0 +1,61 @@
+name: Fresh clone
+
+# Builds Penumbra the way README.md tells a new user to, in clean Ubuntu 22.04 and Debian 12 containers: the
+# "Prerequisites" commands (including the optional CUDA toolkit), then "Build" with the one-command script. No vcpkg
+# cache, so the libraries build from scratch (about an hour). Started by hand (Actions > Fresh clone > Run workflow,
+# on the branch to test); the clone uses that branch instead of main. The commands below are copied from README.md:
+# change them together.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: github.repository == 'NTFespolion307/Penumbra'
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ['ubuntu:22.04', 'debian:12']
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    timeout-minutes: 300
+    env:
+      DEBIAN_FRONTEND: noninteractive  # no tzdata question
+    defaults:
+      run:
+        # Interactive, so `source ~/.bashrc` loads what the README steps append to it, as in a user's terminal.
+        shell: bash -ie {0}
+    steps:
+      - name: Test harness only (a user's machine has these)
+        shell: bash -e {0}
+        run: apt-get update && apt-get install -y sudo
+
+      - name: README "Prerequisites", steps 1-8
+        run: |
+          sudo apt update && sudo apt install -y build-essential gcc-12 g++-12 ninja-build git curl zip unzip tar pkg-config
+          curl -fsSL https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-linux-x86_64.tar.gz -o /tmp/cmake.tar.gz
+          sudo mkdir -p /opt/cmake && sudo tar -xzf /tmp/cmake.tar.gz -C /opt/cmake --strip-components=1
+          echo 'export PATH=/opt/cmake/bin:$PATH' >> ~/.bashrc
+          git clone https://github.com/microsoft/vcpkg.git ~/vcpkg
+          ~/vcpkg/bootstrap-vcpkg.sh -disableMetrics
+          echo 'export VCPKG_ROOT=$HOME/vcpkg' >> ~/.bashrc
+          source ~/.bashrc
+          cmake --version | grep 3.31.6
+          test -n "$VCPKG_ROOT"
+
+      - name: README "Prerequisites", optional CUDA toolkit, steps 9-12
+        run: |
+          . /etc/os-release && curl -fsSL -o /tmp/cuda-keyring.deb "https://developer.download.nvidia.com/compute/cuda/repos/${ID}${VERSION_ID//./}/x86_64/cuda-keyring_1.1-1_all.deb"
+          sudo dpkg -i /tmp/cuda-keyring.deb
+          sudo apt update && sudo apt install -y cuda-toolkit-13-0
+          echo 'export PATH=/usr/local/cuda/bin:$PATH' >> ~/.bashrc && source ~/.bashrc
+          nvcc --version | grep 'release 13.0'
+
+      - name: README "Build", Linux (this branch instead of main)
+        run: |
+          git clone -b "${{ github.ref_name }}" https://github.com/NTFespolion307/Penumbra.git
+          cd Penumbra
+          ./scripts/build.sh --quick 2>&1 | tee build.log
+          grep -q 'Built: .*/Penumbra/build/linux-gcc-release/bin/penumbra' build.log

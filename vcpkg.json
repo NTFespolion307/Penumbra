@@ -47,6 +47,7 @@
     "volk",
     "vulkan-headers",
     "vulkan-memory-allocator",
+    "zlib",
     "zstd"
   ],
   "features": {

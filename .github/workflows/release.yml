@@ -1,9 +1,10 @@
 name: Release
 
-# The Linux release tarball: built on Ubuntu 22.04 (the oldest supported system) with the
-# CUDA toolkit, so it has the Vulkan, CUDA and CPU backends and Open Image Denoise. Every push to main publishes it
-# as the latest release: https://github.com/NTFespolion307/Penumbra/releases/latest/download/penumbra-linux-x64.tar.gz
-# On milestone branches (m11, m12...) it only builds the tarball and keeps it as an artifact (for testing).
+# The Linux release tarball: built on Ubuntu 22.04 (the oldest supported system) with the CUDA toolkit, so it has the
+# Vulkan, CUDA and CPU backends and Open Image Denoise. Every push to main publishes it as the latest release:
+# https://github.com/NTFespolion307/Penumbra/releases/latest/download/penumbra-linux-x64.tar.gz
+# On milestone branches (m11, m12...) it is only kept as an artifact (for testing). There is no Windows download:
+# an unsigned exe is blocked by Smart App Control, so Windows users build Penumbra themselves.
 on:
   push:
     branches: [main, 'm[0-9]*']
@@ -67,6 +68,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           short="$(git rev-parse --short=12 HEAD)"
-          gh release create "build-$short" dist/penumbra-linux-x64.tar.gz dist/penumbra-linux-x64.tar.gz.sha256 \
-            --title "Penumbra build $short" --latest \
-            --notes "Linux x64 release of $(git log -1 --format='%h %s'). Every machine of a render must run the same build."
+          gh release create "build-$short" dist/penumbra-linux-x64.tar.gz dist/penumbra-linux-x64.tar.gz.sha256             --title "Penumbra build $short" --latest             --notes "Linux x64 release of $(git log -1 --format='%h %s'). Every machine of a render must run the same build."

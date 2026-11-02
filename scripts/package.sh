@@ -37,6 +37,14 @@ step "Staging $stage"
 rm -rf "$stage" && mkdir -p "$stage/scripts" "$stage/scenes" "$stage/licenses"
 cp "$bin/penumbra" "$bin/penumbra-terrain" "$stage/"
 cp -P "$bin"/*.so* "$stage/"                     # Open Image Denoise and TBB (penumbra looks in its own folder)
+# The build copies each name of a library (libX.so, libX.so.2, libX.so.2.5.1) as a full file: keep the longest name
+# and make the identical others symlinks to it.
+declare -A kept=()
+while read -r lib; do
+  sum="$(sha256sum "$stage/$lib" | cut -d' ' -f1)"
+  if [[ -n "${kept[$sum]:-}" ]]; then ln -sf "${kept[$sum]}" "$stage/$lib"; else kept[$sum]="$lib"; fi
+done < <(cd "$stage" && find . -maxdepth 1 -name '*.so*' -type f -printf '%f\n' | awk '{ print length, $0 }' |
+         sort -rn | cut -d' ' -f2-)
 cp "$root/scripts/get-scenes.sh" "$stage/scripts/"
 cp "$root"/scenes/*.pen.json "$root"/scenes/*.gltf "$root"/scenes/*.png "$root"/scenes/*.hdr "$root"/scenes/*.sha256 \
   "$root"/scenes/sponza-camera.txt "$stage/scenes/"
@@ -56,7 +64,7 @@ driver: NVIDIA 580+ for CUDA 13 and Vulkan ray tracing, or any Vulkan driver wit
 
 Every machine of a render must run the same version: download this release on all of them.
 Sample scenes: ./scripts/get-scenes.sh (Sponza), ./scripts/get-scenes.sh swiss-alps (or swiss-lauterbrunnen,
-swiss-matterhorn, swiss-rigi).
+swiss-matterhorn, swiss-rigi, or all of them: all).
 Full documentation: https://github.com/NTFespolion307/Penumbra#readme
 EOF
 

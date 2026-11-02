@@ -58,6 +58,11 @@ if [[ -z "${VCPKG_ROOT:-}" || ! -f "$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake
   fail "vcpkg not found. Install it (README.md \"Prerequisites\") and set VCPKG_ROOT, for example ~/vcpkg"
 fi
 echo "    vcpkg: $VCPKG_ROOT"
+if command -v nvcc >/dev/null 2>&1 || [[ -x /usr/local/cuda/bin/nvcc ]]; then
+  echo "    CUDA:  $( (command -v nvcc || echo /usr/local/cuda/bin/nvcc) | head -n1) (the CUDA backend is built)"
+else
+  echo "    CUDA:  no toolkit found; building without the CUDA backend (optional, see README.md \"Prerequisites\")"
+fi
 
 # Parallel jobs: one per core, but at most one per 2 GB of available RAM. Embree's kernels need about 2 GB per
 # GCC process; running out of memory gets a compiler killed and vcpkg falls back to a single core.
@@ -126,8 +131,15 @@ if (( tests )); then
 fi
 
 exe="$root/build/$preset/bin/penumbra"
-step "Smoke test"
+step "Smoke test: a small CPU render"
 "$exe" --version
+smoke="$root/build/$preset/smoke"
+mkdir -p "$smoke"
+echo "{}" > "$smoke/config.json"  # the built-in defaults, whatever the user's config file says
+"$exe" --terminal "$root/scenes/cornell.pen.json" --config "$smoke/config.json" --res 64x64 --spp 4 --backend cpu \
+  -o "$smoke/cornell.png" > "$smoke/smoke.log" 2>&1 || { cat "$smoke/smoke.log"; fail "the smoke render failed"; }
+echo "    rendered $smoke/cornell.png"
 
 echo
 echo -e "\033[32mBuilt: $exe\033[0m"
+echo "Try: $exe --terminal scenes/cornell.pen.json --res 720p --spp 64 -o cornell.png"

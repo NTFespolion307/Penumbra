@@ -8,8 +8,12 @@ the image. Any number of **workers**, each with one or more GPUs, join with the 
 code, render tiles and send them back. A render on one machine is the same thing with no workers, and every
 combination of machines, GPUs and backends converges to the same image.
 
-> **Status: milestone M11 (denoising, tonemapping and AOVs; M12, the release polish, comes next).** Penumbra renders glTF and OBJ scenes on GPUs with hardware ray
-> tracing (Vulkan RT), on any NVIDIA GPU through CUDA, and on the CPU (Embree), with a path tracer (next-event
+![Sponza rendered at 40K](media/sponza-40k.jpg)
+*Sponza at 40K (40960 × 23040, shown downscaled), rendered in 52 s on eight RTX 5090s and denoised.*
+
+> **Status: v1 is complete (milestones M0 to M12 and M14; M12 added the batch queue, faster image output, the build
+> scripts' smoke render and this README's audit). The optional OptiX backend (M13) is not built.** Penumbra renders glTF and OBJ scenes on GPUs with
+> hardware ray tracing (Vulkan RT), on any NVIDIA GPU through CUDA, and on the CPU (Embree), with a path tracer (next-event
 > estimation, MIS), the glTF PBR material with its common extensions and HDRI lighting, at any size up to 160K,
 > with checkpoints, `--resume` and `merge`, writing EXR, PNG, JPEG, TIFF or WebP. Every machine uses all its GPUs
 > at once, with Vulkan, CUDA and the CPU mixed freely; work is split into tile and sample chunks that the devices
@@ -25,7 +29,8 @@ combination of machines, GPUs and backends converges to the same image.
 > every backend; `scripts/get-scenes swiss-alps` builds the Eiger, Mönch and Jungfrau from swisstopo's open data.
 > Images can be denoised with Open Image Denoise (`--denoise oidn`, tiled without seams up to 160K), tonemapped with
 > AgX, Filmic or ACES, and written with albedo, normal and depth AOVs; a ready-built Linux tarball is published
-> with every release. Features marked *(planned, Mx)* below are not built yet.
+> with every release. `--batch` renders a list of jobs in one run. Features marked *(planned, Mx)* below are not built
+> yet.
 
 
 **Supported GPUs:** NVIDIA first: RTX 20 series and newer through Vulkan ray tracing (tested on an RTX 5060 Ti
@@ -82,11 +87,11 @@ Each release is built from `main` by GitHub Actions; `penumbra-linux-x64.tar.gz.
 
 ## Why you build it yourself
 
-Windows SmartScreen blocks unsigned `.exe` files downloaded from the internet, and Penumbra is not signed. An
-exe you build on your own machine carries no download mark and runs without a warning, so on Windows building
-from source is the way to install Penumbra (a Windows download comes with M12). On Linux you can build it the same
-way, or use the [release](#download-a-release-linux); build it yourself for the UI, a newer CUDA, or your own
-changes.
+Windows SmartScreen blocks unsigned `.exe` files downloaded from the internet, and Smart App Control blocks them
+outright; Penumbra is not signed. An exe you build on your own machine carries no download mark, so on Windows
+building from source is the way to install Penumbra, and there is no Windows download. (With Smart App Control on,
+even your own build can be blocked; see [Troubleshooting](#troubleshooting).) On Linux you can build it the same way,
+or use the [release](#download-a-release-linux); build it yourself for the UI, a newer CUDA, or your own changes.
 
 ## Prerequisites
 
@@ -186,7 +191,7 @@ Optional, the CUDA toolkit (for the CUDA backend; the toolkit only, it does not 
 
 9. Download NVIDIA's repository key for this distribution (Ubuntu 22.04/24.04, Debian 12):
    ```bash
-   . /etc/os-release && wget -O /tmp/cuda-keyring.deb "https://developer.download.nvidia.com/compute/cuda/repos/${ID}${VERSION_ID//./}/x86_64/cuda-keyring_1.1-1_all.deb"
+   . /etc/os-release && curl -fsSL -o /tmp/cuda-keyring.deb "https://developer.download.nvidia.com/compute/cuda/repos/${ID}${VERSION_ID//./}/x86_64/cuda-keyring_1.1-1_all.deb"
    ```
 10. Add the repository:
     ```bash
@@ -290,7 +295,7 @@ The binary is `build/<preset>/bin/penumbra` (`penumbra.exe` on Windows).
 | `PEN_ENABLE_VULKAN` | `ON` | Vulkan RT backend and the UI swapchain. `OFF` builds a CPU-only Penumbra |
 | `PEN_ENABLE_CUDA` | `ON` if the CUDA toolkit is found | CUDA backend. Nothing links against CUDA: the driver is loaded when Penumbra starts, so the binary also runs on machines without NVIDIA |
 | `PEN_ENABLE_OPTIX` | `OFF` | OptiX backend and denoiser *(planned, M13, optional)* |
-| `PEN_ENABLE_UI` | `ON` | The user interface (M10); off for headless servers (`build.sh` turns it off when there is no display). `--terminal` and `--worker` never need display libraries either way |
+| `PEN_ENABLE_UI` | `ON` | The user interface; off for headless servers (`build.sh` turns it off when there is no display). `--terminal` and `--worker` never need display libraries either way |
 | `PEN_CUDA_ARCHS` | `75;80;86;89;90;120` | CUDA architectures to compile for. Newer GPUs run the embedded PTX. CUDA 13 cannot build for GTX 10-series (61) or V100 (70); for those, build with CUDA 12.x and add the architecture, e.g. `-DPEN_CUDA_ARCHS="61;75;86"` |
 | `PEN_PORTABLE` | `OFF` | Linux: link libstdc++ and libgcc statically, as `scripts/package.sh` does for the release |
 | `PEN_ENABLE_OIDN` | `ON` | Denoising with Intel Open Image Denoise 2.5.1: configure downloads Intel's release binaries (about 60 MB, SHA-256 checked) into the build folder once, and the build copies its libraries next to `penumbra`. `OFF` builds without denoising |
@@ -314,6 +319,7 @@ cmake --preset linux-gcc-release -DPEN_ENABLE_CUDA=OFF -DPEN_ENABLE_UI=OFF
 | `penumbra --terminal scene.pen.json --res 4k --spp 1024 -o final.exr` | 4K final with settings from a `.pen.json` |
 | `penumbra --terminal scene.glb --integrator debug:normal -o normals.png` | Debug views: `ao`, `debug:normal`, `debug:albedo`, `debug:depth` |
 | `penumbra --terminal --resume final.session.json` | Continue an interrupted render (only output, logging and device flags may change) |
+| `penumbra --terminal --batch jobs.json` | Render a list of jobs one after another (see [Batch renders](#batch-renders)) |
 | `penumbra --terminal scene.glb --res 20k --region 0,0,10240,11520 -o left.exr` | Render part of the image; the `.penfilm` is kept for `merge` |
 | `penumbra merge left.penfilm right.penfilm -o full.exr` | Combine partial films (regions or `--sample-range` parts) into one image |
 | `penumbra --list-devices` | Lists the devices this machine can render with |
@@ -359,7 +365,7 @@ grey response), `aces` (the ACES fit) or `none` (the sRGB curve with clipping, B
 samples per pixel at the first hit, a few percent of the render's time. `--denoise oidn` removes the noise with
 Intel Open Image Denoise, guided by the albedo and normal passes (rendered for it automatically): on the
 controller's NVIDIA GPU when it has one, else on its CPU, tile by tile, with the same result as denoising the whole
-image at once (no seams at any size). It is off by default in `--terminal`, so renders stay unbiased. Images are written in bands of 256 rows, so even a 160K output never sits in memory whole. With
+image at once (no seams at any size). It is off by default in `--terminal`, so renders stay unbiased. Images are written in bands of 256 rows, so even a 160K output never sits in memory whole; the tonemap and PNG compression use every core. With
 `--region` the output file contains only that region. On the controller machine the CPU leaves 2 threads free
 unless you pass `--threads`.
 
@@ -452,7 +458,7 @@ reference photos by Katica Putica and Princino.photo. The full credits and licen
 `scenes/intel-sponza/main_sponza/credits_license.txt` after the download. Downloaded from Intel, not
 redistributed here.
 
-**The Swiss Alps** *(M14)*: Eiger, Mönch and Jungfrau from real elevation data and aerial photos, under the
+**The Swiss Alps**: Eiger, Mönch and Jungfrau from real elevation data and aerial photos, under the
 physical sky with haze, seen from above the Männlichen ridge. 16 × 16 km: a mesh with a vertex every 4 m (32 million
 triangles, 0.9 GB) and a 2 m photo texture.
 
@@ -495,6 +501,10 @@ Switzerland (the Italian side of the Matterhorn). Copernicus DEM (c) DLR e.V. 20
 Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA; downloaded from its public copy on AWS
 and checked against `scenes/copernicus.sha256`.
 
+**Every scene at once:** `.\scripts\get-scenes.ps1 -Scene all` (Linux: `./scripts/get-scenes.sh all`) gets Sponza,
+Intel's New Sponza and the four Swiss scenes one after another: about 6 GB of downloads and 9 GB on disk. A scene that
+fails does not stop the others; the end lists any that failed, and running it again only fetches what is missing.
+
 **Test scenes and image comparison.** The build also makes two tools next to `penumbra`:
 
 1. Write all test scenes (the three above plus the furnace spheres and a big-texture scene) into a folder:
@@ -509,6 +519,43 @@ and checked against `scenes/copernicus.sha256`.
    ```
    penumbra-diff a.exr b.exr
    ```
+
+### Batch renders
+
+`--batch` renders several jobs in one run: other cameras, resolutions, sample counts or scenes. Write the jobs in a
+JSON file; each job takes the same keys as the config file and the `.pen.json` `"render"` section (see the
+[CLI reference](#cli-reference), column "Config / `.pen.json` key"), plus `"scene"` and an optional `"name"` for the
+log:
+
+```json
+{
+  "jobs": [
+    { "name": "alps 8k", "scene": "scenes/swiss-alps.pen.json", "res": "8k", "spp": 1024, "output": "alps-8k.exr" },
+    { "name": "rigi 4k", "scene": "scenes/swiss-rigi.pen.json", "res": "4k", "output": "rigi-4k.png" },
+    { "name": "alps dusk", "scene": "scenes/swiss-alps.pen.json", "res": "4k", "exposure": -3.5, "output": "alps-dusk.png" }
+  ]
+}
+```
+
+```
+penumbra --terminal --batch jobs.json
+penumbra --terminal --batch jobs.json --host --spp 512      # with workers; flags on the command line apply to every job
+```
+
+- **Precedence:** a job's settings win over the command line, which wins over the `.pen.json`, the config file and
+  the defaults. A scene on the command line is used by every job that has none (several cameras of one scene).
+  Paths are relative to the folder you run Penumbra in, as on the command line.
+- **Checked first:** every job is read and checked before the first render starts: a misspelt key, a bad value, a
+  missing scene or two jobs writing the same output stop the batch at once, not hours in.
+- **Workers:** with `--host`, the workers' session lasts the whole batch, so workers stay connected from job to job,
+  even without `--stay`, and each job's scene is sent once. The session's settings (`port`, `bind`,
+  `approve_workers`, `upload_limit`, `no_upnp`) must therefore be the same in every job: give them on the command line.
+- **Failures and Ctrl+C:** a job that fails is logged and the next one starts; Ctrl+C stops the batch after writing
+  the current job's checkpoint. Run the same command again to continue: jobs that finished are skipped (they are
+  listed in `jobs.batch-state.json` next to the jobs file; delete it to render everything again) and the interrupted
+  job continues from its checkpoint. The batch ends with a summary per job and exits with 0 when every job is done,
+  else with the first failure's exit code.
+- The UI renders one scene at a time; batches are for `--terminal`.
 
 ### Using the UI
 
@@ -559,7 +606,7 @@ Add `--stay` on always-on machines: the worker then waits for the next render an
 the controller goes away (it retries after 1, 2, 4 and then every 5 seconds, forever; Ctrl+C stops it; an attempt
 gives up after 10 seconds without an answer). In the UI, use
 **Join a render**. Without `--stay`, a worker exits when the render ends (exit code 0) or the connection drops
-(exit code 7).
+(exit code 7); a controller running a `--batch` keeps it until the last job.
 
 **The scene.** Workers need nothing but Penumbra: when a render starts, the controller packages every file the
 scene reads (the `.glb`/`.gltf` and its buffers and textures, OBJ materials and textures, the HDRI) and each worker
@@ -677,6 +724,7 @@ full text on your machine.
 | --- | --- | --- | --- | --- | --- | --- |
 | General | `--terminal` |  | off | `penumbra --terminal scene.glb -o out.png` | CLI only | Headless controller: no window, no display server needed |
 | General | `--config` | path | per-OS user config | `penumbra --config defaults.json` | CLI only | Defaults file to use |
+| General | `--batch` | jobs file (.json) |  | `penumbra --terminal --batch jobs.json` | CLI only | Render several jobs one after another (scenes, cameras, resolutions...; see README "Batch renders"). With --host, workers stay connected for the whole batch; running it again skips finished jobs |
 | General | `--log-level` | trace, debug, info, warn, error, off | info | `penumbra --log-level debug` | `log_level` | Log verbosity for console and log file |
 | General | `--log-file` | path | per-OS log folder | `penumbra --log-file render.log` | `log_file` | Write the log here instead of the per-OS log folder |
 | General | `--progress` | bar, plain, json | bar | `penumbra --progress json` | `progress` | Progress output style; json prints one object per second on stdout |
@@ -880,7 +928,7 @@ More `.pen.json` options:
 Light units: glTF point and spot intensities (candela) and sun illuminance (lux) are divided by 683 lm/W, which
 matches Blender's "Standard" export; emissive materials use emissive colour × strength as radiance.
 
-**Atmosphere** *(M14; CPU, Vulkan and CUDA)*. An `"atmosphere"` object fills the scene with
+**Atmosphere** *(CPU, Vulkan and CUDA)*. An `"atmosphere"` object fills the scene with
 air, haze and an optional ground fog. Each layer thins out exponentially with height, so distant objects fade and
 turn blue, and light shafts form. With a `"sky"`, air and haze follow its `air` and `dust` values, so the haze
 matches the sky.
@@ -899,7 +947,7 @@ matches the sky.
 | `fog_height` | Fog scale height in metres: the density falls by e every this many metres up (100) |
 | `fog_base`, `fog_color`, `fog_anisotropy` | Fog base height (scene units, y), its colour `[r, g, b]` (single-scattering albedo, [1, 1, 1]) and *g* (0) |
 
-**Physical sky** *(M14; every backend: it becomes the environment map)*. A `"sky"` object replaces the environment with a sky computed from
+**Physical sky** *(every backend: it becomes the environment map)*. A `"sky"` object replaces the environment with a sky computed from
 the sun's position, like Blender's Nishita sky: air, haze and ozone scatter sunlight over a round Earth, computed per
 wavelength, with the sun's disc. It is in real units (the sun is 1361 W/m² above the air), so use an exposure of
 about -6 to -10 (`--exposure -8`), as with Blender's.
@@ -927,6 +975,7 @@ Start with `penumbra --diagnose` and include its output in any bug report.
 
 | Problem | What to do |
 | --- | --- |
+| Windows: "Smart App Control blocked an app that may be unsafe" when running `penumbra.exe` | Smart App Control blocks unsigned programs, and Penumbra (also your own build) is not signed. Turn it off in Windows Security > App & browser control > Smart App Control settings > Off. On older Windows 11 versions it can only be turned back on by reinstalling Windows. SmartScreen's "Windows protected your PC" on a copied exe: More info > Run anyway. |
 | Build script: "vcpkg not found" | Follow [Prerequisites](#prerequisites) steps for vcpkg, then open a new terminal so `VCPKG_ROOT` is set. |
 | Build script: "Visual Studio ... without the C++ x64 tools" | In the Visual Studio Installer, add the "Desktop development with C++" workload. |
 | Windows: configure fails with `C1083 ... Invalid argument` or "Detecting CXX compiler ABI info - failed" | The folder path is too long for MSVC (260-character limit). Clone Penumbra to a short path such as `C:\dev\Penumbra`. |

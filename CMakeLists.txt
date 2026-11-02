@@ -80,7 +80,8 @@ find_package(embree 4 CONFIG REQUIRED)
 find_package(TBB CONFIG REQUIRED)
 find_package(tinyobjloader CONFIG REQUIRED)
 find_package(OpenEXR CONFIG REQUIRED)
-find_package(PNG REQUIRED)
+find_package(PNG REQUIRED)  # the tests read PNGs back with it
+find_package(ZLIB REQUIRED)  # the PNG writer deflates with it directly
 find_package(JPEG REQUIRED)
 find_package(TIFF REQUIRED)
 find_package(WebP CONFIG REQUIRED)

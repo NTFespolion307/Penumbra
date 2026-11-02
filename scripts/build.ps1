@@ -77,6 +77,11 @@ if (-not $env:VCPKG_ROOT -or -not (Test-Path (Join-Path $env:VCPKG_ROOT 'scripts
   Fail 'vcpkg not found. Install it (README.md "Prerequisites") and set VCPKG_ROOT, for example C:\dev\vcpkg.'
 }
 Write-Host "    vcpkg: $env:VCPKG_ROOT"
+if ($env:CUDA_PATH -and (Test-Path (Join-Path $env:CUDA_PATH 'bin\nvcc.exe'))) {
+  Write-Host "    CUDA: $env:CUDA_PATH (the CUDA backend is built)"
+} else {
+  Write-Host '    CUDA: no toolkit found; building without the CUDA backend (optional, see README.md "Prerequisites")'
+}
 
 # Parallel jobs: one per core, but at most one per 2 GB of available RAM (Embree's kernels need about 2 GB per
 # compiler process; running out of memory makes vcpkg fall back to a single core).
@@ -114,11 +119,19 @@ try {
   }
 
   $exe = Join-Path $root "build\$preset\bin\penumbra.exe"
-  Step 'Smoke test'
+  Step 'Smoke test: a small CPU render'
   & $exe --version; Run 'penumbra --version'
+  $smoke = Join-Path $root "build\$preset\smoke"
+  New-Item -ItemType Directory -Force $smoke | Out-Null
+  '{}' | Set-Content -Encoding ascii "$smoke\config.json"  # the built-in defaults, whatever the user's config says
+  & $exe --terminal (Join-Path $root 'scenes\cornell.pen.json') --config "$smoke\config.json" --res 64x64 --spp 4 `
+    --backend cpu -o "$smoke\cornell.png" *> "$smoke\smoke.log"
+  if ($LASTEXITCODE -ne 0) { Get-Content "$smoke\smoke.log"; Fail 'the smoke render failed' }
+  Write-Host "    rendered $smoke\cornell.png"
 
   Write-Host ''
   Write-Host "Built: $exe" -ForegroundColor Green
+  Write-Host "Try: $exe --terminal scenes\cornell.pen.json --res 720p --spp 64 -o cornell.png"
 } finally {
   Pop-Location
 }

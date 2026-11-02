@@ -6,6 +6,7 @@
 #include <nlohmann/json.hpp>
 
 #include "controller/render_controller.h"
+#include "core/config/batch.h"
 #include "core/settings/render_settings.h"
 
 namespace pen {
@@ -21,6 +22,13 @@ struct LocalRenderOptions {
 // the film (RAM or disk) and session file, render through controller -> scheduler -> local and remote workers
 // -> film, checkpoint, write the output. Returns the process exit code (0, or 1-5 from core/exit_codes.h).
 int runLocalRender(const RenderSettings& settings, const LocalRenderOptions& options);
+
+// `--terminal --batch jobs.json`: renders the jobs one after another, through one hosting session with --host (the
+// workers stay for the whole batch). Jobs that a previous run of the same batch finished are skipped, and an
+// interrupted job continues from its checkpoint. A failed job is logged and the next one starts; Ctrl+C stops the
+// batch. Returns 0 when every job is done, else the first failure's exit code.
+int runBatch(const std::filesystem::path& batchFile, const std::vector<BatchJob>& jobs,
+             const LocalRenderOptions& options);
 
 // `--resume <session.json>`: continues an interrupted render. `cliOverrides` holds settings given on the
 // command line; only settings that do not change pixels (output, logging, devices...) may differ.
