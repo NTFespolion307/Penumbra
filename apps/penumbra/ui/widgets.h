@@ -8,7 +8,7 @@
 
 namespace pen::ui {
 
-// Building blocks of the mockups' screens (docs/ui-mockups), drawn with ImGui. Sizes are the mockups' CSS pixels;
+// Building blocks of the mockups' screens, drawn with ImGui. Sizes are the mockups' CSS pixels;
 // they scale with the monitor's content scale.
 
 float px(float cssPixels);  // CSS pixels to screen pixels

@@ -17,7 +17,7 @@ struct SystemInfo {
 SystemInfo querySystem();
 
 // CPU threads this process may really use: the hardware count, limited on Linux by the CPU affinity mask and the
-// cgroup CPU quota (containers often show every host CPU but grant only a share, DECISIONS D-081). At least 1.
+// cgroup CPU quota (containers often show every host CPU but grant only a share). At least 1.
 uint32_t usableCpuThreads();
 std::string hostName();
 

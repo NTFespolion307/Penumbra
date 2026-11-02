@@ -14,7 +14,7 @@ namespace {
 using Clock = std::chrono::steady_clock;
 constexpr uint64_t kMaxQueued = 2ull * ScenePackage::kChunkBytes;
 // A transfer whose connection takes no chunk for this long is logged (a 58 MB transfer once sat still for 69 s on a
-// route that carried 62 MB/s, D-116).
+// route that carried 62 MB/s).
 constexpr auto kStallWarning = std::chrono::seconds(15);
 }  // namespace
 

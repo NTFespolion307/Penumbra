@@ -9,7 +9,7 @@
 
 namespace pen {
 
-// Test-only fault injection (DECISIONS D-047, D-067): PENUMBRA_TEST_FAULTS=device=N,after=K,mode=M makes local
+// Test-only fault injection: PENUMBRA_TEST_FAULTS=device=N,after=K,mode=M makes local
 // device N misbehave once it has rendered K items. Modes:
 //   throw    the device fails (BackendError)
 //   hang     the device stops answering until cancelled
@@ -18,7 +18,7 @@ namespace pen {
 //   corrupt  a network worker damages the device's tiles after computing their checksums
 //   upload   the device fails while taking the scene (before any item; `after` is ignored), so it is skipped
 //   oom      taking the scene runs out of memory at memory tiers up to `after` (default 0), so the device lands one
-//            tier lower (M8, D-108)
+//            tier lower
 // Unset: nothing happens.
 enum class FaultMode { Throw, Hang, Exit, Freeze, Corrupt, Upload, Oom };
 

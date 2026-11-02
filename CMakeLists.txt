@@ -39,19 +39,19 @@ if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
                       "(scripts/build.ps1 sets this up for you).")
 endif()
 
-# ---- Feature options (see docs/GUIDE.md "Build, dependencies and platforms") ----
-option(PEN_ENABLE_VULKAN "Vulkan RT backend and UI swapchain (built from M5)" ON)
+# ---- Feature options ----
+option(PEN_ENABLE_VULKAN "Vulkan RT backend and UI swapchain" ON)
 option(PEN_ENABLE_OPTIX "OptiX backend and denoiser (optional, M13)" OFF)
 if(NOT DEFINED PEN_ENABLE_CUDA)
   # ON when a CUDA toolkit (nvcc) is found: on PATH, through CUDA_PATH (the Windows installer sets it) or in
-  # /usr/local/cuda. Nothing links against CUDA; the driver is loaded at run time (DECISIONS D-087).
+  # /usr/local/cuda. Nothing links against CUDA; the driver is loaded at run time.
   find_package(CUDAToolkit QUIET)
   if(CUDAToolkit_FOUND AND CUDAToolkit_NVCC_EXECUTABLE)
     set(_pen_cuda_default ON)
   else()
     set(_pen_cuda_default OFF)
   endif()
-  option(PEN_ENABLE_CUDA "CUDA compute backend (built from M6); ON if the CUDA toolkit is found" ${_pen_cuda_default})
+  option(PEN_ENABLE_CUDA "CUDA compute backend; ON if the CUDA toolkit is found" ${_pen_cuda_default})
 endif()
 option(PEN_PORTABLE "Linux release builds: link libstdc++ and libgcc statically (scripts/package.sh)" OFF)
 option(PEN_ENABLE_OIDN "Denoising with Intel Open Image Denoise 2 (downloads its release binaries, ~60 MB)" ON)
@@ -67,13 +67,13 @@ if(MSVC)
 else()
   # No fused multiply-add contraction: the same code must produce the same bits on every host.
   add_compile_options(-Wall -Wextra -Wpedantic -ffp-contract=off)
-  if(PEN_PORTABLE)  # the release runs on any Linux with glibc 2.35+, whatever C++ runtime it has (D-129)
+  if(PEN_PORTABLE)  # the release runs on any Linux with glibc 2.35+, whatever C++ runtime it has
     add_link_options(-static-libstdc++ -static-libgcc)
   endif()
 endif()
 
 find_package(CLI11 CONFIG REQUIRED)
-find_package(fmt CONFIG REQUIRED)  # GCC 12 has no <format>; fmt is also spdlog's formatter (DECISIONS D-018)
+find_package(fmt CONFIG REQUIRED)  # GCC 12 has no <format>; fmt is also spdlog's formatter
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 find_package(embree 4 CONFIG REQUIRED)
@@ -106,4 +106,4 @@ if(PEN_BUILD_TESTS)
 endif()
 
 message(STATUS "Penumbra ${PROJECT_VERSION}: Vulkan=${PEN_ENABLE_VULKAN} CUDA=${PEN_ENABLE_CUDA} "
-               "OptiX=${PEN_ENABLE_OPTIX} UI=${PEN_ENABLE_UI} tests=${PEN_BUILD_TESTS} (the UI is built from M10)")
+               "OptiX=${PEN_ENABLE_OPTIX} UI=${PEN_ENABLE_UI} tests=${PEN_BUILD_TESTS}")

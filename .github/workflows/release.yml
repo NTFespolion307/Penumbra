@@ -1,6 +1,6 @@
 name: Release
 
-# The Linux release tarball (docs/DECISIONS.md D-129): built on Ubuntu 22.04 (the oldest supported system) with the
+# The Linux release tarball: built on Ubuntu 22.04 (the oldest supported system) with the
 # CUDA toolkit, so it has the Vulkan, CUDA and CPU backends and Open Image Denoise. Every push to main publishes it
 # as the latest release: https://github.com/NTFespolion307/Penumbra/releases/latest/download/penumbra-linux-x64.tar.gz
 # On milestone branches (m11, m12...) it only builds the tarball and keeps it as an artifact (for testing).

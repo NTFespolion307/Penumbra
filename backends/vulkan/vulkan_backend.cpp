@@ -222,7 +222,7 @@ class VulkanBackend final : public IBackend {
   VkPhysicalDeviceRayTracingPipelinePropertiesKHR rt_props_{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR};
   VkPhysicalDeviceAccelerationStructurePropertiesKHR as_props_{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR};
   DeviceInfo info_;
-  bool host_as_ = false;  // acceleration structures could live in host memory (probe only, D-107)
+  bool host_as_ = false;  // acceleration structures could live in host memory (probe only)
 
   // Scene
   std::vector<Buffer> scene_buffers_;  // indexed by binding (some unused)
@@ -248,15 +248,15 @@ class VulkanBackend final : public IBackend {
   VkStridedDeviceAddressRegionKHR rgen_{}, miss_{}, hit_{}, call_{};
 
   std::atomic<bool> cancel_{false};
-  bool lost_ = false;  // the GPU stopped answering: nothing is waited for or destroyed any more (D-094)
+  bool lost_ = false;  // the GPU stopped answering: nothing is waited for or destroyed any more
 };
 
-// A cancelled GPU job that has not finished after this long means the GPU is hung (D-094).
+// A cancelled GPU job that has not finished after this long means the GPU is hung.
 constexpr int kHungGraceSeconds = 10;
 
 // Descriptor bindings (shaders/*.slang).
 constexpr uint32_t kBindTlas = 0, kBindFrame = 1, kBindOut = 23, kBindCounters = 24, kBindCount = 31;
-// Texel parts (D-109): part 0 at 12 (8-bit) and 13 (float), parts 1-3 at 25-27 and 28-30 (shaders/scene.slang).
+// Texel parts: part 0 at 12 (8-bit) and 13 (float), parts 1-3 at 25-27 and 28-30 (shaders/scene.slang).
 constexpr uint32_t kBindTexels8[kTexelParts] = {12, 25, 26, 27}, kBindTexels32[kTexelParts] = {13, 28, 29, 30};
 
 VulkanBackend::VulkanBackend(uint32_t physicalIndex) {
@@ -301,8 +301,8 @@ VulkanBackend::VulkanBackend(uint32_t physicalIndex) {
   qci.queueFamilyIndex = queue_family_;
   qci.queueCount = 1;
   qci.pQueuePriorities = &priority;
-  // VK_EXT_memory_budget when the driver has it: the live VRAM budget then counts other programs' use too
-  // (docs/GUIDE.md "Budget"); without it VMA estimates.
+  // VK_EXT_memory_budget when the driver has it: the live VRAM budget then counts other programs' use too;
+  // without it VMA estimates.
   std::vector<const char*> extensions(std::begin(kDeviceExtensions), std::end(kDeviceExtensions));
   uint32_t en = 0;
   vkEnumerateDeviceExtensionProperties(physical_, nullptr, &en, nullptr);
@@ -355,7 +355,7 @@ VulkanBackend::VulkanBackend(uint32_t physicalIndex) {
   info_.uuid = gpu.uuid;
 
   // Host acceleration-structure probe: a buffer for acceleration structures may use a memory type that is not
-  // device-local. Reported only (D-107).
+  // device-local. Reported only.
   {
     VkBufferCreateInfo bci{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     bci.size = 65536;
@@ -453,7 +453,7 @@ void VulkanBackend::submitAndWait(const std::function<void(VkCommandBuffer)>& re
   check(vk_.vkResetFences(device_, 1, &fence_), "vkResetFences");
   check(vk_.vkQueueSubmit(queue_, 1, &si, fence_), "vkQueueSubmit");
   // Waits in slices, so a GPU that stops answering cannot hold its slot (and the end of the render) forever: once
-  // cancelled, the job gets kHungGraceSeconds to finish, then the device counts as lost (DECISIONS D-094).
+  // cancelled, the job gets kHungGraceSeconds to finish, then the device counts as lost.
   std::chrono::steady_clock::time_point cancelledAt{};
   for (;;) {
     const VkResult r = vk_.vkWaitForFences(device_, 1, &fence_, VK_TRUE, 100'000'000);
@@ -501,7 +501,7 @@ Buffer VulkanBackend::deviceBuffer(const void* data, size_t bytes, VkBufferUsage
 
 uint64_t VulkanBackend::vramBudget() {
   // The largest device-local heap: what the driver budgets for this process minus what it already uses
-  // (VK_EXT_memory_budget through VMA; an estimate without it), less the 10% margin (docs/GUIDE.md "Budget").
+  // (VK_EXT_memory_budget through VMA; an estimate without it), less the 10% margin.
   const VkPhysicalDeviceMemoryProperties* mp = nullptr;
   vmaGetMemoryProperties(vma_, &mp);
   std::vector<VmaBudget> budgets(mp->memoryHeapCount);
@@ -916,7 +916,7 @@ void VulkanBackend::render(const WorkItem& item, TileResult& out) {
   std::memset(counter_buffer_.mapped, 0, 16);
   vmaFlushAllocation(vma_, counter_buffer_.alloc, 0, VK_WHOLE_SIZE);
   // Dispatches of at most ~4M paths, like CUDA's launches: a cancel takes effect within one short dispatch (so a
-  // slow GPU is not taken for a hung one, D-094), and the running sum stays in the output buffer, so the result is
+  // slow GPU is not taken for a hung one), and the running sum stays in the output buffer, so the result is
   // the same bits as one dispatch (gpu::kItemAccumulate).
   constexpr uint64_t kPathsPerDispatch = uint64_t(1) << 22;
   const uint32_t total = item.sample_end - item.sample_begin;

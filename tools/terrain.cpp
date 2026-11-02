@@ -1,4 +1,4 @@
-// penumbra-terrain: real terrain from swisstopo tiles into a glTF scene (M14, DECISIONS D-122).
+// penumbra-terrain: real terrain from swisstopo tiles into a glTF scene.
 //
 //   penumbra-terrain --tiles <dir> --out <dir> --name <base> --bbox E0,N0,E1,N1 [--grid 4] [--texture 2]
 //                    [--camera E,N,H --target E,N,H --yfov 30] [--far <dir> --far-bbox E0,N0,E1,N1 --far-grid 45]

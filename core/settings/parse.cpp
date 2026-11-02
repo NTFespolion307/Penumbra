@@ -189,7 +189,7 @@ std::string formatDuration(uint64_t seconds) {
   return out;
 }
 
-// Decimal units, like the guide's tables and disk vendors (241.6 GB for the 160K film).
+// Decimal units, like the README's tables and disk vendors (241.6 GB for the 160K film).
 std::string formatBytes(uint64_t bytes) {
   const double b = static_cast<double>(bytes);
   if (b >= 1e12) return fmt::format("{:.1f} TB", b / 1e12);

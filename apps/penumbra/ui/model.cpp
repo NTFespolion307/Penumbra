@@ -43,7 +43,7 @@ void Model::sampleLocal(HostRow& row) {
   row.cores = system_.logical_cores;
   row.cpu_model = system_.cpu;
   row.since = {};
-  // GPUs that can render (docs/GUIDE.md "--backend auto"): NVML readings where the driver has them.
+  // GPUs that can render: NVML readings where the driver has them.
   for (const RenderGpu& g : gpuInventory().gpus) {
     GpuRow r;
     r.name = g.name;
@@ -121,7 +121,7 @@ bool Model::update() {
     if (r.connected) samples += r.samples_per_s;
     rows.push_back(std::move(r));
   }
-  // Memory tier and placement per device while a render runs (docs/GUIDE.md "placement log").
+  // Memory tier and placement per device while a render runs.
   for (HostRow& r : rows)
     for (const DeviceReady& d : session_.devicePlacement(r.id)) {
       if (d.device >= r.gpus.size()) continue;

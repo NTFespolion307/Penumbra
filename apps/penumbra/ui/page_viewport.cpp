@@ -1,4 +1,4 @@
-// Viewport (docs/GUIDE.md "Viewport page"; docs/ui-mockups/05-viewport): the render in progress.
+// Viewport: the render in progress.
 
 #include <imgui.h>
 

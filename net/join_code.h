@@ -1,6 +1,6 @@
 #pragma once
 
-// Join codes (docs/GUIDE.md "Join code"): 16 characters of Crockford base32 (0-9, A-Z without I, L, O, U), about
+// Join codes: 16 characters of Crockford base32 (0-9, A-Z without I, L, O, U), about
 // 80 bits, shown as XXXX-XXXX-XXXX-XXXX and typed case-insensitively with dashes optional. The code is never
 // sent: both sides derive the TLS pre-shared key from it.
 

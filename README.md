@@ -287,7 +287,7 @@ The binary is `build/<preset>/bin/penumbra` (`penumbra.exe` on Windows).
 
 | CMake option | Default | Meaning |
 | --- | --- | --- |
-| `PEN_ENABLE_VULKAN` | `ON` | Vulkan RT backend (the UI swapchain from M10). `OFF` builds a CPU-only Penumbra |
+| `PEN_ENABLE_VULKAN` | `ON` | Vulkan RT backend and the UI swapchain. `OFF` builds a CPU-only Penumbra |
 | `PEN_ENABLE_CUDA` | `ON` if the CUDA toolkit is found | CUDA backend. Nothing links against CUDA: the driver is loaded when Penumbra starts, so the binary also runs on machines without NVIDIA |
 | `PEN_ENABLE_OPTIX` | `OFF` | OptiX backend and denoiser *(planned, M13, optional)* |
 | `PEN_ENABLE_UI` | `ON` | The user interface (M10); off for headless servers (`build.sh` turns it off when there is no display). `--terminal` and `--worker` never need display libraries either way |

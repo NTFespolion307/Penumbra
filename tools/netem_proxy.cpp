@@ -1,5 +1,5 @@
-// penumbra-netem-proxy: a TCP proxy that makes a bad network for the network tests (docs/GUIDE.md "Network
-// tests": 200 ms latency, 2% packet loss, a 10 Mbit/s uplink).
+// penumbra-netem-proxy: a TCP proxy that makes a bad network for the network tests (for
+// example 200 ms latency, 2% packet loss, a 10 Mbit/s uplink).
 //
 //   penumbra-netem-proxy --listen PORT --to HOST:PORT [--delay-ms 100] [--loss 0.02] [--up-kbps 10000]
 //                        [--down-kbps 0]

@@ -8,7 +8,7 @@
 
 namespace pen {
 
-// <name>.session.json next to the film (docs/GUIDE.md "Session file"): everything --resume needs. Written
+// <name>.session.json next to the film: everything --resume needs. Written
 // atomically at every checkpoint.
 struct Session {
   std::string app_version, git_hash;

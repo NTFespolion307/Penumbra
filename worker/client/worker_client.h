@@ -9,7 +9,7 @@
 
 namespace pen {
 
-// What the UI's Join a render screen shows (docs/GUIDE.md "Settings page": the controller it joined, scene
+// What the UI's Join a render screen shows (the controller it joined, scene
 // download, its GPUs with usage and tiles done, upload rate). The worker updates it as it goes; read under `mutex`.
 struct WorkerStatus {
   std::mutex mutex;
@@ -35,7 +35,7 @@ struct WorkerOptions {
   WorkerStatus* status = nullptr;                // the UI's Join a render screen, when it runs the worker
 };
 
-// `penumbra --worker --join ... --code ...` (docs/GUIDE.md "Inside a worker"): connects to the controller,
+// `penumbra --worker --join... --code...`: connects to the controller,
 // prepares the scene on every device when a render starts, renders the leases it is given and sends the
 // tiles back. Returns the exit code: 0 after the render completes, 3 no usable device, 5 interrupted,
 // 6 rejected by the controller, 7 connection lost.

@@ -9,6 +9,7 @@
 #include "core/system/paths.h"
 #include "core/system/sysinfo.h"
 #include "core/version.h"
+#include "net/interfaces.h"
 #include "backends/gpu/nvml.h"
 #include "worker/device_manager.h"
 #if defined(PEN_HAS_VULKAN)
@@ -109,7 +110,9 @@ int diagnose() {
 #else
   row("CUDA", "not built (no CUDA toolkit when Penumbra was built, or PEN_ENABLE_CUDA=OFF)");
 #endif
-  row("TCP 7420", "bind check arrives with networking in M4");
+  const std::string why = net::checkListenPort(7420);
+  row("TCP 7420", why.empty() ? std::string("free: this machine can host renders on the default port")
+                              : fmt::format("cannot listen: {} (another controller running? use --port)", why));
   return 0;
 }
 

@@ -43,7 +43,7 @@ int validate(const RenderSettings& s) {
   return -1;
 }
 
-// Packaging is the validation step of every render (docs/GUIDE.md "Package format"): every file the scene needs
+// Packaging is the validation step of every render: every file the scene needs
 // is found and hashed before anything renders; workers download exactly these files.
 int buildPackageChecked(const RenderSettings& s, std::shared_ptr<const ScenePackage>& pkg) {
   try {
@@ -87,7 +87,7 @@ int loadSceneChecked(const RenderSettings& s, std::shared_ptr<Scene>& scene) {
   return -1;
 }
 
-// docs/GUIDE.md resolution table: up to 15k the film is in RAM; 20k and 40k when the RAM budget allows; above
+// Up to 15k the film is in RAM; 20k and 40k when the RAM budget allows; above
 // that (and whenever it does not fit) it lives only on disk.
 bool filmInRam(const RenderSettings& s, const FilmLayout& layout) {
   const uint64_t bytes = uint64_t(layout.width) * layout.height * 16;

@@ -1,4 +1,4 @@
-// penumbra-diff: compares renders (docs/GUIDE.md "Testing and validation").
+// penumbra-diff: compares renders.
 //
 //   penumbra-diff a.exr b.exr [--max-relmse X]   relMSE, max absolute difference; fail above X
 //   penumbra-diff a.exr b.exr --exact            fail unless every float is bit-identical

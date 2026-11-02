@@ -17,13 +17,13 @@
 #include "net/connection.h"
 
 namespace pen {
-// Network threads for a hosting controller: one per 4 usable cores, 2 to 8 (D-112).
+// Network threads for a hosting controller: one per 4 usable cores, 2 to 8.
 unsigned networkThreads();
 }  // namespace pen
 
 namespace pen {
 
-// The controller's listening side (docs/GUIDE.md "Controller and workers", "Join code"): accepts TLS
+// The controller's listening side: accepts TLS
 // connections keyed by the join code, checks each worker's Hello (protocol, version and git hash must match
 // exactly), optionally asks the user to approve it, and hands accepted workers to the render. An address with
 // more than 5 failed handshakes in a minute is blocked for 10 minutes.
@@ -65,7 +65,7 @@ class Host {
   JoinFn on_join_;
   uint64_t session_id_ = 0;
   SceneUploader uploader_;
-  net::IoThread io_{networkThreads()};  // several: one connection per strand (D-112)
+  net::IoThread io_{networkThreads()};  // several: one connection per strand
   std::unique_ptr<net::Listener> listener_;
   std::unique_ptr<asio::steady_timer> watchdog_timer_;
   std::chrono::steady_clock::time_point last_beat_{};  // the controller's own heartbeat, every 5 s

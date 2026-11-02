@@ -1,5 +1,5 @@
 // penumbra: one binary for every role. No args = UI controller; --terminal = headless controller;
-// --worker = headless worker. See docs/GUIDE.md "Application modes and CLI".
+// --worker = headless worker.
 
 #include <cstdio>
 #include <fmt/format.h>
@@ -31,10 +31,10 @@ void write(FILE* f, const std::string& s) { std::fwrite(s.data(), 1, s.size(), f
 #if !defined(PEN_HAS_UI)
 int runUiPlaceholder(bool fromExplorer) {
   const std::string text = fmt::format(
-      "{}\n\nThe Penumbra UI is built in milestone M10.\nFor now, run Penumbra from a terminal, for example:\n\n"
+      "{}\n\nThis Penumbra was built without the UI (PEN_ENABLE_UI=OFF).\nRun it from a terminal, for example:\n\n"
       "  penumbra --help\n  penumbra --diagnose",
       pen::versionString());
-  spdlog::warn("the UI is built in milestone M10; run 'penumbra --help' for terminal modes");
+  spdlog::warn("this build has no UI (PEN_ENABLE_UI=OFF); run 'penumbra --help' for terminal modes");
   if (fromExplorer) pen::app::showMessage("Penumbra", text, false);
   return pen::toInt(pen::ExitCode::BadArguments);
 }
@@ -64,7 +64,7 @@ int dispatch(const Invocation& inv, bool fromExplorer) {
       return pen::runWorker(worker);
     }
     case Mode::Resume:
-      if (!inv.terminal) spdlog::info("the UI is built in milestone M10; resuming in the terminal");
+      if (!inv.terminal) spdlog::info("resuming in the terminal (the UI does not resume renders)");
       render.interrupt = &pen::app::installInterruptHandler();
       return pen::resumeLocalRender(inv.resume, inv.cli_settings, render);
     case Mode::Merge: return pen::mergeFilmsToImage(inv.merge_inputs, inv.settings);

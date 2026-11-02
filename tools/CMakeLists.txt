@@ -8,7 +8,7 @@ add_executable(penumbra-scenegen scenegen.cpp)
 target_include_directories(penumbra-scenegen SYSTEM PRIVATE ${STB_INCLUDE_DIRS})
 target_link_libraries(penumbra-scenegen PRIVATE penumbra_core)
 
-# M14: swisstopo elevation and photo tiles into a glTF terrain (scripts/get-scenes swiss-alps, D-122).
+# M14: swisstopo elevation and photo tiles into a glTF terrain (scripts/get-scenes swiss-alps).
 add_executable(penumbra-terrain terrain.cpp)
 target_include_directories(penumbra-terrain SYSTEM PRIVATE ${STB_INCLUDE_DIRS})
 target_link_libraries(penumbra-terrain PRIVATE TIFF::TIFF nlohmann_json::nlohmann_json)

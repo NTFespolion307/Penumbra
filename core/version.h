@@ -6,7 +6,7 @@
 
 namespace pen {
 
-// Wire protocol version. Controller and workers must match exactly (see docs/PROTOCOL.md from M4).
+// Wire protocol version. Controller and workers must match exactly.
 inline constexpr uint16_t kProtocolVersion = 6;
 
 std::string_view appVersion();  // e.g. "0.1.0" (generated)

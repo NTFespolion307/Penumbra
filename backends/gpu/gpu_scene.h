@@ -14,7 +14,7 @@
 namespace pen {
 
 // Texels go in up to kTexelParts buffers per kind, each at most kTexelPartBytes: a storage buffer may span at most
-// 4 GB on common drivers, and one allocation should stay below 4 GB too (D-109).
+// 4 GB on common drivers, and one allocation should stay below 4 GB too.
 inline constexpr size_t kTexelParts = 4;
 inline constexpr uint64_t kTexelPartBytes = uint64_t(2) << 30;
 

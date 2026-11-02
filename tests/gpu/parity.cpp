@@ -1,5 +1,5 @@
 // penumbra-gpu-parity [--backend vulkan|cuda]: runs shaders/parity.slang on the first GPU of that backend (Vulkan:
-// with ray tracing) and compares every value with the C++ reference (DECISIONS D-077). Exit code 0 when every function agrees: integer paths bit for bit, discrete
+// with ray tracing) and compares every value with the C++ reference. Exit code 0 when every function agrees: integer paths bit for bit, discrete
 // choices (sample succeeded, delta, lobe) in at least 99.5% of cases, floats within a relative 2e-3 in at least
 // 99.5% of cases (the rest are ill-conditioned inputs: grazing angles, total internal reflection edges).
 

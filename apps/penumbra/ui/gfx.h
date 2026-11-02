@@ -8,7 +8,7 @@ struct GLFWwindow;
 namespace pen::ui {
 
 // Draws Dear ImGui's frames into the window: Vulkan, else OpenGL 3.3 for machines whose Vulkan cannot present
-// (old drivers, virtual displays; docs/GUIDE.md "UI", DECISIONS D-100).
+// (old drivers, virtual displays).
 class Gfx {
  public:
   virtual ~Gfx() = default;

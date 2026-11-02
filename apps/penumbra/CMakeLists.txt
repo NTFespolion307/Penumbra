@@ -5,7 +5,7 @@ target_link_libraries(penumbra_cli PUBLIC penumbra_core PRIVATE CLI11::CLI11)
 target_compile_options(penumbra_cli PRIVATE $<$<CXX_COMPILER_ID:GNU>:-Wno-restrict>)
 
 # Console subsystem on Windows (so --terminal/--worker output works in cmd and PowerShell); the UI mode
-# detaches the console when started from Explorer. See docs/GUIDE.md "Windows console gotcha".
+# detaches the console when started from Explorer.
 add_executable(penumbra main.cpp platform.cpp progress.cpp modes/info.cpp)
 if(WIN32)
   target_sources(penumbra PRIVATE penumbra.manifest)
@@ -16,7 +16,7 @@ if(PEN_ENABLE_OIDN)
 endif()
 set_target_properties(penumbra PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
-# ---- UI (M10, docs/GUIDE.md "UI"; DECISIONS D-100) ----
+# ---- UI ----
 # Dear ImGui (third_party/imgui, v1.92.9) and GLFW (third_party/glfw, 3.4) are vendored: the vcpkg imgui port has
 # no GLFW/Vulkan/OpenGL backends, and the vcpkg glfw3 port builds the whole X11 client library chain (autotools
 # included) on Linux. GLFW needs only the X11 headers to build and opens libX11 at run time, and ImGui's OpenGL

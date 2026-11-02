@@ -18,7 +18,7 @@ class NullBackend final : public IBackend {
     info_.name = fmt::format("null test device {}", index);
     info_.backend = BackendKind::Null;
     info_.threads = 1;
-    // PENUMBRA_TEST_NULL_DELAY_MS (test-only, D-070): each item takes this long, like a real device would.
+    // PENUMBRA_TEST_NULL_DELAY_MS (test-only): each item takes this long, like a real device would.
     if (const char* d = std::getenv("PENUMBRA_TEST_NULL_DELAY_MS")) delay_ms_ = std::atoi(d);
   }
   DeviceInfo info() const override { return info_; }

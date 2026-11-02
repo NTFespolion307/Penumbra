@@ -1,6 +1,6 @@
 #pragma once
 
-// Principled BSDF mapping 1:1 to glTF PBR and the material extensions in docs/GUIDE.md:
+// Principled BSDF mapping 1:1 to glTF PBR and the glTF material extensions:
 //   coat (GGX, IOR 1.5)  over  sheen (Charlie)  over  base = mix(dielectric, metal, metallic)
 //   dielectric = specular reflection (GGX, exact Fresnel x KHR_materials_specular tint)
 //              + (1 - albedo) * [ (1 - transmission) * Lambert diffuse + transmission * rough refraction ]

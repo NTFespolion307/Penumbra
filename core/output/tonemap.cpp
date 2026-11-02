@@ -38,7 +38,7 @@ constexpr float kAgxMinEv = -12.47393f, kAgxMaxEv = 4.026069f;
 
 // The sigmoid, measured from Blender 4.2 at every half EV from -10 to +8 around 0.18: the value before the outset
 // matrix that gives Blender's grey. The widely copied 6th-order polynomial is a different curve (18% grey 0.50
-// instead of Blender's 0.46, mean 6.8 8-bit steps off; D-126).
+// instead of Blender's 0.46, mean 6.8 8-bit steps off).
 constexpr float kAgxCurve[37] = {
     0.00000f, 0.00347f, 0.00707f, 0.01165f, 0.01699f, 0.02318f, 0.03029f, 0.03851f, 0.04808f, 0.05931f,
     0.07253f, 0.08812f, 0.10657f, 0.12853f, 0.15475f, 0.18620f, 0.22393f, 0.26937f, 0.32394f, 0.38757f,

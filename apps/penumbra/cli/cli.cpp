@@ -97,7 +97,7 @@ std::string optionDescription(const OptionRow& r) {
 }
 
 constexpr std::string_view kFooter = R"(Modes:
-  penumbra                                    UI as controller (from M10)
+  penumbra                                    UI as controller
   penumbra --terminal scene.glb -o out.exr    headless controller, local devices only
   penumbra --terminal --host scene.glb        headless controller that accepts workers
   penumbra --worker --join ADDRESS --code CODE [--stay]   headless worker

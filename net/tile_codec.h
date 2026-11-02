@@ -1,6 +1,6 @@
 #pragma once
 
-// Tile pixels on the wire (DECISIONS D-053): the RGB means as float32, split into 4 byte planes (all lowest
+// Tile pixels on the wire: the RGB means as float32, split into 4 byte planes (all lowest
 // bytes, then the next...), then zstd level 3. Lossless, so a tile rendered on any host merges to the same
 // bits as a local one; the byte planes let zstd find the repetition in exponents and high mantissa bytes.
 

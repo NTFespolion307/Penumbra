@@ -267,7 +267,7 @@ void furnaceFog(const fs::path& dir) {
   w.useExtension("KHR_materials_specular");
   const int white = w.material(lambert("white", {1, 1, 1}));
   // 100 x 100 quads of 200 m, not two 20 km triangles: with vertices 10 km out, Vulkan's hardware hit points near
-  // the camera were off by about a millimetre and shadow rays caught their own triangle (6% too dark, D-123).
+  // the camera were off by about a millimetre and shadow rays caught their own triangle (6% too dark).
   MeshData ground;
   for (int j = 0; j < 100; ++j)
     for (int i = 0; i < 100; ++i) {
@@ -380,7 +380,7 @@ void bigtex(const fs::path& dir) {
             {{"scene", "bigtex.gltf"}, {"environment", {{"color", {1.0, 1.0, 1.0}}}}, {"render", {{"res", "240p"}}}});
 }
 
-// Software ray tracing corner cases (CUDA backend, DECISIONS D-086): rays with exact zero direction components
+// Software ray tracing corner cases (CUDA backend): rays with exact zero direction components
 // (orthographic camera looking down -Z), alpha cutouts inside the traversal, instancing with non-uniform scale and
 // rotation (TLAS and object-space rays), and meshes too small for a CWBVH (triangle lists).
 void cutout(const fs::path& dir) {

@@ -35,7 +35,7 @@ void alphaFilter(const RTCFilterFunctionNArguments* args) {
     const float u = RTCHitN_u(args->hit, args->N, i), v = RTCHitN_v(args->hit, args->N, i);
     const Material& mat = g->scene->materials[g->scene->meshes[g->scene->instances[inst].mesh].primitives[g->primitive].material];
     const float alpha = alphaAt(*g->scene, inst, g->primitive, prim, u, v);
-    // MASK: alpha cutoff. BLEND: treated as a 0.5 cutout (DECISIONS D-024).
+    // MASK: alpha cutoff. BLEND: treated as a 0.5 cutout.
     const float cutoff = mat.alpha_mode == AlphaMode::Mask ? mat.alpha_cutoff : 0.5f;
     if (alpha < cutoff) args->valid[i] = 0;
   }
@@ -120,7 +120,7 @@ class CpuBackend final : public IBackend {
 
   void upload(const Scene& scene, const Placement& placement) override {
     // Smaller textures, exactly as a GPU at memory tier 2 packs them, so its renders can be checked against the CPU.
-    // Test only: PENUMBRA_TEST_TEXTURE_HALVINGS=k halves every texture k times (D-047 style, logged).
+    // Test only: PENUMBRA_TEST_TEXTURE_HALVINGS=k halves every texture k times (logged).
     std::vector<uint32_t> halvings = placement.halvings;
     if (halvings.empty())
       if (const char* v = std::getenv("PENUMBRA_TEST_TEXTURE_HALVINGS"); v && *v) {

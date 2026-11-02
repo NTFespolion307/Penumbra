@@ -1,6 +1,6 @@
 #pragma once
 
-// IBackend: what one render device implements (docs/GUIDE.md "Repository layout and core interfaces").
+// IBackend: what one render device implements.
 
 #include <array>
 #include <cstdint>
@@ -24,7 +24,7 @@ struct DeviceInfo {
   uint32_t threads = 0;      // CPU worker threads
   uint64_t memory_bytes = 0; // device memory (RAM for the CPU)
   bool hardware_rt = false;
-  std::array<uint8_t, 16> uuid{};  // GPUs: Vulkan deviceUUID / CUDA UUID (NVML readings, D-093); zero otherwise
+  std::array<uint8_t, 16> uuid{};  // GPUs: Vulkan deviceUUID / CUDA UUID (NVML readings); zero otherwise
 };
 
 // Per-render state every device needs besides the scene.
@@ -39,7 +39,7 @@ struct BackendError : std::runtime_error {
 };
 
 // An allocation failed for lack of VRAM or pinned RAM: the worker tries the next memory tier instead of giving the
-// device up (docs/GUIDE.md "no out-of-memory crash, ever").
+// device up.
 struct OutOfMemoryError : BackendError {
   using BackendError::BackendError;
 };
@@ -48,10 +48,10 @@ class IBackend {
  public:
   virtual ~IBackend() = default;
   virtual DeviceInfo info() const = 0;
-  // Usable VRAM now: free VRAM minus a 10% margin (docs/GUIDE.md "Budget"). 0 for devices without memory of their
+  // Usable VRAM now: free VRAM minus a 10% margin. 0 for devices without memory of their
   // own (the CPU), which keep the scene where it already is: always tier 0.
   virtual uint64_t vramBudget() { return 0; }
-  // The exact bytes this device needs for `scene` (docs/GUIDE.md "Scene placement ladder"). May keep work for
+  // The exact bytes this device needs for `scene`. May keep work for
   // upload() (flattened arrays, a BVH), which then follows for the same scene.
   virtual SceneFootprint measure(const Scene& scene) {
     (void)scene;

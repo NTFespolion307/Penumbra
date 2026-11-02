@@ -167,7 +167,7 @@ void drawFrame(State& st, Model& model) {
   ImGui::End();
 }
 
-// The window and its renderer: Vulkan first, OpenGL 3.3 when Vulkan cannot present here (D-100).
+// The window and its renderer: Vulkan first, OpenGL 3.3 when Vulkan cannot present here.
 // PENUMBRA_UI_RENDERER=opengl skips Vulkan (troubleshooting, virtual displays).
 struct Window {
   GLFWwindow* glfw = nullptr;
@@ -255,12 +255,13 @@ int run(const RenderSettings& settings) {
   st.renderer = win.gfx->name();
   spdlog::info("UI: drawing with {}, content scale {:.2f}", st.renderer, scale);
 
-  // LAN hosting starts with the app (docs/GUIDE.md "Render lifecycle", step 2); internet hosting (UPnP) is opt-in
-  // in Settings. The join code is the saved one, created on first use, never the config file.
+  // LAN hosting starts with the app; internet hosting (UPnP) is opt-in in Settings. The join code is the saved
+  // one, created on first use, never the config file.
   HostingSession session;
   st.ui.settings_page.port = settings.port;
   st.ui.settings_page.internet = false;  // opt-in in the UI whatever the config says
   st.ui.settings_page.approve = settings.approve_workers;
+  st.ui.settings_page.tonemap = settings.tonemap;
   if (!settings.film_dir.empty())
     std::snprintf(st.ui.settings_page.film_dir, sizeof(st.ui.settings_page.film_dir), "%s",
                   pathToUtf8(settings.film_dir).c_str());
@@ -279,7 +280,7 @@ int run(const RenderSettings& settings) {
   st.ui.runner = &runner;
   initRenderPage(st.ui);
 
-  // Test only (screenshots of each page, D-047 style): PENUMBRA_TEST_UI_PAGE=hosts | host:<id> | render | ...
+  // Test only (screenshots of each page): PENUMBRA_TEST_UI_PAGE=hosts | host:<id> | render | ...
   if (const char* page = std::getenv("PENUMBRA_TEST_UI_PAGE"); page && *page) {
     const std::string_view p = page;
     spdlog::warn("TEST HOOK ACTIVE (PENUMBRA_TEST_UI_PAGE): opening page {}", p);
@@ -296,7 +297,7 @@ int run(const RenderSettings& settings) {
   }
 
   // Test only: PENUMBRA_TEST_UI_SCREENSHOT=<file.png> saves the frame shown 8 s after start (OpenGL; set
-  // PENUMBRA_UI_RENDERER=opengl) and exits, so pages can be checked without clicking (D-047 style).
+  // PENUMBRA_UI_RENDERER=opengl) and exits, so pages can be checked without clicking.
   std::string screenshot;
   if (const char* shot = std::getenv("PENUMBRA_TEST_UI_SCREENSHOT"); shot && *shot) {
     screenshot = shot;
@@ -309,7 +310,7 @@ int run(const RenderSettings& settings) {
   const ImVec4 bg = ImGui::ColorConvertU32ToFloat4(color::kBackground);
   const float clear[4] = {bg.x, bg.y, bg.z, 1.0f};
   while (!glfwWindowShouldClose(win.glfw)) {
-    // Host statistics refresh once per second (docs/GUIDE.md "UI"); 10 frames a second when idle keeps the UI
+    // Host statistics refresh once per second; 10 frames a second when idle keeps the UI
     // responsive at little CPU cost. Input wakes the loop at once.
     glfwWaitEventsTimeout(0.1);
     if (glfwGetWindowAttrib(win.glfw, GLFW_ICONIFIED)) continue;

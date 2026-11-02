@@ -41,7 +41,7 @@ namespace wire = net::wire;
 using net::MsgType;
 using Clock = std::chrono::steady_clock;
 
-constexpr uint64_t kUploadBoundBytes = 512ull << 20;  // docs/GUIDE.md "Uploader and backpressure"
+constexpr uint64_t kUploadBoundBytes = 512ull << 20;  // results queued beyond this: upload-bound
 constexpr auto kConnectRetry = std::chrono::seconds(15);
 constexpr auto kStatsPeriod = std::chrono::seconds(2);
 constexpr auto kHeartbeatPeriod = std::chrono::seconds(5);
@@ -51,7 +51,7 @@ constexpr int kMaxInFlight = 64;
 constexpr int kReconnect = -3;           // session(): the link dropped; a --stay worker connects again
 constexpr auto kMaxBackoff = std::chrono::seconds(30);  // a relay answers but the controller does not
 // Nothing listens: a connect attempt costs nothing, so a --stay worker tries at least every 5 s and is back soon
-// after a new controller starts (with 30 s, workers missed the first 16 s of back-to-back renders, D-116).
+// after a new controller starts (with 30 s, workers missed the first 16 s of back-to-back renders).
 constexpr auto kMaxConnectBackoff = std::chrono::seconds(5);
 
 uint64_t nowMicros() {
@@ -59,8 +59,8 @@ uint64_t nowMicros() {
       std::chrono::duration_cast<std::chrono::microseconds>(Clock::now().time_since_epoch()).count());
 }
 
-// The worker's own settings that stay local: which devices render and how (docs/GUIDE.md "--devices: which
-// local devices render (controller or worker)"). Everything else comes from the controller.
+// The worker's own settings that stay local: which devices render and how (--devices).
+// Everything else comes from the controller.
 void keepLocalDeviceSettings(RenderSettings& remote, const RenderSettings& local) {
   remote.backend = local.backend;
   remote.devices = local.devices;
@@ -151,7 +151,7 @@ class Worker {
   Clock::time_point download_started_;
   double next_progress_ = 0.25;
   std::vector<std::unique_ptr<DeviceSlot>> slots_;
-  std::vector<bool> skipped_;  // per device: could not take this render's scene (DECISIONS D-092)
+  std::vector<bool> skipped_;  // per device: could not take this render's scene
 
   // Shared with the slot threads.
   std::mutex mutex_;
@@ -202,14 +202,14 @@ int Worker::connect() {
     } catch (const net::ConnectError& e) {
       if (opt_.interrupt && opt_.interrupt->load()) return toInt(ExitCode::Interrupted);
       if (local_.stay) {
-        // Always-on worker: wait for the controller, however long it takes (docs/GUIDE.md "--stay").
+        // Always-on worker: wait for the controller, however long it takes.
         if (!told) spdlog::warn("{}; trying again (--stay)", e.what());
         told = true;
         const auto until = Clock::now() + scaledForTests(backoff);
         while (Clock::now() < until && !(opt_.interrupt && opt_.interrupt->load()))
           std::this_thread::sleep_for(std::chrono::milliseconds(100));
         // Until it has joined once, the controller is probably about to start: keep the wait short (2 s) so the worker
-        // is there soon after it hosts (a worker started first joined 12 s late, D-113).
+        // is there soon after it hosts (a worker started first joined 12 s late).
         backoff = std::min<std::chrono::seconds>(backoff * 2,
                                                  joined_once_ ? kMaxConnectBackoff : std::chrono::seconds(2));
         continue;
@@ -257,7 +257,7 @@ int Worker::connect() {
   hello.protocol_version = kProtocolVersion;
   hello.app_version = std::string(appVersion());
   hello.git_hash = std::string(gitHash());
-  if (const char* fake = std::getenv("PENUMBRA_TEST_GIT_HASH")) {  // test-only (D-047): pose as another build
+  if (const char* fake = std::getenv("PENUMBRA_TEST_GIT_HASH")) {  // test-only: pose as another build
     spdlog::warn("TEST HOOK ACTIVE (PENUMBRA_TEST_GIT_HASH): claiming git hash {}", fake);
     hello.git_hash = fake;
   }
@@ -375,7 +375,7 @@ int Worker::session() {
         return leave("every device of this worker failed", toInt(ExitCode::NoUsableDevice));
       }
     }
-    if (testFrozen()) {  // test-only (D-067): a dead link; send nothing, not even heartbeats
+    if (testFrozen()) {  // test-only: a dead link; send nothing, not even heartbeats
       if (!frozen_logged_) spdlog::warn("TEST FAULT: this worker is frozen and sends nothing");
       frozen_logged_ = true;
       continue;
@@ -602,7 +602,7 @@ void Worker::onSceneChunk(const wire::SceneChunkT& m) {
   } catch (const std::exception& e) {
     return rejectScene(render_id_, fmt::format("the scene download failed: {}", e.what()));
   }
-  // Test-only (D-066): crash right after this many chunks, to test resumed downloads without timing races.
+  // Test-only: crash right after this many chunks, to test resumed downloads without timing races.
   if (const char* n = std::getenv("PENUMBRA_TEST_EXIT_AFTER_CHUNKS"); n && m.index + 1 == std::strtoul(n, nullptr, 10)) {
     spdlog::warn("TEST HOOK ACTIVE (PENUMBRA_TEST_EXIT_AFTER_CHUNKS): exiting abruptly after chunk {}", m.index);
     spdlog::default_logger()->flush();
@@ -636,7 +636,7 @@ namespace {
 
 // Keeps heartbeats going while this thread is busy: loading a big scene and building it on the devices can take
 // longer than the controller's 30 s peer timeout, and without heartbeats the controller dropped the worker, which
-// reconnected, loaded again and never joined (Intel's New Sponza: 35 s load + 8 s build, D-113).
+// reconnected, loaded again and never joined (Intel's New Sponza: 35 s load + 8 s build).
 class Keepalive {
  public:
   explicit Keepalive(std::shared_ptr<net::Connection> conn) : conn_(std::move(conn)) {
@@ -666,7 +666,7 @@ class Keepalive {
 
 }  // namespace
 
-// Loads the scene from its cached package and builds every device (docs/GUIDE.md "Ready before work").
+// Loads the scene from its cached package and builds every device.
 void Worker::prepare(const std::filesystem::path& folder) {
   const Keepalive keepalive(conn_);
   status([](WorkerStatus& st) { st.phase = "Loading the scene and building it on each device"; });
@@ -739,7 +739,7 @@ void Worker::startSlots() {
       m.encoding = wire::TileEncoding::Float32Shuffled;
       m.pixels = net::encodeTilePixels(r.mean);
       m.checksum = net::tileChecksum(r.mean);
-      if (testTakeCorruptTile() && !m.pixels.empty()) {  // test-only (D-067): damaged after the checksum
+      if (testTakeCorruptTile() && !m.pixels.empty()) {  // test-only: damaged after the checksum
         spdlog::warn("TEST FAULT: corrupting the tile for lease {}", r.lease);
         m.pixels[m.pixels.size() / 2] ^= 0x5A;
       }
@@ -821,9 +821,9 @@ void Worker::onLease(const wire::LeaseT& m) {
   slots_[m.device]->addLease(item);
 }
 
-// Items in flight per device (DECISIONS D-084): enough to cover two round trips at the device's measured item
+// Items in flight per device: enough to cover two round trips at the device's measured item
 // time, so a fast GPU behind a slow link never waits for its next lease: ceil(2 x RTT / item time) + 1, between
-// 2 and 64. Before any item has finished: 3 above a 50 ms round trip, else 2 (docs/GUIDE.md "Leases").
+// 2 and 64. Before any item has finished: 3 above a 50 ms round trip, else 2.
 void Worker::updateInFlight() {
   std::lock_guard lock(mutex_);
   for (uint32_t d = 0; d < slots_.size(); ++d) {
@@ -898,7 +898,7 @@ void Worker::sendStats() {
     ds->busy_percent =
         dt > 0 ? static_cast<float>(std::clamp(100.0 * (busy - c.last_busy) / dt, 0.0, 100.0)) : 0.f;
     ds->temperature_c = -300.f;
-    // NVIDIA GPUs: the driver's own usage, VRAM and temperature (NVML, D-093); else Penumbra's busy %.
+    // NVIDIA GPUs: the driver's own usage, VRAM and temperature (NVML); else Penumbra's busy %.
     if (const auto live = queryGpuLiveStats(devices_[d]->info().uuid)) {
       ds->busy_percent = live->usage_percent;
       ds->vram_used = live->vram_used;

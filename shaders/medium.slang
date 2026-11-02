@@ -1,5 +1,5 @@
 // The atmosphere on the GPU (M14): port of core/render/medium.h, reading the layers from g_frame.medium.
-// Exponential height layers, closed-form optical depth, free-flight sampling with spectral MIS (DECISIONS D-119).
+// Exponential height layers, closed-form optical depth, free-flight sampling with spectral MIS.
 #pragma once
 #include "scene.slang"
 

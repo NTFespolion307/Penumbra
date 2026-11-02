@@ -10,7 +10,7 @@
 
 namespace pen {
 
-// Streams an image to disk in horizontal bands from top to bottom (docs/GUIDE.md "Format limits": never the
+// Streams an image to disk in horizontal bands from top to bottom (never the
 // whole image in memory, except WebP, which is capped at 16,383 px per side).
 class ImageWriter {
  public:

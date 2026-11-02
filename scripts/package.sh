@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds the Linux release: dist/penumbra-linux-x64.tar.gz (+ .sha256), a headless penumbra for servers and
-# workers that runs without installing anything but a GPU driver (docs/DECISIONS.md D-129).
+# workers that runs without installing anything but a GPU driver.
 #
 #   ./scripts/package.sh
 #

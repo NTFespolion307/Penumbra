@@ -1,13 +1,13 @@
 #pragma once
 
-// Scene packages (docs/GUIDE.md "Scene packages and distribution"): every file a scene needs, described by a
+// Scene packages: every file a scene needs, described by a
 // manifest with sizes and BLAKE3 hashes. Workers download a package once and keep it in their cache; the
 // package hash is the hash of the manifest, so the same files always give the same package.
 //
 // On the wire a package is the concatenation of its files in manifest order, cut into 4 MB chunks; each chunk's
 // hash is in the manifest, so every chunk is checked on arrival and an interrupted download resumes at the first
 // missing chunk. Render settings are not part of the package (they travel with each render), so re-rendering
-// the same scene with other settings reuses the cache (DECISIONS D-062).
+// the same scene with other settings reuses the cache.
 
 #include <cstdint>
 #include <filesystem>

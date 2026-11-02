@@ -4,16 +4,35 @@
 /vcpkg_installed/
 CMakeUserPresets.json
 
-# IDE
+# Release archives (scripts/package.sh)
+/dist/
+
+# IDE, tools and OS files
 /.vs/
 /.vscode/
+/.idea/
+/.cache/
+/compile_commands.json
+/.claude/settings.local.json
 *.user
+__pycache__/
+.DS_Store
+Thumbs.db
 
-# Render outputs and films (large; use Git LFS for anything that must be committed)
+# Render outputs and films (large; use Git LFS for anything that must be committed). Images and logs in the repo
+# root are renders (penumbra -o render.png); the images the repo needs live in scenes/ and tests/.
 *.penfilm
 *.penpkg
 *.session.json
 /renders/
+/*.png
+/*.exr
+/*.jpg
+/*.jpeg
+/*.tif
+/*.tiff
+/*.webp
+/*.log
 
 # Downloaded by scripts/get-scenes (large; checked against scenes/sponza.sha256)
 /scenes/sponza/

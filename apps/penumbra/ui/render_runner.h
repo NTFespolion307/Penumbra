@@ -27,11 +27,11 @@ class RenderRunner {
   // Like Ctrl+C: no new work, a checkpoint, and the current image is written; resumable later.
   void stop();
 
-  // Exposure is applied after the film (docs/GUIDE.md "Settings changes"), so it may change during a render: the
+  // Exposure is applied after the film, so it may change during a render: the
   // viewport shows it at once and the output uses the latest value.
   void setExposure(double ev) { exposure_ = ev; }
   double exposure() const { return exposure_.load(); }
-  // The tonemap is live too: it applies after the film (docs/GUIDE.md "Live output adjustments").
+  // The tonemap is live too: it applies after the film.
   void setTonemap(Tonemap t) { tonemap_ = t; }
   Tonemap tonemap() const { return tonemap_.load(); }
 

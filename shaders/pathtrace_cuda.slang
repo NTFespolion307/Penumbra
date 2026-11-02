@@ -1,5 +1,5 @@
 // The CUDA path tracer: integrator.slang with rays traced in software (bvh.slang). slangc turns this file into
-// CUDA C++, nvcc into a fatbin (DECISIONS D-085, D-087). One thread per pixel of the launch.
+// CUDA C++, nvcc into a fatbin. One thread per pixel of the launch.
 #include "scene.slang"
 #include "bvh.slang"
 #include "integrator.slang"

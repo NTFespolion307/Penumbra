@@ -352,7 +352,7 @@ struct Converter {
     l.name = gl->name ? gl->name : fmt::format("light {}", scene.lights.size());
     l.position = world.point(Vec3f(0));
     l.direction = normalize(world.vector(Vec3f(0, 0, -1)));
-    l.intensity = readVec3(gl->color) * (gl->intensity / 683.0f);  // DECISIONS D-023
+    l.intensity = readVec3(gl->color) * (gl->intensity / 683.0f);  // candela to W/sr (683 lm/W)
     switch (gl->type) {
       case cgltf_light_type_directional: l.type = LightType::Directional; break;
       case cgltf_light_type_spot:

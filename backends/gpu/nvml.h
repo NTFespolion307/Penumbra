@@ -1,7 +1,7 @@
 #pragma once
 
-// Live GPU readings from NVIDIA's management library (NVML), for Stats and --list-devices (docs/GUIDE.md
-// "Stats"; DECISIONS D-093). The library ships with the NVIDIA driver and is loaded at run time, so builds and
+// Live GPU readings from NVIDIA's management library (NVML), for Stats and --list-devices.
+// The library ships with the NVIDIA driver and is loaded at run time, so builds and
 // machines without it work the same, just without these readings.
 
 #include <array>

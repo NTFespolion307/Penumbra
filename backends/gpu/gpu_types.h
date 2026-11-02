@@ -2,7 +2,7 @@
 
 // Scene and frame data as the GPU backends read it. shaders/types.slang declares the same structs.
 //
-// One byte layout serves both GPU backends (DECISIONS D-086): Vulkan reads it with the scalar block layout (no
+// One byte layout serves both GPU backends: Vulkan reads it with the scalar block layout (no
 // implicit padding) and CUDA with C's natural alignment (float2 on 8 bytes, float4 on 16). Fields are ordered so
 // the two agree: every float2 starts on a multiple of 8, every float4 on a multiple of 16, and each struct's size
 // is padded by hand to its alignment. The CUDA backend checks every offset below against the layout slangc
@@ -63,7 +63,7 @@ struct Texture {
   uint32_t wrap_s, wrap_t;  // 0 repeat, 1 clamp, 2 mirror
   uint32_t nearest;
   uint32_t offset;  // into its RGBA8 texel buffer (uint per texel) or float4 texel buffer
-  uint32_t part;    // which of the kTexelParts buffers of its kind holds it (D-109)
+  uint32_t part;    // which of the kTexelParts buffers of its kind holds it
 };
 static_assert(sizeof(Texture) == 32);
 

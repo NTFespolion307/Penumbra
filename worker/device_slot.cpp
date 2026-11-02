@@ -58,7 +58,7 @@ void DeviceSlot::join() {
 void DeviceSlot::run() {
   std::unique_lock lock(mutex_);
   for (;;) {
-    // Keep `in_flight_` items: the one rendering plus queued ones (docs/GUIDE.md "Leases": 2 per slot).
+    // Keep `in_flight_` items: the one rendering plus queued ones (2 per slot).
     const int have = static_cast<int>(queue_.size()) + (rendering_ ? 1 : 0);
     const int want = in_flight_.load();
     if (!finished_ && have < want) {

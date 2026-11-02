@@ -1,4 +1,4 @@
-# Intel Open Image Denoise 2 (M11, DECISIONS D-125, D-128): vcpkg has no port, so the official release binaries
+# Intel Open Image Denoise 2: vcpkg has no port, so the official release binaries
 # are downloaded once at configure time (pinned version, SHA-256 checked) into the build folder. Sets
 # PEN_OIDN_RUNTIME: the shared libraries penumbra needs next to it (core, CPU and CUDA devices, TBB; the AMD and
 # Intel GPU devices are left out).
@@ -53,7 +53,7 @@ function(pen_copy_oidn_runtime target)
                      VERBATIM)
   if(NOT WIN32)
     # DT_RPATH, not the newer DT_RUNPATH: a RUNPATH applies to the binary's own dependencies only, so
-    # libOpenImageDenoise.so.2 was found but its libOpenImageDenoise_core.so was not (D-128).
+    # libOpenImageDenoise.so.2 was found but its libOpenImageDenoise_core.so was not.
     set_target_properties(${target} PROPERTIES BUILD_RPATH "$ORIGIN" INSTALL_RPATH "$ORIGIN")
     target_link_options(${target} PRIVATE "LINKER:--disable-new-dtags")
   endif()

@@ -19,7 +19,7 @@ namespace pen {
 namespace wire = net::wire;
 
 namespace {
-// Test only: every network worker gets this many chunks per item from the start, upload-bound or not (D-116).
+// Test only: every network worker gets this many chunks per item from the start, upload-bound or not.
 uint32_t testItemSpan() {
   static const uint32_t span = [] {
     const char* v = std::getenv("PENUMBRA_TEST_ITEM_SPAN");
@@ -125,14 +125,12 @@ void RemoteWorker::complete() {
   connection_->send(m);
 }
 
-void RemoteWorker::disconnect(const std::string& reason) { connection_->close(reason); }
-
-// docs/GUIDE.md "Uploader and backpressure": a worker whose results wait more than 2 s to be sent renders faster
+// Backpressure: a worker whose results wait more than 2 s to be sent renders faster
 // than its uplink carries them. Each result is a whole tile whatever its sample count, so items of 2, 4 or 8
 // chunks send 2-8x fewer bytes per sample. The span doubles at most every 4 s once three reports in a row show
 // more than 2 s and 4 MB waiting (one freshly queued full-frame result next to an idle upload is no backlog), and
 // halves after 20 s below 0.5 s. Renders where no worker is upload-bound keep 1 chunk per item and the same
-// bits for any distribution of work (D-045); merged spans change only the last bits (D-116).
+// bits for any distribution of work; merged spans change only the last bits.
 void RemoteWorker::adaptSpan(uint64_t queued, double bytesPerSecond) {
   constexpr uint32_t kMaxSpan = 8;
   if (testItemSpan() > 0) return;

@@ -24,12 +24,12 @@ uint32_t sampleEnd(const RenderSettings& s) {
   return s.spp == 0 ? kUnboundedSamples : s.spp;
 }
 constexpr double kMinLateSeconds = 2.0;  // never call a lease late before this
-constexpr auto kFirstItemsGrace = std::chrono::seconds(30);  // ...nor a device's first items before this (D-109)
+constexpr auto kFirstItemsGrace = std::chrono::seconds(30);  // ...nor a device's first items before this
 constexpr size_t kDurationWindow = 256;
 constexpr size_t kDeviceDurationWindow = 32;
 constexpr uint32_t kMaxRejects = 3;
 
-// Test only: turns tail duplication off so the tests of late leases see a hung device being caught (D-091).
+// Test only: turns tail duplication off so the tests of late leases see a hung device being caught.
 bool tailDuplicationEnabled() {
   static const bool enabled = [] {
     const char* v = std::getenv("PENUMBRA_TEST_NO_TAIL_DUPLICATION");
@@ -42,7 +42,7 @@ bool tailDuplicationEnabled() {
   return enabled;
 }
 
-// Test only (D-095): once this many chunks are merged, checkpoint the film and session, then exit at once with
+// Test only: once this many chunks are merged, checkpoint the film and session, then exit at once with
 // code 137 like a killed process, so resume tests cut a render at the same point on any machine. 0 = off.
 uint32_t killAfterItems() {
   static const uint32_t n = [] {
@@ -170,7 +170,7 @@ void RenderController::serveLocked() {
   }
 }
 
-// docs/GUIDE.md "End of render": the queue is empty, so an idle device takes a copy of the oldest outstanding item
+// End of render: the queue is empty, so an idle device takes a copy of the oldest outstanding item
 // of another device, if by the devices' mean item times it should finish first. Each item gets one copy at most.
 std::optional<WorkItem> RenderController::tailDuplicateLocked(const DeviceKey& device, TailScan& scan) {
   if (!tailDuplicationEnabled() || finished_) return std::nullopt;
@@ -284,7 +284,7 @@ void RenderController::mergeReadyLocked(uint32_t tile, Pass pass) {
 void RenderController::onTileResult(WorkerId worker, TileResult&& r) {
   std::lock_guard lock(mutex_);
   if (finished_) return;  // stopping: late results are not merged
-  // Time under the lock, for the throughput summary (D-112).
+  // Time under the lock, for the throughput summary.
   struct Timed {
     double& total;
     Clock::time_point start = Clock::now();
@@ -298,7 +298,7 @@ void RenderController::onTileResult(WorkerId worker, TileResult&& r) {
     return;
   }
   const WorkItem item = lease->second.item;
-  // Per chunk, so items of several chunks (D-116) and single chunks share one scale for the late check.
+  // Per chunk, so items of several chunks and single chunks share one scale for the late check.
   const double seconds = std::chrono::duration<double>(Clock::now() - lease->second.issued).count() /
                          scheduler_.chunksIn(lease->second.item);
   const LeaseInfo info = lease->second;
@@ -310,14 +310,14 @@ void RenderController::onTileResult(WorkerId worker, TileResult&& r) {
     spdlog::warn("rejected an invalid result for lease {} from worker {}; item requeued", r.lease, worker);
     workers_[worker]->ackTile(r.lease, AckStatus::Rejected);
     requeueLostLocked(r.lease, info);
-    if (++rejects_[worker] == kMaxRejects)  // docs/GUIDE.md "Results": 3 rejected results get a worker kicked
+    if (++rejects_[worker] == kMaxRejects)  // 3 rejected results get a worker kicked
       workers_[worker]->kick(fmt::format("{} invalid tile results (corrupt or not matching their lease)", kMaxRejects));
     serveLocked();
     return;
   }
   item_seconds_.push_back(seconds);
   if (item_seconds_.size() > kDurationWindow) item_seconds_.pop_front();
-  device_last_result_[{worker, r.device}] = Clock::now();  // it is alive (D-111)
+  device_last_result_[{worker, r.device}] = Clock::now();  // it is alive
   std::deque<double>& mine = device_seconds_[{worker, r.device}];  // also when the result turns out a duplicate
   mine.push_back(seconds);
   if (mine.size() > kDeviceDurationWindow) mine.pop_front();
@@ -450,12 +450,12 @@ double RenderController::medianSeconds(const std::deque<double>& window) {
 }
 
 // A lease is late after 10x its device's median item time, so a slow device (a CPU next to fast GPUs) is not
-// taken for a hung one; a device with fewer than 3 finished items is judged by the median of all devices (D-097).
+// taken for a hung one; a device with fewer than 3 finished items is judged by the median of all devices.
 // A device that has finished nothing yet gets at least kFirstItemsGrace: next to a fast GPU, a CPU's first items
-// took longer than 10x the GPU's median and were all taken away (D-109).
+// took longer than 10x the GPU's median and were all taken away.
 // A device that keeps delivering is alive: its old leases wait in its queue, they are not lost. A lease is late only
 // when its device has also delivered nothing for as long; reissuing a busy device's queue fed an overloaded
-// controller more work and made every item look later still (net.scale_64, D-111).
+// controller more work and made every item look later still (net.scale_64).
 void RenderController::reissueLateLocked() {
   if (paused_) return;  // nothing is late while nothing is handed out
   struct Timed {
@@ -548,7 +548,7 @@ RenderOutcome RenderController::run(const RenderRunOptions& options) {
         if (finished_) break;
       }
       reissueLateLocked();
-      if (!wanted_.empty()) serveLocked();  // tail duplicates become worth it as leases age (D-091)
+      if (!wanted_.empty()) serveLocked();  // tail duplicates become worth it as leases age
       const bool kill = killAfterItems() > 0 && merged_items_ >= killAfterItems();
       if (kill || std::chrono::duration<double>(now - lastCheckpoint).count() >= settings_.checkpoint_s) {
         lastCheckpoint = now;

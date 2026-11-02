@@ -1,6 +1,6 @@
 #pragma once
 
-// The controller's film (docs/GUIDE.md "Disk film (.penfilm)"): running mean radiance (float32 RGB) and a
+// The controller's film: running mean radiance (float32 RGB) and a
 // sample count per pixel, stored per tile in a .penfilm file that doubles as the checkpoint for --resume.
 //
 // File layout (little-endian):

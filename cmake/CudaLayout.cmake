@@ -1,7 +1,7 @@
 # Turns slangc's reflection JSON for a CUDA kernel into a C++ header: the byte offset of every global shader
 # parameter inside SLANG_globalParams, and the offset of every field of every struct the kernel reads, so the
-# CUDA backend fills the parameter block by name and static_asserts that backends/gpu/gpu_types.h matches
-# (DECISIONS D-086). Inputs: INPUT (.json), OUTPUT (.h), NAMESPACE (C++ namespace inside pen::cuda_layout).
+# CUDA backend fills the parameter block by name and static_asserts that backends/gpu/gpu_types.h matches.
+# Inputs: INPUT (.json), OUTPUT (.h), NAMESPACE (C++ namespace inside pen::cuda_layout).
 cmake_minimum_required(VERSION 3.26)  # script mode: policies such as IN_LIST (CMP0057) need it
 file(READ "${INPUT}" json)
 

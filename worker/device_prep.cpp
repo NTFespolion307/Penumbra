@@ -72,7 +72,7 @@ std::vector<PreparedDevice> prepareDevices(const Scene& scene, const RenderSetti
         b.allow_downsize = !settings.no_texture_downsize;
         const SceneFootprint fp = devices[d]->measure(scene);
         // An allocation can still fail (another program took VRAM after the budget was read): that tier is given up
-        // and the next one tried, so the device renders more slowly instead of crashing (docs/GUIDE.md).
+        // and the next one tried, so the device renders more slowly instead of crashing.
         for (;;) {
           placement = ram.place(fp, b);
           r.summary = describePlacement(placement, b);

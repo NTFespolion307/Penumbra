@@ -16,7 +16,7 @@
 [[vk::binding(10, 0)]] StructuredBuffer<Material> g_materials;
 [[vk::binding(11, 0)]] StructuredBuffer<Texture> g_textures;
 // Texels in up to four parts of at most 2 GB each: one storage buffer may span at most 4 GB on common drivers
-// (maxStorageBufferRange), and textures can exceed that (D-109). A texture lies in one part (Texture.part).
+// (maxStorageBufferRange), and textures can exceed that. A texture lies in one part (Texture.part).
 [[vk::binding(12, 0)]] StructuredBuffer<uint> g_texels8;     // RGBA8, R in the low byte
 [[vk::binding(25, 0)]] StructuredBuffer<uint> g_texels8_1;
 [[vk::binding(26, 0)]] StructuredBuffer<uint> g_texels8_2;
@@ -156,7 +156,7 @@ float alphaAt(uint instance, uint primitive, uint triangle, float u, float v) {
   return alpha;
 }
 
-// True when the hit should be ignored (alpha cutout; BLEND is a 0.5 cutout, DECISIONS D-024).
+// True when the hit should be ignored (alpha cutout; BLEND is a 0.5 cutout).
 bool alphaRejects(uint instance, uint primitive, uint triangle, float u, float v) {
   Instance inst = g_instances[instance];
   Material mat = g_materials[g_primitives[inst.primitive_base + primitive].material];

@@ -12,8 +12,8 @@
 
 namespace pen {
 
-// A worker on another process or host, behind the same WorkerLink as the local worker (docs/GUIDE.md
-// "Controller and workers"). Messages from the worker arrive on the network thread through onMessage().
+// A worker on another process or host, behind the same WorkerLink as the local worker.
+// Messages from the worker arrive on the network thread through onMessage().
 class RemoteWorker final : public WorkerLink {
  public:
   RemoteWorker(WorkerId id, WorkerEvents& events, SceneUploader& uploader,
@@ -35,8 +35,6 @@ class RemoteWorker final : public WorkerLink {
   uint32_t itemSpan() const override { return span_.load(); }
 
   bool connected() const { return connection_->isOpen(); }
-  // Closes the connection; the worker is reported gone with `reason`.
-  void disconnect(const std::string& reason);
 
  private:
   TileResult decodeResult(const net::wire::TileResultT& m) const;
@@ -51,7 +49,7 @@ class RemoteWorker final : public WorkerLink {
   net::wire::HelloT hello_;
   uint64_t render_id_ = 0;
   uint64_t settings_hash_ = 0;
-  // Upload-bound workers get several chunks per item (D-116): set from Stats on the network thread.
+  // Upload-bound workers get several chunks per item: set from Stats on the network thread.
   void adaptSpan(uint64_t queued, double bytesPerSecond);
   std::atomic<uint32_t> span_{1};
   std::chrono::steady_clock::time_point span_changed_{};

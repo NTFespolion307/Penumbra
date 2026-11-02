@@ -26,7 +26,7 @@ std::string readText(const fs::path& p) {
   return ss.str();
 }
 
-// Test-only (D-047 family): pretend the cache disk has this many bytes free.
+// Test-only: pretend the cache disk has this many bytes free.
 uint64_t freeBytes(const fs::path& dir) {
   if (const char* fake = std::getenv("PENUMBRA_TEST_FREE_DISK")) {
     spdlog::warn("TEST HOOK ACTIVE (PENUMBRA_TEST_FREE_DISK): pretending {} bytes are free", fake);

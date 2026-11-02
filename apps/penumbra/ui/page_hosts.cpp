@@ -1,4 +1,4 @@
-// Hosts and Host detail (docs/GUIDE.md "UI"; docs/ui-mockups/02-hosts, 03-host-detail).
+// Hosts and Host detail.
 
 #include <imgui.h>
 

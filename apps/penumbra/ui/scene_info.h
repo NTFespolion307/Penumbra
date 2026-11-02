@@ -12,8 +12,8 @@
 
 namespace pen::ui {
 
-// A scene chosen on the Render page, loaded and packaged in the background (docs/GUIDE.md "UI": "Missing files are
-// listed here, before any render"). Packaging is the same check a render does first.
+// A scene chosen on the Render page, loaded and packaged in the background: missing files are
+// listed before any render. Packaging is the same check a render does first.
 struct SceneInfo {
   RenderSettings settings;  // resolved like the command line: config file, then the .pen.json
   std::shared_ptr<const Scene> scene;

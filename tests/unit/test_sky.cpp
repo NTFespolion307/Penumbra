@@ -50,7 +50,7 @@ TEST_CASE("the sun is where the settings put it", "[sky]") {
 }
 
 TEST_CASE("the sky matches Blender's Nishita sky away from the horizon (sun 30 deg)", "[sky][gate]") {
-  // Reference values from Blender 4.2.23 (Cycles, Nishita, altitude 1 m, air/dust/ozone 1), D-120. Within 10 deg
+  // Reference values from Blender 4.2.23 (Cycles, Nishita, altitude 1 m, air/dust/ozone 1). Within 10 deg
   // of the horizon Blender is darker: its view ray adds each step's whole depth before using it.
   SkySettings sky;
   sky.enabled = true;

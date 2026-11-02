@@ -61,7 +61,7 @@ void HostingSession::startHosting(const RenderSettings& s, const std::string& co
                port, s.bind.empty() ? " (all interfaces)" : fmt::format(" ({})", s.bind), port,
                net::formatJoinCode(code));
   if (s.approve_workers) spdlog::info("--approve-workers: each new worker waits for your answer here");
-  // Where workers can reach this machine (docs/GUIDE.md "Addresses, NAT and firewall").
+  // Where workers can reach this machine.
   for (const net::HostAddress& a : net::listHostAddresses())
     spdlog::info("  {} address {} ({}): penumbra --worker --join {}:{} --code {}", net::toString(a.kind), a.address,
                  a.interface, a.address.find(':') != std::string::npos ? "[" + a.address + "]" : a.address, port,
@@ -157,7 +157,7 @@ void HostingSession::onJoin(const std::function<std::unique_ptr<WorkerLink>(Work
 
 RenderOutcome HostingSession::render(RenderJob& job, std::vector<std::unique_ptr<IBackend>> localDevices,
                                      const RenderRunOptions& run) {
-  // RAM films refine the whole image pass by pass; disk films finish tile after tile (docs/GUIDE.md "Pass order").
+  // RAM films refine the whole image pass by pass; disk films finish tile after tile.
   const PassOrder order = job.film->inRam() ? PassOrder::BreadthFirst : PassOrder::DepthFirst;
   spdlog::info("pass order: {}", order == PassOrder::BreadthFirst ? "breadth-first (whole image, pass by pass)"
                                                                   : "depth-first (tile after tile)");

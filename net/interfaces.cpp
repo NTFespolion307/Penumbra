@@ -136,4 +136,24 @@ std::vector<HostAddress> listHostAddresses() {
   return out;
 }
 
+std::string checkListenPort(uint16_t port) {
+  // The same socket a controller opens (net::Listener): dual-stack IPv6, IPv4 where the host has no IPv6.
+  asio::io_context io;
+  asio::ip::tcp::acceptor acceptor(io);
+  std::error_code ec;
+  asio::ip::tcp::endpoint ep(asio::ip::tcp::v6(), port);
+  acceptor.open(ep.protocol(), ec);
+  if (!ec) acceptor.set_option(asio::ip::v6_only(false), ec);
+  if (ec) {
+    ec.clear();
+    if (acceptor.is_open()) acceptor.close(ec);
+    ep = asio::ip::tcp::endpoint(asio::ip::tcp::v4(), port);
+    acceptor.open(ep.protocol(), ec);
+  }
+  if (!ec) acceptor.bind(ep, ec);
+  if (!ec) acceptor.listen(asio::socket_base::max_listen_connections, ec);
+  if (!ec) return {};
+  return ec.message();
+}
+
 }  // namespace pen::net

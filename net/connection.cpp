@@ -303,7 +303,7 @@ std::shared_ptr<Connection> connectTo(IoThread& io, const std::string& host, uin
   const auto endpoints = resolver.resolve(host, std::to_string(port), ec);
   if (ec) throw ConnectError(fmt::format("cannot resolve '{}': {}", host, ec.message()), false);
   // Its own strand (see IoThread). Asynchronous, so a host that drops the SYN instead of refusing it (a firewall,
-  // Hyper-V in front of WSL) fails after kConnectTimeout, not the OS's ~2 minutes (D-116).
+  // Hyper-V in front of WSL) fails after kConnectTimeout, not the OS's ~2 minutes.
   auto socket = std::make_shared<asio::ip::tcp::socket>(asio::make_strand(io.context()));
   std::promise<std::error_code> done;
   auto result = done.get_future();

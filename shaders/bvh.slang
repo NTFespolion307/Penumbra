@@ -1,4 +1,4 @@
-// Software ray tracing for the CUDA backend (GPUs without ray tracing hardware, DECISIONS D-086): a binary
+// Software ray tracing for the CUDA backend (GPUs without ray tracing hardware): a binary
 // top-level BVH over the scene instances (built in backends/gpu/gpu_bvh.cpp) and one compressed 8-wide BVH per
 // mesh built by tinybvh. The CWBVH traversal is a port of tinybvh's kernels/traverse_cwbvh.cl (MIT; based on
 // CUDA code by AlanWBFT, after Ylitie et al. 2017, "Efficient Incoherent Ray Traversal on GPUs Through Compressed

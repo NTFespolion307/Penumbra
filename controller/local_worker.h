@@ -9,7 +9,7 @@
 namespace pen {
 
 // The controller's own devices, connected to the scheduler in-process through the same WorkerLink interface
-// remote workers use (docs/GUIDE.md "Local worker").
+// remote workers use.
 class LocalWorker final : public WorkerLink {
  public:
   LocalWorker(WorkerId id, WorkerEvents& events, std::vector<std::unique_ptr<IBackend>> devices);

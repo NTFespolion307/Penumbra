@@ -58,7 +58,7 @@ std::vector<uint8_t> renderPreview(const Scene& loaded, const RenderSettings& lo
     frame.camera = RenderCamera(scene, settings, width, height, notes);
     frame.params = IntegratorParams::from(settings, scene);
     frame.seed = settings.seed;
-    // A UI preview on this machine's CPU, leaving two threads for the UI (docs/GUIDE.md "Render page").
+    // A UI preview on this machine's CPU, leaving two threads for the UI.
     const uint32_t threads = std::max(1u, usableCpuThreads() > 2 ? usableCpuThreads() - 2 : 1u);
     auto cpu = createCpuBackend(threads);
     cpu->upload(scene, Placement{});

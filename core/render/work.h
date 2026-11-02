@@ -19,7 +19,7 @@ struct TileRect {
 
 using LeaseId = uint64_t;
 
-// The image itself or one of the AOVs (M11, DECISIONS D-127): an AOV is rendered as its own few-sample pass with
+// The image itself or one of the AOVs: an AOV is rendered as its own few-sample pass with
 // the matching debug view (first hit), into its own film.
 enum class Pass : uint32_t { Beauty = 0, Albedo = 1, Normal = 2, Depth = 3 };
 inline constexpr uint32_t kPassCount = 4;
@@ -41,8 +41,8 @@ inline Integrator passIntegrator(Pass p, Integrator beauty) {
   }
 }
 
-// A film tile (clipped to --region) plus one chunk of its samples [sample_begin, sample_end)
-// (docs/GUIDE.md "Work item"). Chunk boundaries depend only on the settings (DECISIONS D-045).
+// A film tile (clipped to --region) plus one chunk of its samples [sample_begin, sample_end).
+// Chunk boundaries depend only on the settings.
 struct WorkItem {
   uint64_t id = 0;  // (pass << 56) | (tile << 32) | chunk
   uint32_t tile = 0;
@@ -72,7 +72,7 @@ struct TileResult {
   std::vector<Vec3f> mean;   // row-major over rect
   uint32_t nan_count = 0;    // non-finite samples replaced by 0
   double render_seconds = 0;
-  double decode_seconds = 0;  // controller side: unpacking it from the network (M9 throughput, D-112)
+  double decode_seconds = 0;  // controller side: unpacking it from the network (M9 throughput)
   bool cancelled = false;    // stopped early by IBackend::cancel(); the pixels are incomplete and never merged
 };
 

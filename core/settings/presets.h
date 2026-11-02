@@ -12,7 +12,7 @@ struct ResolutionPreset {
   uint32_t height;
 };
 
-// The 17 presets from docs/GUIDE.md "Resolution presets and gigapixel output", smallest first.
+// The 17 resolution presets (the README lists them), smallest first.
 std::span<const ResolutionPreset> resolutionPresets();
 
 // Case-insensitive lookup ("4K" == "4k"); nullptr if unknown.

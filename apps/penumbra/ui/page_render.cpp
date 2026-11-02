@@ -1,4 +1,4 @@
-// Render page (docs/GUIDE.md "UI"; docs/ui-mockups/04-render): pick a scene, set it up, start.
+// Render page: pick a scene, set it up, start.
 
 #include <imgui.h>
 
@@ -474,7 +474,7 @@ void drawRender(Model& model, UiState& ui) {
   outputCard(ui, half, px(430));
   ImGui::Dummy(ImVec2(0, gap - ImGui::GetStyle().ItemSpacing.y));
 
-  // Estimates and Start (docs/GUIDE.md "Live estimates"; "Start render: disabled with a visible reason").
+  // Estimates and Start.
   RenderSettings s = rp.form;
   s.output = resolveOutput(ui, pathFromUtf8(rp.output));
   std::string why;
@@ -528,7 +528,7 @@ void drawRender(Model& model, UiState& ui) {
     else if (localDevices(ui).empty() && model.hostsOnline() <= 1) why = "This machine's devices are off and no worker is connected";
   }
   ImGui::NewLine();
-  // Test only (D-047 style): PENUMBRA_TEST_UI_START presses Start once the scene is ready, for viewport checks.
+  // Test only: PENUMBRA_TEST_UI_START presses Start once the scene is ready, for viewport checks.
   static const bool autoStart = [] {
     const char* v = std::getenv("PENUMBRA_TEST_UI_START");
     if (v && *v) spdlog::warn("TEST HOOK ACTIVE (PENUMBRA_TEST_UI_START): starting the render when the scene is ready");

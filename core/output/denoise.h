@@ -8,7 +8,7 @@
 
 namespace pen {
 
-// Intel Open Image Denoise (M11, DECISIONS D-128): the "RT" filter in HDR mode on scene-linear radiance, guided by
+// Intel Open Image Denoise: the "RT" filter in HDR mode on scene-linear radiance, guided by
 // the albedo and normal AOVs. One per output; OIDN picks its device (CUDA on an NVIDIA GPU, else the CPU), and
 // describe() names it for the log. Available only in builds with PEN_ENABLE_OIDN (denoiserAvailable()).
 class OidnDenoiser {

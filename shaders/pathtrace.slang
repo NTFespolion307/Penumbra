@@ -1,5 +1,5 @@
 // The Vulkan RT path tracer: integrator.slang with rays traced by the hardware (TraceRay). The ray generation
-// shader runs the whole path for every pixel and sample of a work item (megakernel, DECISIONS D-078); the hit
+// shader runs the whole path for every pixel and sample of a work item (megakernel); the hit
 // shaders only report the hit and apply alpha cutouts.
 #include "scene.slang"
 

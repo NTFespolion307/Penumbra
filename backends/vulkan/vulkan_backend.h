@@ -1,6 +1,6 @@
 #pragma once
 
-// Vulkan ray tracing backend (docs/GUIDE.md "Rendering backends"). This header has no Vulkan types, so the
+// Vulkan ray tracing backend. This header has no Vulkan types, so the
 // device manager and --list-devices can use it without including Vulkan.
 
 #include <array>
@@ -36,8 +36,8 @@ const VulkanProbe& probeVulkan();
 // A backend on one ray-tracing GPU (VulkanGpu::physical_index). Throws BackendError.
 std::unique_ptr<IBackend> createVulkanBackend(uint32_t physicalIndex);
 
-// Whether the driver can place acceleration structures in host memory (docs/GUIDE.md "Platform gotchas"): probed
-// and reported only (--diagnose and the log); a GPU whose geometry does not fit in VRAM is memory tier 3 (D-107).
+// Whether the driver can place acceleration structures in host memory: probed
+// and reported only (--diagnose and the log); a GPU whose geometry does not fit in VRAM is memory tier 3.
 // "supported", "not supported" or why the probe failed.
 std::string probeHostAccelerationStructures(uint32_t physicalIndex);
 

@@ -56,7 +56,7 @@ void applyEnvironment(Scene& scene, const RenderSettings& settings, std::vector<
   const EnvironmentSettings& env = settings.environment;
   scene.environment = Environment{};
   if (settings.sky.enabled) {
-    // The physical sky is the environment (D-120): baked here, then sampled like an HDRI on every backend.
+    // The physical sky is the environment: baked here, then sampled like an HDRI on every backend.
     if (!env.hdri.empty()) warnings.push_back("\"sky\" replaces the environment HDRI");
     scene.environment.map = bakeSky(settings.sky);
     scene.environment.name = fmt::format("physical sky (sun {:.1f} deg up, {:.1f} deg azimuth)",

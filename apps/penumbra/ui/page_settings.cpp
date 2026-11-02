@@ -1,4 +1,4 @@
-// Settings and Join a render (docs/GUIDE.md "Settings page"; docs/ui-mockups/06-settings).
+// Settings and Join a render.
 
 #include <imgui.h>
 #include <nlohmann/json.hpp>
@@ -40,7 +40,7 @@ bool askUi(UiState& ui, const std::string& question) {
   return answer.get();
 }
 
-// The defaults the Settings page edits live in the user config file (docs/GUIDE.md "Configuration"), with the
+// The defaults the Settings page edits live in the user config file, with the
 // other keys kept as they are. Never the join code.
 void saveDefaults(const UiState& ui, std::string& note) {
   const std::filesystem::path file = paths::userConfigFile();
@@ -53,6 +53,7 @@ void saveDefaults(const UiState& ui, std::string& note) {
       j["output"] = pathToUtf8(pathFromUtf8(ui.settings_page.out_dir) / ui.settings.output.filename());
     if (ui.settings_page.film_dir[0]) j["film_dir"] = ui.settings_page.film_dir;
     else j.erase("film_dir");
+    j["tonemap"] = toString(ui.settings_page.tonemap);
     std::error_code ec;
     std::filesystem::create_directories(file.parent_path(), ec);
     writeFileAtomically(file, j.dump(2) + "\n");
@@ -107,7 +108,7 @@ void hostingCard(Model& model, UiState& ui, float w) {
   if (secondaryButton("Copy", !ui.join_code.empty())) ImGui::SetClipboardText(ui.join_code.c_str());
   ImGui::SameLine();
   if (secondaryButton("Regenerate", sp.lan && !rendering)) {
-    // A new code; every worker using the old one is disconnected (docs/GUIDE.md "Join code").
+    // A new code; every worker using the old one is disconnected.
     std::error_code ec;
     std::filesystem::remove(codeFile(), ec);
     startHosting(session, ui);
@@ -149,7 +150,7 @@ void joinCard(Model& model, UiState& ui, float w) {
   ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
   ImGui::InputTextWithHint("##jcode", "XXXX-XXXX-XXXX-XXXX", j.code, sizeof(j.code),
                            ImGuiInputTextFlags_CharsUppercase);
-  // Test only (D-047 style): PENUMBRA_TEST_UI_JOIN="<address> <code>" fills the fields and presses Join once.
+  // Test only: PENUMBRA_TEST_UI_JOIN="<address> <code>" fills the fields and presses Join once.
   static const std::string autoJoin = [] {
     const char* v = std::getenv("PENUMBRA_TEST_UI_JOIN");
     if (v && *v) spdlog::warn("TEST HOOK ACTIVE (PENUMBRA_TEST_UI_JOIN): joining {}", v);
@@ -235,11 +236,14 @@ void defaultsCard(UiState& ui, float w) {
   ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
   ImGui::InputText("##filmdir", sp.film_dir, sizeof(sp.film_dir));
   small("Default tonemap");
-  ImGui::BeginDisabled();
-  int srgb = 0;
-  ImGui::SetNextItemWidth(px(200));
-  ImGui::Combo("##dtm", &srgb, "sRGB curve (AgX in M11)\0");
-  ImGui::EndDisabled();
+  {
+    const Tonemap tonemaps[] = {Tonemap::Agx, Tonemap::Filmic, Tonemap::Aces, Tonemap::None};
+    int tm = 0;
+    for (int i = 0; i < 4; ++i)
+      if (tonemaps[i] == sp.tonemap) tm = i;
+    ImGui::SetNextItemWidth(px(200));
+    if (ImGui::Combo("##dtm", &tm, "AgX\0Filmic\0ACES\0None (sRGB curve)\0")) sp.tonemap = tonemaps[tm];
+  }
   if (primaryButton("Save defaults")) saveDefaults(ui, sp.note);
   ImGui::SameLine();
   if (secondaryButton("Open logs folder")) openFolder(paths::logDir());

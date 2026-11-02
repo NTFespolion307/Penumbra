@@ -46,7 +46,7 @@ TEST_CASE("tonemaps against Blender's view transforms", "[tonemap][gate]") {
   INFO("AgX: grey max " << agxGrey.max * 255 << ", mean " << agx.mean * 255 << ", max " << agx.max * 255
                         << " (8-bit steps)");
   INFO("Filmic: grey max " << filmicGrey.max * 255 << ", all colours mean " << filmic.mean * 255);
-  // Measured 2026-10-30 (D-126): AgX grey within a step, all colours mean 1.4 steps, max 35 (saturated primaries,
+  // Measured 2026-10-30: AgX grey within a step, all colours mean 1.4 steps, max 35 (saturated primaries,
   // where Blender's inset or outset differs from the published matrices); Filmic grey exact, colours mean 2.5
   // (Blender also desaturates bright colours); None equals Blender's Standard.
   CHECK(agxGrey.max * 255 < 1.0);

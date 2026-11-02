@@ -22,7 +22,7 @@ struct DeviceSelection {
 };
 
 // A GPU Penumbra can render on, numbered as --devices takes it: GPUs with Vulkan ray tracing in Vulkan order, then
-// NVIDIA GPUs only the CUDA backend can use, in CUDA order (DECISIONS D-088). A GPU on both lists (matched by
+// NVIDIA GPUs only the CUDA backend can use, in CUDA order. A GPU on both lists (matched by
 // UUID) is one entry with both backends.
 struct RenderGpu {
   uint32_t index = 0;
@@ -42,7 +42,7 @@ struct GpuInventory {
 const GpuInventory& gpuInventory();
 
 // Enumerates this machine's devices and creates one backend per selected device. On the controller host the
-// CPU device leaves 2 threads free when --threads is not given (docs/GUIDE.md "Controller and workers").
+// CPU device leaves 2 threads free when --threads is not given.
 DeviceSelection createDevices(const RenderSettings& settings, bool controllerHost);
 
 }  // namespace pen

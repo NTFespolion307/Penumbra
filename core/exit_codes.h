@@ -2,7 +2,7 @@
 
 namespace pen {
 
-// Process exit codes (docs/GUIDE.md "Application modes and CLI"). Scripts depend on these; never renumber.
+// Process exit codes. Scripts depend on these; never renumber.
 enum class ExitCode : int {
   Success = 0,
   BadArguments = 1,      // also: mode not implemented yet in this milestone

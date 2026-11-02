@@ -1,6 +1,6 @@
 #pragma once
 
-// TLS 1.3 with an external pre-shared key derived from the join code (docs/GUIDE.md "Security"), on memory
+// TLS 1.3 with an external pre-shared key derived from the join code, on memory
 // buffers: the connection feeds received ciphertext in and sends what takeOutput() returns, so the socket
 // stays fully asynchronous. Key exchange is PSK + ephemeral ECDHE only (forward secrecy); a peer with another
 // key cannot complete the handshake. One session is used from one thread at a time.

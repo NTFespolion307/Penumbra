@@ -12,7 +12,7 @@
 namespace pen {
 
 enum class Integrator { Path, Ao, DebugNormal, DebugAlbedo, DebugDepth, DebugBvh };
-enum class BackendKind { Auto, Vulkan, Cuda, Cpu, Optix, Null };  // Null: test-only (D-047)
+enum class BackendKind { Auto, Vulkan, Cuda, Cpu, Optix, Null };  // Null: test-only
 enum class ImageFormat { Png, Exr, Jpeg, Tiff, Webp };
 enum class Denoiser { None, Oidn, Optix };
 enum class Tonemap { Agx, Filmic, Aces, None };
@@ -207,8 +207,8 @@ struct RenderSettings {
 };
 
 // One entry of a --devices list: a GPU number (as penumbra --list-devices shows it) with an optional backend
-// ("1:cuda"), or "cpu". The same GPU may appear twice with different backends: two slots on one GPU (DECISIONS
-// D-090). Throws ValueError on anything else; "all" and "gpu" are not lists.
+// ("1:cuda"), or "cpu". The same GPU may appear twice with different backends: two slots on one GPU.
+// Throws ValueError on anything else; "all" and "gpu" are not lists.
 struct DeviceItem {
   bool cpu = false;
   uint32_t gpu = 0;

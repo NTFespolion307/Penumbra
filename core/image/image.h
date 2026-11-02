@@ -38,7 +38,7 @@ struct Texture {
 };
 
 // The texture halved `halvings` times (each side max(1, n / 2)), every texel the mean of the 2x2 texels it covers,
-// in the stored values: memory tier 2 (docs/GUIDE.md "Scene placement ladder"). The GPU backends and the CPU use
+// in the stored values: memory tier 2. The GPU backends and the CPU use
 // this same function, so a tier 2 render can be checked against the CPU.
 Texture downsized(const Texture& t, uint32_t halvings);
 

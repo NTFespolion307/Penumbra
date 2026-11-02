@@ -14,7 +14,7 @@ TEST_CASE("chunk sizes depend only on tile size and sample range", "[scheduler]"
   CHECK(chunkSamples(1280 * 720, 1024, k22) == 4);    // a full-frame tile below 1080p
   CHECK(chunkSamples(5000 * 5000, 1024, k22) == 1);   // never below 1
   CHECK(chunkSamples(1, kUnboundedSamples, k22) == (1u << 22));
-  // The default budget (D-083): 1,024 samples for a 256 x 256 tile.
+  // The default budget: 1,024 samples for a 256 x 256 tile.
   CHECK(chunkSamples(256 * 256, 4096, uint64_t(1) << 26) == 1024);
 }
 
@@ -101,7 +101,7 @@ TEST_CASE("merging in order completes tiles; requeued items come first", "[sched
   (void)b;
 }
 
-TEST_CASE("items of several chunks for upload-bound workers (D-116)", "[scheduler]") {
+TEST_CASE("items of several chunks for upload-bound workers", "[scheduler]") {
   const FilmLayout layout = FilmLayout::make(512, 256, 256);  // 2 tiles, 64-sample chunks (test budget 2^22)
   Scheduler s(layout, 0, 320, std::nullopt, PassOrder::DepthFirst);  // 5 chunks per tile
   const WorkItem a = *s.next(4);
@@ -158,7 +158,7 @@ TEST_CASE("unbounded renders keep going until stopped", "[scheduler]") {
 }
 
 TEST_CASE("breadth-first hands out every chunk before it reports nothing left", "[scheduler]") {
-  // The net.scale_64 frame: 4K, 4,096 spp, 64 chunks per tile (M9, D-112).
+  // The net.scale_64 frame: 4K, 4,096 spp, 64 chunks per tile.
   const FilmLayout layout = FilmLayout::make(3840, 2160, 256);  // 135 tiles
   Scheduler s(layout, 0, 4096, std::nullopt, PassOrder::BreadthFirst);
   uint64_t expected = 0;
@@ -168,7 +168,7 @@ TEST_CASE("breadth-first hands out every chunk before it reports nothing left", 
   CHECK(handed == expected);
 }
 
-TEST_CASE("AOV passes come first, survive a stop and must finish (M11, D-127)", "[scheduler]") {
+TEST_CASE("AOV passes come first, survive a stop and must finish", "[scheduler]") {
   const FilmLayout layout = FilmLayout::make(512, 256, 256);  // 2 tiles, 64-sample chunks (test budget 2^22)
   Scheduler s(layout, 0, 128, std::nullopt, PassOrder::BreadthFirst, {{Pass::Albedo, 16}, {Pass::Depth, 16}});
   CHECK(s.hasPass(Pass::Albedo));

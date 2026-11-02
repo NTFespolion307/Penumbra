@@ -15,8 +15,8 @@
 
 namespace pen {
 
-// One device on its own thread: asks for work, renders the leases it is given, hands back results
-// (docs/GUIDE.md "Per-device flow"). Used by the controller's local worker now and by remote workers in M4.
+// One device on its own thread: asks for work, renders the leases it is given, hands back results.
+// Used by the controller's local worker and by remote workers.
 class DeviceSlot {
  public:
   struct Callbacks {

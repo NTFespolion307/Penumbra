@@ -31,7 +31,7 @@
 
 namespace pen {
 
-// Kernels of shaders/pathtrace_cuda.slang and shaders/parity.slang, compiled at build time (DECISIONS D-087).
+// Kernels of shaders/pathtrace_cuda.slang and shaders/parity.slang, compiled at build time.
 extern const unsigned char* const kPathtraceFatbin;
 extern const size_t kPathtraceFatbinSize;
 extern const unsigned char* const kParityFatbin;
@@ -39,7 +39,7 @@ extern const size_t kParityFatbinSize;
 
 namespace {
 
-// ---------------------------------------------------------------- layout checks (DECISIONS D-086)
+// ---------------------------------------------------------------- layout checks
 
 namespace L = cuda_layout::pathtrace;
 
@@ -378,7 +378,7 @@ class CudaBackend final : public IBackend {
   void unloadModule(Module& m);
   DeviceBuffer allocate(size_t bytes);
   // Pinned RAM the GPU reads over PCIe (cuMemHostAlloc, mapped): explicit on both OSes, never managed memory,
-  // which Windows cannot oversubscribe (docs/GUIDE.md "Platform gotchas").
+  // which Windows cannot oversubscribe.
   DeviceBuffer allocateHost(size_t bytes);
   void release(DeviceBuffer& b);
   // Uploads an array and points the named StructuredBuffer at it ({T* data; size_t count} in the block).
@@ -417,7 +417,7 @@ class CudaBackend final : public IBackend {
   bool scene_ready_ = false;
   const Scene* scene_ = nullptr;
   std::atomic<bool> cancel_{false};
-  bool lost_ = false;  // the GPU stopped answering: nothing is waited for or freed any more (D-094)
+  bool lost_ = false;  // the GPU stopped answering: nothing is waited for or freed any more
   bool stack_warned_ = false;
 };
 
@@ -556,7 +556,7 @@ void CudaBackend::writeGlobals(Module& m) {
 // ---------------------------------------------------------------- scene
 
 uint64_t CudaBackend::vramBudget() {
-  // Free VRAM now (other programs' use included), less the 10% margin (docs/GUIDE.md "Budget").
+  // Free VRAM now (other programs' use included), less the 10% margin.
   CtxScope scope(cu_, ctx_);
   size_t free = 0, total = 0;
   check(cu_.cuMemGetInfo(&free, &total), "cuMemGetInfo");
@@ -614,7 +614,7 @@ void CudaBackend::upload(const Scene& scene, const Placement& placement) {
   bindArray(render_, "g_indices", g.indices);
   bindArray(render_, "g_materials", g.materials);
   bindArray(render_, "g_textures", g.textures);
-  for (size_t p = 0; p < kTexelParts; ++p) {  // D-109
+  for (size_t p = 0; p < kTexelParts; ++p) {
     const std::string suffix = p == 0 ? "" : fmt::format("_{}", p);
     bindMovable(render_, "g_texels8" + suffix, g.texels8[p], inRam);
     bindMovable(render_, "g_texels32" + suffix, g.texels32[p], inRam);
@@ -725,7 +725,7 @@ void CudaBackend::render(const WorkItem& item, TileResult& out) {
 }
 
 // Waits for the launches so far by polling, so a GPU that stops answering cannot hold its slot (and the end of the
-// render) forever: once cancelled, the kernels get 10 s to finish, then the device counts as lost (D-094). A
+// render) forever: once cancelled, the kernels get 10 s to finish, then the device counts as lost. A
 // launch error (illegal address and other sticky errors) throws here; every later call fails the same way.
 void CudaBackend::synchronize(const char* what) {
   constexpr auto kHungGrace = std::chrono::seconds(10);

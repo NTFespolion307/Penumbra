@@ -100,13 +100,13 @@ DeviceSelection createDevices(const RenderSettings& s, bool controllerHost) {
   DeviceSelection sel;
 
   if (s.backend == BackendKind::Optix)
-    throw NoDeviceError("--backend optix is built in milestone M13; use --backend vulkan, cuda or cpu");
+    throw NoDeviceError("--backend optix is not available in this version; use --backend vulkan, cuda or cpu");
   const bool nullBackend = s.backend == BackendKind::Null;
   const bool gpuAllowed =
       s.backend == BackendKind::Auto || s.backend == BackendKind::Vulkan || s.backend == BackendKind::Cuda;
 
-  // --devices: "all", "gpu", or a list of GPUs (each optionally with :vulkan or :cuda, D-090) and "cpu" (repeat
-  // "cpu" for several CPU slots, D-046).
+  // --devices: "all", "gpu", or a list of GPUs (each optionally with :vulkan or :cuda) and "cpu" (repeat
+  // "cpu" for several CPU slots).
   uint32_t cpuSlots = 0;
   std::vector<DeviceItem> gpuIndices;
   bool allGpus = false;
@@ -137,7 +137,7 @@ DeviceSelection createDevices(const RenderSettings& s, bool controllerHost) {
                                       toString(s.backend)));
   }
 
-  // GPUs (docs/GUIDE.md "--backend auto": Vulkan RT where the GPU has it, else CUDA on NVIDIA).
+  // GPUs (--backend auto: Vulkan RT where the GPU has it, else CUDA on NVIDIA).
   if (!nullBackend && (allGpus || !gpuIndices.empty())) {
     const GpuInventory& inv = gpuInventory();
     for (const std::string& n : inv.notes) sel.notes.push_back(n);
@@ -194,7 +194,7 @@ DeviceSelection createDevices(const RenderSettings& s, bool controllerHost) {
     const uint32_t hw = usableCpuThreads();
     uint32_t threads = s.threads;
     if (threads == 0) {
-      // Leave 2 threads for the controller, and one per GPU slot to feed it (hybrid mode, DECISIONS D-090).
+      // Leave 2 threads for the controller, and one per GPU slot to feed it (hybrid mode).
       const uint32_t gpuSlots = static_cast<uint32_t>(sel.devices.size());
       const uint32_t reserve = (controllerHost ? 2 : 0) + gpuSlots;
       threads = hw > reserve ? hw - reserve : hw;

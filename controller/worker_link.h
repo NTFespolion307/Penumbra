@@ -1,7 +1,7 @@
 #pragma once
 
 // How the controller sees any worker, local (in-process) or remote (network, M4), and how workers report
-// back (docs/GUIDE.md "Repository layout and core interfaces"). Every render goes through these, including
+// back. Every render goes through these, including
 // solo renders.
 
 #include <cstdint>
@@ -31,7 +31,7 @@ struct WorkerInfo {
   std::string name;
   bool local = false;
   std::vector<DeviceInfo> devices;
-  // From the worker's Hello (network workers): for the Hosts page (docs/GUIDE.md "UI").
+  // From the worker's Hello (network workers): for the Hosts page.
   std::string os;
   std::string address;  // where it connected from
   uint32_t logical_cores = 0;
@@ -39,7 +39,7 @@ struct WorkerInfo {
   std::string version;  // "0.1.0 (git 1a2b3c4d5e6f)"
 };
 
-// What a worker host reports every 2 s, also when idle (docs/GUIDE.md "Stats").
+// What a worker host reports every 2 s, also when idle.
 struct WorkerStats {
   struct Device {
     DeviceId device = 0;
@@ -66,7 +66,7 @@ struct DeviceReady {
   uint32_t memory_tier = 0;
   double build_seconds = 0;
   std::string summary;
-  bool skipped = false;  // cannot take the scene (reason); it never asks for work (DECISIONS D-092)
+  bool skipped = false;  // cannot take the scene (reason); it never asks for work
   std::string reason;
 };
 
@@ -89,7 +89,7 @@ class WorkerEvents {
   virtual void onTileResult(WorkerId worker, TileResult&& result) = 0;
   // Leases handed back unfinished (device failed, worker leaving); their items are requeued.
   virtual void onRelease(WorkerId worker, std::span<const LeaseId> leases) = 0;
-  // One device stopped for good; the worker continues with its other devices (docs/GUIDE.md "Device failure").
+  // One device stopped for good; the worker continues with its other devices.
   virtual void onDeviceFailed(WorkerId worker, DeviceId device, const std::string& error) = 0;
   virtual void onGone(WorkerId worker, GoneReason reason, const std::string& detail) = 0;
   // A host's statistics (network workers, every 2 s); renders do not need them, the session and UI do.
@@ -97,7 +97,7 @@ class WorkerEvents {
     (void)worker;
     (void)stats;
   }
-  // A warning or error the worker forwarded (docs/GUIDE.md "Logging"); also in the controller's log.
+  // A warning or error the worker forwarded; also in the controller's log.
   enum class LogLevel { Info, Warning, Error };
   virtual void onLog(WorkerId worker, LogLevel level, const std::string& text) {
     (void)worker;
@@ -118,7 +118,7 @@ class WorkerLink {
   virtual void complete() = 0;
   // Disconnects a misbehaving worker with a reason (network workers; the local worker never is).
   virtual void kick(const std::string& reason) { (void)reason; }
-  // Chunks per item for this worker's next leases: 1, or more while its upload cannot keep up (D-116).
+  // Chunks per item for this worker's next leases: 1, or more while its upload cannot keep up.
   virtual uint32_t itemSpan() const { return 1; }
 };
 

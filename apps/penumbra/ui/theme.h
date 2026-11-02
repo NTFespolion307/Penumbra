@@ -4,7 +4,7 @@
 
 namespace pen::ui {
 
-// The approved mockups' visual language (docs/ui-mockups/README.md): graphite panels, amber accent, IBM Plex.
+// The approved mockups' visual language: graphite panels, amber accent, IBM Plex.
 namespace color {
 inline constexpr ImU32 rgb(unsigned v) {
   return IM_COL32((v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF, 0xFF);

@@ -1,6 +1,6 @@
 #pragma once
 
-// Deterministic sampling (docs/GUIDE.md "Deterministic sampling"): every random number is a pure function of
+// Deterministic sampling: every random number is a pure function of
 // (pixel x, pixel y, sample index, dimension, seed). Any device can render any tile and sample range and
 // draw exactly the same numbers.
 //

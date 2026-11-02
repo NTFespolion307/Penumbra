@@ -106,7 +106,7 @@ try {
 
   if (-not $NoTests) {
     Step 'Running tests'
-    # Side by side: ctest counts each test's PROCESSORS against the core count (D-106). 20K gate: ctest -L large;
+    # Side by side: ctest counts each test's PROCESSORS against the core count. 20K gate: ctest -L large;
     # GPU: scripts\test-gpu.ps1.
     $jobs = [Environment]::ProcessorCount
     if ($Quick) { ctest --preset $preset -L '^(unit|smoke|lint)$' -j $jobs; Run 'Tests' }

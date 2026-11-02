@@ -26,12 +26,12 @@ if(PEN_ENABLE_OIDN)
   pen_copy_oidn_runtime(penumbra_unit_tests)  # Open Image Denoise's libraries next to the binary (cmake/Oidn.cmake)
 endif()
 target_compile_definitions(penumbra_unit_tests PRIVATE PEN_TEST_DATA_DIR="${PEN_TEST_DATA}")
-# Unit tests count chunks of the M3 size (2^22 pixel-samples, DECISIONS D-083) unless they pass a budget.
+# Unit tests count chunks of the M3 size (2^22 pixel-samples) unless they pass a budget.
 catch_discover_tests(penumbra_unit_tests PROPERTIES LABELS unit ENVIRONMENT "PENUMBRA_TEST_CHUNK_BUDGET=4194304")
 
 # ---- Smoke tests: run the real binary and check exit codes and messages ----
 # Each runs in its own folder with its own log: they run side by side (ctest -j), and outputs such as out.tiff and
-# out.webp would otherwise share one out.penfilm (D-106).
+# out.webp would otherwise share one out.penfilm.
 set(PEN_SMOKE_COMMON "--config|${PEN_TEST_DATA}/empty-config.json|--log-file|SMOKE_LOG")
 function(pen_smoke name expect args)
   set(dir "${CMAKE_CURRENT_BINARY_DIR}/smoke/${name}")
@@ -74,7 +74,7 @@ pen_smoke(tiff 0 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/scene.pen.json
 pen_smoke(webp 0 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/scene.pen.json|--res|64x36|--spp|1|-o|out.webp" "wrote")
 pen_smoke(resume_missing 1 "${PEN_SMOKE_COMMON}|--terminal|--resume|missing.session.json" "cannot open session")
 pen_smoke(merge_missing 1 "${PEN_SMOKE_COMMON}|merge|missing.penfilm|-o|m.exr" "cannot open")
-pen_smoke(optix_not_yet 3 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/empty.gltf|--backend|optix|-o|x.png" "M13")
+pen_smoke(optix_unavailable 3 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/empty.gltf|--backend|optix|-o|x.png" "not available in this version")
 pen_smoke(debug_bvh_needs_cuda 1 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/empty.gltf|--integrator|debug:bvh|-o|x.png"
           "add --backend cuda")
 pen_smoke(unknown_camera 2 "${PEN_SMOKE_COMMON}|--terminal|${PEN_TEST_DATA}/empty.gltf|--camera|Nope|-o|x.png" "not in the scene")
@@ -93,7 +93,7 @@ function(pen_render_test name mode scene args)
                    -DWORKDIR=${CMAKE_CURRENT_BINARY_DIR} -DNAME=${name} -DSCENE=${PEN_SCENES}/${scene} "-DARGS=${args}"
                    -DMODE=${mode} ${ARGN} -P "${PROJECT_SOURCE_DIR}/cmake/RenderCheck.cmake")
   # Renders use every core; ctest -j counts this many, so several still run side by side without starving the
-  # timing-sensitive ones (D-106).
+  # timing-sensitive ones.
   set_tests_properties(render.${name} PROPERTIES LABELS "render;gate" PROCESSORS 4)
 endfunction()
 
@@ -108,7 +108,7 @@ pen_render_test(furnace_fog uniform furnace_fog.pen.json "--res|16x16|--spp|6553
 # M11: AOV passes do not change the image: any slots, same bits, with albedo, normal and depth rendered too.
 pen_render_test(slots_aov devices cornell.pen.json "--res|1080p|--scale|0.5|--spp|32|--aov|albedo,normal,depth"
                 "-DDEVICE_SETS=cpu+cpu,cpu+cpu,cpu,cpu" -DSMALL_CHUNKS=1)
-# M11 (D-128): the denoiser, tile by tile with OIDN's overlap and one input scale, equals denoising the whole image
+# M11: the denoiser, tile by tile with OIDN's overlap and one input scale, equals denoising the whole image
 # in one call, bit for bit: no seams (2560 x 1440: 3 tiles across, 6 bands).
 if(PEN_ENABLE_OIDN)
   pen_render_test(denoise_seams pair spheres.pen.json "--res|2560x1440|--spp|4|--denoise|oidn" "-DARGS_A=" "-DARGS_B="
@@ -119,7 +119,7 @@ pen_render_test(slots_atmosphere devices spheres_atmosphere.pen.json "--res|160x
 # The same image for any thread count, bit for bit.
 pen_render_test(threads_cornell threads cornell.pen.json "--res|64x64|--spp|16" "-DTHREADS=1|2|0")
 pen_render_test(threads_spheres threads spheres.pen.json "--res|96x54|--spp|8" "-DTHREADS=1|3|0")
-# Cornell box against the approved golden image (DECISIONS D-021).
+# Cornell box against the approved golden image.
 pen_render_test(golden_cornell reference cornell.pen.json "--res|256x256|--spp|256"
                 -DREFERENCE=${PROJECT_SOURCE_DIR}/tests/golden/cornell_256_4096spp.exr -DMAXRELMSE=1e-3)
 # 256 spp against the 4,096 spp golden measures relMSE 3.4e-4 (noise); a 5% brightness shift exceeds 1e-3.
@@ -145,7 +145,7 @@ pen_render_test(fault_throw faults cornell.pen.json "--res|1080p|--scale|0.5|--s
 pen_render_test(fault_hang faults cornell.pen.json "--res|1080p|--spp|256|--backend|null" -DREF_DEVICES=cpu
                 -DFAULT_DEVICES=cpu,cpu,cpu "-DFAULTS=device=1,after=2,mode=hang" "-DEXPECT_LOG=is late" -DSMALL_CHUNKS=1
                 -DNO_TAIL=1)
-# M7 (D-091): the same hang near the end, caught by tail duplication: an idle device copies the stuck item.
+# M7: the same hang near the end, caught by tail duplication: an idle device copies the stuck item.
 pen_render_test(tail_duplicate faults cornell.pen.json "--res|1080p|--spp|256|--backend|null" -DREF_DEVICES=cpu
                 -DFAULT_DEVICES=cpu,cpu,cpu "-DFAULTS=device=1,after=2,mode=hang"
                 "-DEXPECT_LOG=duplicated to device [^\n]*the first valid result wins.*copy of tile [^\n]* won" -DSMALL_CHUNKS=1)
@@ -153,7 +153,7 @@ pen_render_test(spp0_time_limit timelimit cornell.pen.json "--res|1080p|--scale|
 # Killed mid-pass: the single tile holds some of its 8 chunks; resume continues from there, bit for bit.
 pen_render_test(resume_chunks resume cornell.pen.json "--res|1080p|--scale|0.5|--spp|128" -DKILL_AFTER_ITEMS=3
                 -DSMALL_CHUNKS=1)
-# M7 (D-092): a device that cannot take the scene is skipped; the others render the same image.
+# M7: a device that cannot take the scene is skipped; the others render the same image.
 pen_render_test(skip_device faults cornell.pen.json "--res|1080p|--scale|0.5|--spp|32" -DREF_DEVICES=cpu
                 -DFAULT_DEVICES=cpu,cpu "-DFAULTS=device=0,mode=upload" "-DEXPECT_LOG=device 0 [^\n]*is skipped for this render")
 set_tests_properties(render.slots_cpu render.fault_throw render.resume_chunks PROPERTIES LABELS "render;gate;slow")
@@ -214,7 +214,7 @@ pen_net_test(download_resume 7509 2 bigtex.pen.json "--spp|16" "-DREF_ARGS=--dev
 pen_net_test(scene_rejected 7510 1 cornell.pen.json "--res|1080p|--scale|0.5|--spp|16" "-DREF_ARGS=--devices|cpu"
              "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|4" -DFULL_DISK_WORKER=1
              "-DEXPECT_LOG=full cannot take this scene: not enough disk")
-# M4 step 4, the fault table (docs/GUIDE.md "Fault tolerance"): whatever happens to worker 1, worker 2 finishes
+# M4 step 4, the fault table: whatever happens to worker 1, worker 2 finishes
 # and the image is the solo render, bit for bit. A device fails; the worker process crashes holding leases; a
 # device hangs while the worker heartbeats (lease reissued); the worker goes silent (dropped after 30 s without a
 # heartbeat); the worker sends corrupt tiles (rejected, kicked after 3); a worker joins mid-render; and a worker
@@ -243,7 +243,7 @@ pen_net_test(worker_silent 7514 2 cornell.pen.json "--res|1080p|--scale|0.5|--sp
              "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|4" -DFIRST_WORKER_EXPECT=7
              "-DFIRST_WORKER_ENV=PENUMBRA_TEST_FAULTS=device=0,after=1,mode=freeze" "-DEXPECT_LOG=heartbeat lost"
              -DNO_TAIL=1 -DWORKER_DELAY_MS=10000)
-# Network tests run with the timers x 0.2 (D-106): worker 1 starts at 10 s and goes silent after one item; worker 2
+# Network tests run with the timers x 0.2: worker 1 starts at 10 s and goes silent after one item; worker 2
 # joins at 20 s, after the controller has dropped worker 1 (6 s), so a fast worker 2 cannot finish the render before
 # the heartbeat loss (any speed).
 pen_net_test(corrupt_tiles 7515 2 cornell.pen.json "${PEN_NET_12}" "-DREF_ARGS=--devices|cpu"
@@ -257,9 +257,9 @@ pen_net_test(bad_network 7517 1 cornell.pen.json "--res|1080p|--scale|0.5|--spp|
              "-DNETEM_ARGS=--delay-ms|100|--loss|0.02|--up-kbps|10000"
              "-DEXPECT_WORKER_LOG=device 0: [0-9]+ items in flight .round trip [0-9]+ ms.")
 set_tests_properties(net.worker_silent PROPERTIES LABELS "net;gate;slow")
-# M9 (D-116): workers that get items of 4 chunks (as an upload-bound worker would) next to the controller's own
+# M9: workers that get items of 4 chunks (as an upload-bound worker would) next to the controller's own
 # single-chunk items; tiles merge several chunks at once, so the image matches the solo render to the last bits.
-# M11 (D-127): the AOV passes travel to workers in the lease's item id (protocol 6); the image stays the solo
+# M11: the AOV passes travel to workers in the lease's item id (protocol 6); the image stays the solo
 # render bit for bit and the AOV files are written.
 pen_net_test(aov 7524 2 cornell.pen.json "${PEN_NET_12}|--aov|albedo,normal,depth" "-DREF_ARGS=--devices|cpu"
              "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|2" "-DEXPECT_LOG=wrote the depth AOV")
@@ -285,13 +285,12 @@ pen_net_test(scale_64 7520 64 cornell.pen.json "--res|4k|--spp|4096|--backend|nu
 set_tests_properties(net.stay_resume PROPERTIES LABELS "net;gate;slow")
 # 64 worker processes: alone on the machine, in real time (with the timers x 0.2 the overloaded controller's round
 # trips push the workers' queue depth up, leases go late and are reissued, and it never finishes; an M9 note), and
-# skipped on CI's small runners (ctest -LE scale) where it ran past its 900 s limit; the gate runs it on the laptop
-# (D-106).
+# skipped on CI's small runners (ctest -LE scale) where it ran past its 900 s limit; the gate runs it on the laptop.
 set_tests_properties(net.scale_64 PROPERTIES LABELS "net;gate;slow;scale" RUN_SERIAL TRUE)
 
 # ---- GPU tests (M5, M6): label gpu plus vulkan or cuda, skipped by the build scripts; run with
 # scripts/test-gpu.sh (ctest -L gpu; a GPU without ray tracing: ctest -L cuda) ----
-# Gate (docs/GUIDE.md M5, M6): each GPU backend matches the CPU at 4,096 spp within relMSE 1e-3. Same backend and
+# GPU parity: each GPU backend matches the CPU at 4,096 spp within relMSE 1e-3. Same backend and
 # seed must repeat bit for bit; a mixed GPU + CPU render stays within the tolerance; the furnace stays uniform.
 pen_render_test(cutout_cpu runs cutout.pen.json "--res|160x90|--spp|4|--backend|cpu")
 function(pen_gpu_test backend name mode scene args)
@@ -319,7 +318,7 @@ foreach(_b IN LISTS _pen_gpu_backends)
   pen_gpu_test(${_b} furnace_glass uniform furnace_glass.pen.json "--spp|256|--backend|${_b}" -DTOLERANCE=0.005)
   pen_gpu_test(${_b} repeatable devices spheres.pen.json "--res|320x180|--spp|64|--backend|${_b}" "-DDEVICE_SETS=0+0")
   # Small chunks, so the frame is many items and both devices get some (the log must show it). No tail
-  # duplication: a fast GPU would otherwise also finish the CPU's last items and leave it with none (D-091).
+  # duplication: a fast GPU would otherwise also finish the CPU's last items and leave it with none.
   pen_gpu_test(${_b} hybrid pair cornell.pen.json "--res|1080p|--scale|0.25|--spp|1024" "-DARGS_A=--backend|cpu"
                "-DARGS_B=--backend|${_b}|--devices|0,cpu" -DMAXRELMSE=1e-3 -DSMALL_CHUNKS=1 -DNO_TAIL=1
                "-DEXPECT_LOG=local/0 [^\n]*: [1-9][0-9]* items.*local/1 [^\n]*: [1-9][0-9]* items")
@@ -331,7 +330,7 @@ foreach(_b IN LISTS _pen_gpu_backends)
                "-DARGS_B=--backend|${_b}" -DMAXRELMSE=1e-3)
   pen_gpu_test(${_b} furnace_fog uniform furnace_fog.pen.json "--res|16x16|--spp|65536|--backend|${_b}" -DTOLERANCE=0.01)
   # M7, several GPUs (skipped on a machine with one): all GPUs give the same bits as one GPU of the same backend,
-  # and a GPU that fails or hangs mid-render changes nothing (DECISIONS D-091, D-094).
+  # and a GPU that fails or hangs mid-render changes nothing.
   pen_gpu_test(${_b} multi_gpu devices cornell.pen.json "--res|1080p|--scale|0.5|--spp|256|--backend|${_b}"
                "-DDEVICE_SETS=0+gpu" -DSMALL_CHUNKS=1 -DMIN_GPUS=2)
   pen_gpu_test(${_b} multi_gpu_fail faults cornell.pen.json "--res|1080p|--scale|0.5|--spp|256|--backend|${_b}"
@@ -342,7 +341,7 @@ foreach(_b IN LISTS _pen_gpu_backends)
                "-DEXPECT_LOG=duplicated to device" -DSMALL_CHUNKS=1 -DMIN_GPUS=2)
   set_tests_properties(render.${_b}_multi_gpu render.${_b}_multi_gpu_fail render.${_b}_multi_gpu_hang
                        PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:")
-  # M8 (D-108): the memory tier ladder on bigtex (one 2048x2048 texture, ~17 MB on the GPU). Tier 1 moves the same
+  # M8: the memory tier ladder on bigtex (one 2048x2048 texture, ~17 MB on the GPU). Tier 1 moves the same
   # bytes to RAM: bit-identical. Tier 2 halves the texture once (10 MB of VRAM, 30 MB of RAM less the scene itself):
   # the CPU halving it the same way must agree. Tier 3 and a forbidden downsize skip the GPU; the CPU finishes, so
   # the image is the CPU's. An injected out-of-memory at tier 0 lands at tier 1, same bits.
@@ -364,11 +363,11 @@ if(PEN_ENABLE_CUDA)
   pen_gpu_test(cuda debug_bvh runs spheres.pen.json "--res|160x90|--spp|1|--integrator|debug:bvh|--backend|cuda")
 endif()
 if(PEN_ENABLE_VULKAN AND PEN_ENABLE_CUDA)
-  # The two GPU backends share the shading code (DECISIONS D-085); on one GPU they must agree closely.
+  # The two GPU backends share the shading code; on one GPU they must agree closely.
   pen_render_test(gpu_cuda_vs_vulkan pair cutout.pen.json "--res|320x180|--spp|1024" "-DARGS_A=--backend|vulkan"
                   "-DARGS_B=--backend|cuda" -DMAXRELMSE=1e-3)
   set_tests_properties(render.gpu_cuda_vs_vulkan PROPERTIES LABELS "gpu;vulkan;cuda")
-  # M7 (D-090): backends mixed on one host; every device renders items. One GPU listed twice must give the right
+  # M7: backends mixed on one host; every device renders items. One GPU listed twice must give the right
   # image, but the driver time-slices the two contexts and may starve one, so no per-device check there.
   pen_render_test(gpu_mixed_one_gpu pair cornell.pen.json "--res|1080p|--scale|0.25|--spp|1024" "-DARGS_A=--backend|cpu"
                   "-DARGS_B=--devices|0:vulkan,0:cuda,cpu" -DMAXRELMSE=1e-3 -DSMALL_CHUNKS=1)
@@ -379,7 +378,7 @@ if(PEN_ENABLE_VULKAN AND PEN_ENABLE_CUDA)
   set_tests_properties(render.gpu_mixed_multi PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:")
 endif()
 if(_pen_gpu_backends)
-  # Every Slang shading function against its C++ original on 65,536 inputs (DECISIONS D-077).
+  # Every Slang shading function against its C++ original on 65,536 inputs.
   add_executable(penumbra-gpu-parity gpu/parity.cpp)
   target_link_libraries(penumbra-gpu-parity PRIVATE penumbra_backends)
   foreach(_b IN LISTS _pen_gpu_backends)
@@ -403,7 +402,7 @@ add_test(NAME docs.cli_reference
 add_test(NAME lint.layering
          COMMAND "${CMAKE_COMMAND}" -DSOURCE_DIR=${PROJECT_SOURCE_DIR} -P "${PROJECT_SOURCE_DIR}/cmake/CheckLayering.cmake")
 set_tests_properties(docs.cli_reference lint.layering PROPERTIES LABELS lint)
-# The sample scenes in scenes/ (for a quick render after cloning, D-096) must render, and must stay what
+# The sample scenes in scenes/ (for a quick render after cloning) must render, and must stay what
 # penumbra-scenegen writes. spheres.gltf is not compared: its vertices come from sin/cos, whose last bits differ
 # between MSVC and GCC, so the generated copy differs per OS.
 foreach(_f cornell.gltf cornell.pen.json spheres.pen.json sky.hdr cutout.gltf cutout.pen.json cutout_checker.png)

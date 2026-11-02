@@ -11,7 +11,7 @@ set(_pen_no_warnings "$<IF:$<CXX_COMPILER_ID:MSVC>,/W0,-w>")
 
 if(PEN_ENABLE_VULKAN OR PEN_ENABLE_CUDA)
   # The shaders (shaders/*.slang) compile at build time with the pinned slangc from vcpkg (a host tool): to SPIR-V
-  # for Vulkan and to CUDA C++ for CUDA (DECISIONS D-076, D-085).
+  # for Vulkan and to CUDA C++ for CUDA.
   file(GLOB _pen_slangc_dirs "${VCPKG_INSTALLED_DIR}/*/tools/shader-slang")
   find_program(PEN_SLANGC slangc REQUIRED HINTS ${_pen_slangc_dirs} NO_DEFAULT_PATH)
   file(GLOB PEN_SHADER_SOURCES CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/shaders/*.slang")
@@ -52,7 +52,7 @@ endif()
 
 if(PEN_ENABLE_CUDA)
   # Slang -> CUDA C++ -> nvcc -> one fatbin per kernel, embedded in the binary; the CUDA driver is loaded at run
-  # time, so nothing links against CUDA (DECISIONS D-087).
+  # time, so nothing links against CUDA.
   find_package(CUDAToolkit REQUIRED)
 
   # Machine code for every architecture in PEN_CUDA_ARCHS this nvcc supports, all from ONE PTX of the oldest

@@ -1,6 +1,6 @@
 #pragma once
 
-// Message types and payload encode/decode for the wire protocol (docs/PROTOCOL.md). The payload of every
+// Message types and payload encode/decode for the wire protocol. The payload of every
 // frame is one FlatBuffers table from net/schema/penumbra.fbs; the frame's type field names the table.
 
 #include <cstdint>

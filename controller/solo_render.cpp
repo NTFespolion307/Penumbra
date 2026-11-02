@@ -19,7 +19,7 @@ namespace pen {
 
 namespace {
 
-// The join code: --code / PENUMBRA_CODE, else the one saved in the user data folder (docs/GUIDE.md "Join code").
+// The join code: --code / PENUMBRA_CODE, else the one saved in the user data folder.
 // Returns false (logged) when it cannot be had.
 bool joinCode(const std::string& given, std::string& code) {
   if (!given.empty()) {
@@ -73,7 +73,7 @@ int renderAndFinish(RenderJob& job, const LocalRenderOptions& options) {
   if (options.host) {
     std::string code;
     if (!joinCode(options.code, code)) return toInt(ExitCode::BadArguments);
-    job.session.hosting = true;  // --resume hosts again with this code (docs/GUIDE.md "Controller crash")
+    job.session.hosting = true;  // --resume hosts again with this code
     job.session.join_code = code;
     RenderProgress sofar;  // what the session file already says (a resumed render keeps its counts)
     sofar.items_done = job.session.tiles_done;
@@ -121,7 +121,7 @@ int resumeLocalRender(const std::filesystem::path& sessionFile, const nlohmann::
   if (const int rc = prepareResumedRender(sessionFile, cliOverrides, job); rc >= 0) return rc;
   LocalRenderOptions opts = options;
   if (job.session.hosting) {
-    // The render was hosting: host again with the same code, so --stay workers find it (docs/GUIDE.md).
+    // The render was hosting: host again with the same code, so --stay workers find it.
     opts.host = true;
     if (opts.code.empty()) opts.code = job.session.join_code;
   }

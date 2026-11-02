@@ -23,7 +23,7 @@ namespace {
 constexpr size_t kMaxFailures = 5;  // more than this many failed handshakes in a minute block the address
 constexpr auto kFailureWindow = std::chrono::minutes(1);
 constexpr auto kBlockTime = std::chrono::minutes(10);
-constexpr auto kPeerTimeout = std::chrono::seconds(30);  // docs/GUIDE.md: heartbeat 5 s, peer lost after 30 s
+constexpr auto kPeerTimeout = std::chrono::seconds(30);  // heartbeat every 5 s, peer lost after 30 s
 }  // namespace
 
 unsigned networkThreads() { return std::clamp(usableCpuThreads() / 4, 2u, 8u); }
@@ -126,7 +126,7 @@ void Host::onClosed(const std::shared_ptr<Peer>& peer, const std::string& reason
   std::lock_guard lock(mutex_);
   std::erase(peers_, peer);
   if (!peer->connection->handshakeFailed()) return;
-  // Count failed handshakes per address (docs/GUIDE.md "Join code").
+  // Count failed handshakes per address.
   const std::string& address = peer->connection->peerAddress();
   const auto now = Clock::now();
   auto& times = failures_[address];

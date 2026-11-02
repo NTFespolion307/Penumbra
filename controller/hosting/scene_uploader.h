@@ -13,7 +13,7 @@
 
 namespace pen {
 
-// Sends scene packages to workers (docs/GUIDE.md "Transfer"): chunks in order, compressed, to several workers
+// Sends scene packages to workers: chunks in order, compressed, to several workers
 // at once (round-robin), never more than 2 chunks queued per connection so control messages and tile acks keep
 // flowing, and at most --upload-limit bytes per second in total.
 class SceneUploader {

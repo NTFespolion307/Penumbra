@@ -51,9 +51,9 @@ struct RenderOutcome {
   std::string error;          // film write error text, if any
   uint64_t nan_count = 0;
   uint32_t reissued = 0;      // leases handed out again (late or lost)
-  uint32_t duplicated = 0;    // tail duplicates handed out (DECISIONS D-091)
+  uint32_t duplicated = 0;    // tail duplicates handed out
   uint32_t duplicate_wins = 0;  // ... whose result arrived first
-  // Controller throughput (M9, D-112): results received, time spent unpacking them (network thread) and merging them
+  // Controller throughput: results received, time spent unpacking them (network thread) and merging them
   // (under the controller lock).
   uint64_t results = 0;
   double decode_seconds = 0, merge_seconds = 0;
@@ -73,7 +73,7 @@ struct RenderRunOptions {
   uint32_t live_view = 0;  // UI viewport: keep a downsampled copy of the film, this many pixels on the long side
 };
 
-// What the UI's viewport shows (docs/GUIDE.md "Viewport page"): the film downsampled to at most `live_view` pixels on
+// What the UI's viewport shows: the film downsampled to at most `live_view` pixels on
 // the long side, sample-weighted exactly like the film, and which worker merged each tile last.
 struct LiveView {
   uint32_t width = 0, height = 0;  // of `rgb`
@@ -85,15 +85,15 @@ struct LiveView {
   uint64_t version = 0;              // grows with every merge
 };
 
-// Runs one render (docs/GUIDE.md "Render lifecycle", steps 3-8; "Scheduling, leases and tiles"): hands work
+// Runs one render: hands work
 // items to device slots as leases, merges each tile's chunks into the film strictly in chunk order (so any
-// distribution of work gives the same bits, D-045), re-issues leases that take more than 10x the median item
+// distribution of work gives the same bits), re-issues leases that take more than 10x the median item
 // time, requeues the leases of failed devices, and checkpoints the film every --checkpoint. When the queue is
-// empty, an idle device gets a copy of the oldest outstanding item it can finish sooner (tail duplication,
-// D-091); the first valid result wins.
+// empty, an idle device gets a copy of the oldest outstanding item it can finish sooner (tail duplication);
+// the first valid result wins.
 class RenderController final : public WorkerEvents {
  public:
-  // aovFilms[pass]: the film of each AOV pass to render (M11, D-127), nullptr for passes not wanted.
+  // aovFilms[pass]: the film of each AOV pass to render, nullptr for passes not wanted.
   RenderController(const RenderSettings& settings, std::shared_ptr<const Scene> scene,
                    std::shared_ptr<const ScenePackage> package, Film& film, PassOrder order,
                    const std::array<Film*, kPassCount>& aovFilms = {});
@@ -114,8 +114,8 @@ class RenderController final : public WorkerEvents {
 
   // UI viewport (needs RenderRunOptions::live_view): copies the live view if it changed since `version`.
   bool liveView(LiveView& out, uint64_t version) const;
-  // Pause: no new work is handed out and workers are told to stop asking; leases in flight finish (docs/GUIDE.md
-  // "Viewport page": Pause, Resume).
+  // Pause: no new work is handed out and workers are told to stop asking; leases in flight
+  // finish.
   void setPaused(bool paused);
   bool paused() const;
   // "Save image now": writes the film as it is to `settings.output` while the render goes on (merges wait).
@@ -153,7 +153,7 @@ class RenderController final : public WorkerEvents {
   void checkFinishedLocked();
   void reissueLateLocked();
   // What one serveLocked() call learns about the leases while looking for tail duplicates, so it scans them once,
-  // not once per waiting device (with 512 devices and 1,500 leases that saturated the network thread, D-112).
+  // not once per waiting device (with 512 devices and 1, 500 leases that saturated the network thread).
   struct TailScan {
     bool built = false;
     std::set<std::pair<WorkerId, DeviceId>> busy;  // devices holding a lease
@@ -185,8 +185,8 @@ class RenderController final : public WorkerEvents {
   std::map<WorkerId, uint32_t> rejects_;              // invalid results per worker
   std::map<WorkerId, std::vector<DeviceReady>> ready_;  // each worker's devices: memory tier and placement
   std::deque<double> item_seconds_;                   // recent item durations, for hang detection
-  std::map<DeviceKey, std::deque<double>> device_seconds_;  // the same per device (D-097)
-  std::map<DeviceKey, std::chrono::steady_clock::time_point> device_last_result_;  // when each last delivered (D-111)
+  std::map<DeviceKey, std::deque<double>> device_seconds_;  // the same per device
+  std::map<DeviceKey, std::chrono::steady_clock::time_point> device_last_result_;  // when each last delivered
   uint32_t live_devices_ = 0;
   bool hosting_ = false;
   bool running_ = false;  // run() has offered the scene; later workers get it from addWorker

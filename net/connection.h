@@ -2,7 +2,7 @@
 
 #include <chrono>
 
-// One TLS-encrypted TCP connection carrying framed messages (docs/GUIDE.md "Wire protocol", "Security"). The
+// One TLS-encrypted TCP connection carrying framed messages. The
 // TLS 1.3 handshake uses the key derived from the join code; a peer with another code cannot connect. All
 // socket and TLS work runs on an IoThread; send() and close() may be called from any thread. Two send queues:
 // control messages always go next, bulk messages (tiles, scene data) are split into 4 MB parts, so a control
@@ -28,7 +28,7 @@ namespace pen::net {
 
 // An io_context running on `threads` threads until stop() or destruction. Each connection gets its own strand, so
 // one connection's work stays in order while different connections are handled in parallel: a controller with many
-// workers decrypts and unpacks their tiles on several cores (M9, D-112).
+// workers decrypts and unpacks their tiles on several cores.
 class IoThread {
  public:
   explicit IoThread(unsigned threads = 1);

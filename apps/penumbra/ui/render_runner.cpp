@@ -81,7 +81,7 @@ void RenderRunner::run(std::string localDevices) {
   state_ = State::Rendering;
   RenderRunOptions run;
   run.interrupt = &stop_;
-  run.live_view = 2048;  // the viewport's image (docs/GUIDE.md "above 8K a downsampled view")
+  run.live_view = 2048;  // the viewport's image
   run.after_checkpoint = [&](const RenderProgress& p) {
     saveSessionProgress(job, p);
     session_.addEvent(SessionEvent::Level::Info, fmt::format("Checkpoint written \xC2\xB7 {} of {} tiles done",

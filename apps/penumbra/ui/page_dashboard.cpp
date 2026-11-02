@@ -1,4 +1,4 @@
-// Dashboard (docs/GUIDE.md "UI"; docs/ui-mockups/01-dashboard): what the cluster is doing right now.
+// Dashboard: what the cluster is doing right now.
 
 #include <imgui.h>
 

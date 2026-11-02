@@ -32,7 +32,7 @@ void LocalWorker::offerScene(const RenderOffer& offer) {
     cb.request_work = [this](uint32_t device, int count) { events_.onRequestWork(id_, device, count); };
     cb.result = [this](TileResult&& r) { events_.onTileResult(id_, std::move(r)); };
     cb.failed = [this](uint32_t device, const std::string& error, const std::vector<LeaseId>& lost) {
-      // The worker keeps going with its other devices (docs/GUIDE.md "Device failure").
+      // The worker keeps going with its other devices.
       events_.onDeviceFailed(id_, device, error);
       events_.onRelease(id_, lost);
     };

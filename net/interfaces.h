@@ -1,11 +1,12 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
 namespace pen::net {
 
-// An address workers could use to reach this machine (docs/GUIDE.md "Addresses, NAT and firewall").
+// An address workers could use to reach this machine.
 struct HostAddress {
   enum class Kind { Lan, Vpn, Other };
   std::string address;    // "192.168.1.20", "100.101.102.103", "fd7a:115c:a1e0::1"
@@ -24,5 +25,8 @@ const char* toString(HostAddress::Kind kind);
 bool isSharedAddressSpace(const std::string& ipv4);
 // True for 10/8, 172.16/12, 192.168/16.
 bool isPrivateIpv4(const std::string& ipv4);
+
+// Whether a controller could listen on TCP `port` (all addresses) right now: empty when it can, else why not.
+std::string checkListenPort(uint16_t port);
 
 }  // namespace pen::net

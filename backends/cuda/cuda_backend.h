@@ -1,6 +1,6 @@
 #pragma once
 
-// CUDA compute backend (docs/GUIDE.md "Rendering backends"): the shared Slang path tracer compiled to CUDA, rays
+// CUDA compute backend: the shared Slang path tracer compiled to CUDA, rays
 // traced in software through tinybvh CWBVHs, for NVIDIA GPUs without ray tracing hardware (and on request,
 // --backend cuda, for any NVIDIA GPU). The CUDA driver is loaded at run time (nvcuda.dll / libcuda.so.1), so a
 // machine without one still runs Penumbra. This header has no CUDA types.

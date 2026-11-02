@@ -26,7 +26,7 @@ void writeImage(const RowSource& source, uint32_t width, uint32_t height, const 
 // Display encoding for 8/16-bit formats: exposure, then the tonemap (core/output/tonemap.h).
 Vec3f displayEncode(Vec3f linear, float exposureScale, Tonemap tonemap);
 
-// An AOV film (M11, D-127) as <output name>.<pass>.exr next to the output: linear float, no exposure or tonemap;
+// An AOV film as <output name>.<pass>.exr next to the output: linear float, no exposure or tonemap;
 // albedo, normals in [-1, 1] (0 where nothing was hit), depth in scene units (32-bit).
 void writeAov(const Film& film, Pass pass, const RenderSettings& s, const ImageMetadata& metadata,
               std::vector<std::string>& notes);

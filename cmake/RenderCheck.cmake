@@ -14,7 +14,7 @@ if(NOT "${ARGS}${ARGS_A}${ARGS_B}" MATCHES "--backend")
   list(APPEND extra --backend cpu)
 endif()
 # render() uses 4 threads, as the test declares to ctest (PROCESSORS 4), so tests running side by side share the
-# cores fairly (D-106); the image does not depend on the thread count (render.threads_*).
+# cores fairly; the image does not depend on the thread count (render.threads_*).
 set(pin_threads --threads 4)
 if("${ARGS}" MATCHES "--threads")
   set(pin_threads "")
@@ -38,18 +38,18 @@ if(DEFINED MIN_GPUS)
   endif()
 endif()
 
-# SMALL_CHUNKS=1: work items of 2^22 pixel-samples instead of the default (tests that need many items per tile,
-# DECISIONS D-083). Network tests always use it. Set in this script's environment, which every process it starts
+# SMALL_CHUNKS=1: work items of 2^22 pixel-samples instead of the default (tests that need many items per tile).
+# Network tests always use it. Set in this script's environment, which every process it starts
 # inherits: wrapping penumbra in `cmake -E env` would make a kill hit the wrapper and leave penumbra running.
 if(SMALL_CHUNKS OR MODE STREQUAL "network")
   set(ENV{PENUMBRA_TEST_CHUNK_BUDGET} 4194304)
 endif()
-# TEXTURE_HALVINGS=k: CPU renders halve every texture k times, as a GPU at memory tier 2 does (M8, D-108); GPU
+# TEXTURE_HALVINGS=k: CPU renders halve every texture k times, as a GPU at memory tier 2 does; GPU
 # devices ignore it.
 if(DEFINED TEXTURE_HALVINGS)
   set(ENV{PENUMBRA_TEST_TEXTURE_HALVINGS} ${TEXTURE_HALVINGS})
 endif()
-# NO_TAIL=1: no tail duplication (D-091), so a hung device is caught by the late-lease check instead.
+# NO_TAIL=1: no tail duplication, so a hung device is caught by the late-lease check instead.
 if(NO_TAIL)
   set(ENV{PENUMBRA_TEST_NO_TAIL_DUPLICATION} 1)
 endif()
@@ -75,7 +75,7 @@ function(render out)
 endfunction()
 
 # Renders the solo reference `out` (arguments as for render()), or copies it from the reference cache: many tests
-# compare against the same image (D-106). The key is the penumbra binary, the scene, every argument that can
+# compare against the same image. The key is the penumbra binary, the scene, every argument that can
 # change pixels and the work-item size; the log and config paths are left out. Written under a temporary name, then renamed, so tests
 # running side by side never read a half-written file.
 function(reference out)
@@ -139,7 +139,7 @@ elseif(MODE STREQUAL "pair")
   endif()
   diff("${NAME}_a.exr" "${NAME}_b.exr" --max-relmse ${MAXRELMSE})
 elseif(MODE STREQUAL "devices")
-  # The same image, bit for bit, whatever the number of device slots (D-045). DEVICE_SETS: "+"-separated.
+  # The same image, bit for bit, whatever the number of device slots. DEVICE_SETS: "+"-separated.
   string(REPLACE "+" ";" sets "${DEVICE_SETS}")
   set(first "")
   set(i 0)
@@ -170,7 +170,7 @@ elseif(MODE STREQUAL "timelimit")
   endif()
 elseif(MODE STREQUAL "resume")
   # Reference, then a run killed (no clean shutdown) right after a checkpoint once KILL_AFTER_ITEMS chunks are
-  # merged (test hook PENUMBRA_TEST_KILL_AFTER_ITEMS, D-095), then --resume: bit-identical.
+  # merged (test hook PENUMBRA_TEST_KILL_AFTER_ITEMS), then --resume: bit-identical.
   reference("${NAME}_ref.exr")
   file(REMOVE "${WORKDIR}/${NAME}_cut.exr" "${WORKDIR}/${NAME}_cut.penfilm" "${WORKDIR}/${NAME}_cut.session.json")
   if(NOT DEFINED CUT_THREADS)
@@ -248,7 +248,7 @@ elseif(MODE STREQUAL "merge_samples")
   if(NOT rc EQUAL 0)
     message(FATAL_ERROR "merge failed (exit ${rc}):\n${o}${e}")
   endif()
-  # Float rounding of the weighted mean differs slightly from one 8-sample average (docs/GUIDE.md: < 1e-6).
+  # Float rounding of the weighted mean differs slightly from one 8-sample average (< 1e-6).
   diff("${NAME}_merged.exr" "${NAME}_ref.exr" --max-relmse 1e-6)
 elseif(MODE STREQUAL "region_crop")
   reference("${NAME}_ref.exr")
@@ -286,11 +286,11 @@ elseif(MODE STREQUAL "network")
   #   SECOND_RENDER       1: once the controller has finished, a second controller renders the same thing on the
   #                       same port (--stay workers serve both)
   #   TIME_SCALE          network and fault timers multiplier (default 0.2; 1 = real time)
-  #   ITEM_SPAN           network workers get this many chunks per item (PENUMBRA_TEST_ITEM_SPAN, D-116)
+  #   ITEM_SPAN           network workers get this many chunks per item (PENUMBRA_TEST_ITEM_SPAN)
   #   MAXRELMSE           compare with the solo render within this relMSE instead of bit for bit
   string(REPLACE "|" ";" ref_args "${REF_ARGS}")
   reference("${NAME}_ref.exr" ${ref_args})
-  # Network and fault timers x TIME_SCALE (default 0.2: heartbeats, 30 s peer timeout -> 6 s, backoff; D-106),
+  # Network and fault timers x TIME_SCALE (default 0.2: heartbeats, 30 s peer timeout -> 6 s, backoff),
   # inherited by every process below. An outside PENUMBRA_TEST_TIME_SCALE wins (for comparisons).
   if(NOT DEFINED TIME_SCALE)
     set(TIME_SCALE 0.2)

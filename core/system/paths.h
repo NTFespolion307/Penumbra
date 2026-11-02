@@ -12,7 +12,7 @@ std::string pathToUtf8(const std::filesystem::path& p);
 
 namespace paths {
 
-// Per-OS locations (docs/GUIDE.md). None of these create the folder.
+// Per-OS locations. None of these create the folder.
 std::filesystem::path userConfigFile();  // %APPDATA%\Penumbra\config.json | ~/.config/penumbra/config.json
 std::filesystem::path logDir();          // %LOCALAPPDATA%\Penumbra\logs | ~/.local/state/penumbra/logs
 std::filesystem::path sceneCacheDir();   // %LOCALAPPDATA%\Penumbra\cache\scenes | ~/.cache/penumbra/scenes

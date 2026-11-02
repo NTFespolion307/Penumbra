@@ -12,7 +12,7 @@
 
 namespace pen {
 
-// The worker's scene cache (docs/GUIDE.md "Worker cache"): one folder per package hash holding the unpacked
+// The worker's scene cache: one folder per package hash holding the unpacked
 // files and the manifest. A download in progress is a `<hash>.partial` file holding the verified chunks so far,
 // so an interrupted download resumes at the first missing chunk. Least-recently-used packages are evicted when
 // the cache grows over its size limit.

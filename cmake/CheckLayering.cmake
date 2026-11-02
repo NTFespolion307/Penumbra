@@ -1,4 +1,4 @@
-# Enforces the layering rule from CLAUDE.md:
+# Enforces the layering rule:
 #  - GPU API headers (Vulkan, CUDA, OptiX, Embree) only in backends/ (and apps/penumbra/ui/ for the swapchain);
 #  - socket and TLS headers only in net/, controller/hosting/, worker/client/;
 #  - core/ includes neither.

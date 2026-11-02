@@ -1,5 +1,5 @@
 // GPU scene and frame data; must match backends/gpu/gpu_types.h field for field (one layout for Vulkan scalar
-// block layout and CUDA natural alignment, DECISIONS D-086).
+// block layout and CUDA natural alignment).
 #pragma once
 
 struct TextureRef {

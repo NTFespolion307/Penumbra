@@ -28,7 +28,7 @@ void step(double t, int k, int n, double& mid, double& len) {
   mid = t * m * m;
   len = t * (b * b - a * a);
 }
-// Calibration to Blender's Nishita sky at the same settings (M14 gate, D-120).
+// Calibration to Blender's Nishita sky at the same settings (M14 gate).
 constexpr double kSkyScale = 1.0;
 
 double lambdaNm(int i) { return 380.0 + 20.0 * i; }
@@ -260,7 +260,7 @@ ImageRGB bakeSky(const SkySettings& sky) {
                 (at(e0 + 1, a0) * (1 - ta) + at(e0 + 1, a0 + 1) * ta) * te;
       // Sun disc coverage, 8 x 8 subsamples per pixel near it, so its power does not depend on the resolution.
       // Limb darkening 1 - 0.6 (1 - cos) across the disc, normalized so the disc keeps the sun's whole irradiance
-      // (Blender applies the same darkening without normalizing: its sun has 18% less power, D-120).
+      // (Blender applies the same darkening without normalizing: its sun has 18% less power).
       if (!isBlack(sunRgb) && std::acos(std::clamp(dot(d, s), -1.0, 1.0)) < radius + 2 * pixelAngle) {
         double weight = 0;
         for (int sy = 0; sy < 8; ++sy)

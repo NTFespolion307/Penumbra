@@ -15,14 +15,14 @@
 namespace pen {
 
 // One render apart from its devices and workers: the checked settings, the scene and its package, the film and
-// its session file (docs/GUIDE.md "Render lifecycle", steps 1 and 9-10). The terminal (solo_render) and the UI
+// its session file. The terminal (solo_render) and the UI
 // prepare and finish renders with the same functions.
 struct RenderJob {
   RenderSettings settings;
   std::shared_ptr<Scene> scene;
   std::shared_ptr<const ScenePackage> package;
   std::unique_ptr<Film> film;
-  // The AOV passes' films (M11, D-127), by Pass; null for passes not rendered. Next to the film:
+  // The AOV passes' films, by Pass; null for passes not rendered. Next to the film:
   // <name>.albedo.penfilm and so on.
   std::array<std::unique_ptr<Film>, kPassCount> aov_films;
   Session session;

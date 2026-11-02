@@ -47,17 +47,18 @@ struct RenderPage {
 
 // The Settings page's hosting switches and the defaults being edited.
 struct SettingsPage {
-  bool lan = true;       // LAN hosting starts with the app (docs/GUIDE.md "Render lifecycle", step 2)
+  bool lan = true;       // LAN hosting starts with the app
   bool internet = false;  // UPnP; opt-in
   bool approve = false;   // ask before accepting new workers
   int port = 7420;
   char out_dir[1024] = {};
   char film_dir[1024] = {};
+  Tonemap tonemap = Tonemap::Agx;  // the config file's "tonemap"
   std::string diagnostics;  // the last "Run diagnostics" output
   std::string note;         // the last action's result
 };
 
-// Join a render: this app as a worker of another controller (docs/GUIDE.md "Settings page").
+// Join a render: this app as a worker of another controller.
 struct JoinState {
   char address[256] = {};
   char code[32] = {};

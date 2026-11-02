@@ -23,7 +23,7 @@ class Host;
 class RemoteWorker;
 class UpnpMapping;
 
-// Something the cluster did, for the Dashboard's event list and the log (docs/GUIDE.md "UI": host joined or left,
+// Something the cluster did, for the Dashboard's event list and the log (host joined or left,
 // device failed, worker kicked, checkpoint written, errors).
 struct SessionEvent {
   enum class Level { Info, Warning, Error };
@@ -43,7 +43,7 @@ struct HostView {
   std::vector<SessionEvent> log;     // the latest warnings and errors it forwarded (at most 20)
 };
 
-// The controller's hosting session (docs/GUIDE.md "Session versus render"): one listener and join code for as
+// The controller's hosting session: one listener and join code for as
 // long as hosting is on. Workers join it, stay connected while idle and are offered every render that starts;
 // a worker joining mid-render joins that render. Renders run one at a time through RenderController with the
 // local devices and every connected worker, exactly like a terminal render, so the UI and `--terminal` share one
@@ -64,7 +64,7 @@ class HostingSession final : public WorkerEvents {
   bool hosting() const;
   uint16_t port() const;
   std::string code() const;  // canonical; empty when not hosting
-  // Internet hosting (docs/GUIDE.md "Internet workers"): the UPnP port mapping on or off while hosting.
+  // Internet hosting: the UPnP port mapping on or off while hosting.
   void setInternet(bool on);
   std::string internetStatus() const;  // "off", or the UPnP outcome
   // Ask before accepting new workers; `approve` answers the question (the UI's dialog).

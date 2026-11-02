@@ -1,9 +1,9 @@
 name: CI
 
-# CPU-only build and tests on both OSes. GPU tests run on self-hosted runners from M5 (see docs/GUIDE.md).
+# CPU-only build and tests on both OSes. GPU tests (ctest -L gpu) run on GPU machines.
 on:
   push:
-    # Milestone branches too (m8, m9...), so both OSes test every pushed step while work goes on (D-106).
+    # Milestone branches too (m8, m9...), so both OSes test every pushed step while work goes on.
     branches: [main, 'm[0-9]*']
   pull_request:
 
@@ -70,7 +70,7 @@ jobs:
         run: ./scripts/build.sh --no-tests
 
       # The full suite minus the 64-worker scale test, which runs past its limit on these small runners (it runs at
-      # the gate on the laptop, D-106).
+      # the gate on the laptop).
       - name: Test
         shell: bash
         run: ctest --preset ${{ matrix.preset }} -LE 'large|gpu|scale' -j 4 --output-on-failure

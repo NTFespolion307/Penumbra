@@ -175,13 +175,4 @@ std::filesystem::path picturesFolder() {
   return home && *home ? pathFromUtf8(home) : std::filesystem::temp_directory_path();
 }
 
-bool fileDialogsAvailable() {
-#if defined(_WIN32)
-  return true;
-#else
-  static const bool ok = have("zenity") || have("kdialog");
-  return ok;
-#endif
-}
-
 }  // namespace pen::ui

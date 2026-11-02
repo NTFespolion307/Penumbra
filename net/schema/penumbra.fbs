@@ -1,6 +1,6 @@
-// Penumbra wire protocol, version 2 (docs/PROTOCOL.md). Every frame carries one of these tables as its
+// Penumbra wire protocol, version 2. Every frame carries one of these tables as its
 // payload; the frame header's message type says which (net/protocol.h). Change a table: bump
-// kProtocolVersion (core/version.h) and update docs/PROTOCOL.md in the same commit.
+// kProtocolVersion (core/version.h) in the same commit.
 
 namespace pen.net.wire;
 
@@ -143,7 +143,7 @@ table Cancel {
 }
 
 table Pause {
-  paused:bool;            // true: stop requesting work; false: continue (the guide's Pause / Resume)
+  paused:bool;            // true: stop requesting work; false: continue (the Viewport's Pause / Resume)
 }
 
 table RenderComplete {
@@ -175,7 +175,7 @@ table Stats {
   cache_limit:ulong;
   cache_scenes:uint;
   // protocol 5 (M9): result bytes waiting to be sent; with upload_bytes_per_s the controller sees an upload-bound
-  // worker long before upload_bound (512 MB) and gives it items of several chunks (D-116).
+  // worker long before upload_bound (512 MB) and gives it items of several chunks.
   upload_queued:ulong;
 }
 

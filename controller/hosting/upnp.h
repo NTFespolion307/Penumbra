@@ -9,7 +9,7 @@
 
 namespace pen {
 
-// Asks the router to forward the hosting port to this machine (docs/GUIDE.md "Addresses, NAT and firewall"),
+// Asks the router to forward the hosting port to this machine,
 // on a background thread so hosting starts at once, and removes the mapping when destroyed. Every outcome is
 // logged: mapped (with the public address), no UPnP router, refused, or a router whose own WAN address is not
 // public (carrier-grade NAT: forwarding cannot work, use a VPN).

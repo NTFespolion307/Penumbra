@@ -1,6 +1,6 @@
 #pragma once
 
-// The atmosphere (M14, DECISIONS D-119): exponential height layers, density exp(-(y - base) / height). Optical
+// The atmosphere: exponential height layers, density exp(-(y - base) / height). Optical
 // depth along a ray has a closed form, so transmittance is exact and free-flight distances are sampled by
 // inverting it; no ray marching. RGB coefficients: a colour channel is picked at random and the distance sampled
 // for it, and the weights divide by the average over the three channels (spectral MIS), so coloured air stays

@@ -62,7 +62,7 @@ echo "    vcpkg: $VCPKG_ROOT"
 # Parallel jobs: one per core, but at most one per 2 GB of available RAM. Embree's kernels need about 2 GB per
 # GCC process; running out of memory gets a compiler killed and vcpkg falls back to a single core.
 # nproc follows the affinity mask but not a container's CPU quota (cgroup v2 cpu.max): a container can show 192
-# cores and be allowed 23 (DECISIONS D-081).
+# cores and be allowed 23.
 cores="$(nproc)"
 quota="max" period=0
 if [[ -r /sys/fs/cgroup/cpu.max ]]; then                       # cgroup v2
@@ -94,7 +94,7 @@ if (( clean )) && [[ -d "build/$preset" ]]; then
   rm -rf "build/$preset"
 fi
 
-# The UI needs a display; servers and rented containers build without it (DECISIONS D-100). Its window library
+# The UI needs a display; servers and rented containers build without it. Its window library
 # needs the X11 development headers.
 if [[ "$ui" == auto ]]; then
   if [[ -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" ]]; then ui=1; else ui=0; fi
@@ -116,7 +116,7 @@ cmake --build --preset "$preset"
 
 if (( tests )); then
   step "Running tests"
-  # Side by side: ctest counts each test's PROCESSORS against the allowed cores (D-106). 20K gate: ctest -L large;
+  # Side by side: ctest counts each test's PROCESSORS against the allowed cores. 20K gate: ctest -L large;
   # GPU: scripts/test-gpu.sh.
   if (( quick )); then
     ctest --preset "$preset" -L "^(unit|smoke|lint)$" -j "$cores"

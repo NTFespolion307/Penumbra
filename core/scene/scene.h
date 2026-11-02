@@ -32,7 +32,7 @@ struct TextureRef {
 
 enum class AlphaMode : uint8_t { Opaque, Mask, Blend };
 
-// glTF metallic-roughness material plus the extensions listed in docs/GUIDE.md.
+// glTF metallic-roughness material plus the material extensions core/shading/bsdf.h lists.
 struct Material {
   std::string name;
   Vec4f base_color{1, 1, 1, 1};
@@ -110,7 +110,7 @@ struct Camera {
 enum class LightType : uint8_t { Point, Spot, Directional };
 
 // KHR_lights_punctual light in world space. `intensity` is radiometric: W/sr for point and spot, W/m^2 for
-// directional (glTF photometric values divided by 683 lm/W, DECISIONS D-023).
+// directional (glTF photometric values divided by 683 lm/W).
 struct PunctualLight {
   std::string name;
   LightType type = LightType::Point;

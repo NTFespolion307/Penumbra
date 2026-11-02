@@ -14,7 +14,7 @@ struct TextureSize {
   uint64_t bytes(uint32_t halvings = 0) const;
 };
 
-// What one device needs to hold a scene (docs/GUIDE.md "Memory budget and fallback"), in bytes.
+// What one device needs to hold a scene, in bytes.
 struct SceneFootprint {
   uint64_t fixed = 0;                 // must be in VRAM: geometry, acceleration structures, materials, lights, tables
   uint64_t environment = 0;           // the HDRI map and its sampling weights: VRAM or RAM, never downsized
@@ -29,7 +29,7 @@ struct MemoryBudgets {
   uint32_t min_tier = 0;       // after an allocation failed at a tier, the next try starts one lower on the ladder
 };
 
-// Where a device keeps the scene: the tier ladder of docs/GUIDE.md.
+// Where a device keeps the scene: the memory tier ladder.
 //   0  everything in VRAM
 //   1  textures and the environment in pinned RAM, read over PCIe; geometry in VRAM
 //   2  as 1 (or in VRAM, whichever has more room), with the largest textures halved until they fit
@@ -44,7 +44,7 @@ struct Placement {
 
 Placement choosePlacement(const SceneFootprint& footprint, const MemoryBudgets& budgets);
 
-// "tier 1, scene 6.1 GB of 7.2 GB VRAM, textures 2.4 GB in RAM" (the placement log, docs/GUIDE.md).
+// "tier 1, scene 6.1 GB of 7.2 GB VRAM, textures 2.4 GB in RAM" (the placement log).
 std::string describePlacement(const Placement& placement, const MemoryBudgets& budgets);
 
 }  // namespace pen

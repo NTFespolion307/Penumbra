@@ -1,6 +1,6 @@
 #pragma once
 
-// Frame layout (docs/GUIDE.md "Wire protocol", docs/PROTOCOL.md), all integers little-endian:
+// Frame layout, all integers little-endian:
 //   magic "PNBR" (4) | protocol version u16 | message type u16 | flags u16 | payload length u32 | payload
 // Payloads are at most 16 MB. A larger message is sent as "part" frames (flag bit 1) of up to 4 MB, each
 // starting with a 12-byte part header: transfer id u32 | total length u32 | offset u32. Control frames

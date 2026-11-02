@@ -8,7 +8,7 @@
 
 using namespace pen;
 
-TEST_CASE("the 17 resolution presets match the guide", "[presets]") {
+TEST_CASE("the 17 resolution presets", "[presets]") {
   const auto presets = resolutionPresets();
   REQUIRE(presets.size() == 17);
 
@@ -38,7 +38,7 @@ TEST_CASE("the 17 resolution presets match the guide", "[presets]") {
   }
 }
 
-// The guide says "from 6K up"; 6k (5760x3240) is 4.5x 1280x720, so the rule holds from 8k (DECISIONS.md).
+// The rule was planned "from 6K up", but 6k (5760x3240) is 4.5x 1280x720, so the rule holds from 8k.
 TEST_CASE("presets from 8k up are multiples of 1280x720 and 16:9", "[presets]") {
   bool from8k = false;
   for (const auto& p : resolutionPresets()) {

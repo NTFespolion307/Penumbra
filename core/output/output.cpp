@@ -83,10 +83,10 @@ void writeOutput(const Film& film, const RenderSettings& s, const ImageMetadata&
       notes.push_back("not denoised: the albedo and normal passes are missing");
     } else {
       denoiser = std::make_unique<OidnDenoiser>();
-      // docs/GUIDE.md "Output": each band in tiles of up to 1024 px wide, each read with a border (clipped to the
-      // image) and denoised on its own, so even a 160K image never sits in memory whole. No seams (D-128): one
+      // Each band in tiles of up to 1024 px wide, each read with a border (clipped to the
+      // image) and denoised on its own, so even a 160K image never sits in memory whole. No seams: one
       // input scale for the whole image (from about 512 rows of it), and the border is OIDN's tile overlap (at
-      // least the guide's 32 px), rounded up to its tile alignment.
+      // least 32 px), rounded up to its tile alignment.
       std::vector<Vec3f> sample, row;
       const uint32_t step = std::max(1u, area.height() / 512);
       for (uint32_t y = 0; y < area.height(); y += step) {
@@ -99,7 +99,7 @@ void writeOutput(const Film& film, const RenderSettings& s, const ImageMetadata&
       notes.push_back(fmt::format("denoising with {} (tiles of 1024 px, {} px border: OIDN's overlap {}, alignment "
                                   "{}; input scale {:.4g})",
                                   denoiser->describe(), border, denoiser->tileOverlap(), align, scale));
-      // Test only (D-128): the whole image denoised in one call, the reference for the seam test.
+      // Test only: the whole image denoised in one call, the reference for the seam test.
       static const bool whole = [] {
         const char* v = std::getenv("PENUMBRA_TEST_DENOISE_WHOLE");
         if (v && *v && std::string_view(v) != "0") spdlog::warn("TEST HOOK ACTIVE (PENUMBRA_TEST_DENOISE_WHOLE)");

@@ -14,23 +14,23 @@
 namespace pen {
 
 // RAM films refine the whole image pass by pass (breadth-first); disk films finish one tile after the other
-// (depth-first) so few tiles are in memory at once (docs/GUIDE.md "Pass order").
+// (depth-first) so few tiles are in memory at once.
 enum class PassOrder { BreadthFirst, DepthFirst };
 
 inline constexpr uint32_t kUnboundedSamples = std::numeric_limits<uint32_t>::max();
 
-// Pixel-samples per work item: 2^26 (about 0.3 s on a mid-range RTX GPU, a few seconds on a many-core CPU;
-// DECISIONS D-083). Tests that need many items set PENUMBRA_TEST_CHUNK_BUDGET (test only, logged when active).
+// Pixel-samples per work item: 2^26 (about 0.3 s on a mid-range RTX GPU, a few seconds on a many-core CPU).
+// Tests that need many items set PENUMBRA_TEST_CHUNK_BUDGET (test only, logged when active).
 uint64_t chunkBudget();
 
 // Samples per chunk for a tile: the largest power of two with tilePixels x chunk <= budget, at least 1 and at
-// most the range. Depends only on the settings, never on the device (D-045).
+// most the range. Depends only on the settings, never on the device.
 uint32_t chunkSamples(uint64_t tilePixels, uint32_t rangeSamples, uint64_t budget = chunkBudget());
 
 // Splits the frame into work items: film tiles (clipped to --region), spiral from the image centre, each cut
 // into fixed sample chunks. The controller tells it which chunks are merged; items lost to a failed or slow
 // device are requeued and handed out first.
-// An AOV pass to render besides the image (M11, D-127): its samples per pixel, from sample 0.
+// An AOV pass to render besides the image: its samples per pixel, from sample 0.
 struct AovPass {
   Pass pass;
   uint32_t samples;
@@ -52,7 +52,7 @@ class Scheduler {
   void restore(const std::function<uint32_t(uint32_t tile)>& samplesInFilm, Pass pass = Pass::Beauty);
 
   // The next item: `span` consecutive chunks of one tile when that many are left (an upload-bound worker sends
-  // one result for them, D-116), else one chunk. Requeued items keep the span they were issued with.
+  // one result for them), else one chunk. Requeued items keep the span they were issued with.
   std::optional<WorkItem> next(uint32_t span = 1);
   void requeue(const WorkItem& item);
   void stopNew() { stopped_ = true; }

@@ -1,4 +1,4 @@
-// GPU parity test (DECISIONS D-077): evaluates the shading functions on inputs derived from integer hashes, so
+// GPU parity test: evaluates the shading functions on inputs derived from integer hashes, so
 // tests/gpu/parity.cpp can compute the same values with the C++ reference and compare them function by function.
 // Output: kParityValues floats per case; the layout must match tests/gpu/parity.cpp.
 #include "bsdf.slang"

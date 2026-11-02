@@ -50,7 +50,7 @@ struct HostRow {
   std::vector<SessionEvent> log;
 };
 
-// Last 10 minutes at one sample per second (docs/GUIDE.md "UI": charts keep the last 10 minutes).
+// Last 10 minutes at one sample per second.
 class History {
  public:
   static constexpr size_t kSamples = 600;
@@ -64,8 +64,8 @@ class History {
   std::deque<float> values_;
 };
 
-// What the UI shows, sampled once per second from the hosting session and this machine (docs/GUIDE.md "Where the
-// numbers come from"). Only the UI thread uses it.
+// What the UI shows, sampled once per second from the hosting session and this machine.
+// Only the UI thread uses it.
 class Model {
  public:
   explicit Model(HostingSession& session);

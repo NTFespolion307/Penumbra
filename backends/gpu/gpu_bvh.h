@@ -1,7 +1,7 @@
 #pragma once
 
 // Acceleration structures for software ray tracing on the GPU (CUDA backend, shaders/bvh.slang): one tinybvh
-// CWBVH per mesh and a binary top-level BVH over the instances, built on the CPU (DECISIONS D-086).
+// CWBVH per mesh and a binary top-level BVH over the instances, built on the CPU.
 
 #include <cstdint>
 #include <string>

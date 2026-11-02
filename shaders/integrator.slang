@@ -1,7 +1,7 @@
 // The GPU path tracer, shared by both GPU backends: port of core/render/integrator.h. Each thread runs the whole
-// path for one pixel and every sample of the launch (megakernel, DECISIONS D-078).
+// path for one pixel and every sample of the launch (megakernel).
 //
-// The including file declares how rays are traced before including this one (DECISIONS D-085):
+// The including file declares how rays are traced before including this one:
 //   Hit intersect(float3 o, float3 d);              closest hit, alpha cutouts applied
 //   bool occluded(float3 o, float3 d, float tmax);  any hit in (0, tmax), alpha cutouts applied
 // pathtrace.slang implements them with Vulkan ray tracing, pathtrace_cuda.slang with the software BVH (bvh.slang).

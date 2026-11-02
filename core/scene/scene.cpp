@@ -64,7 +64,7 @@ void Scene::finalize() {
     environment.sampling = Distribution2D(w, m.width, m.height);
   }
 
-  // One alias table over every light, weighted by estimated power (DECISIONS D-020).
+  // One alias table over every light, weighted by estimated power.
   const float r = boundingRadius();
   std::vector<float> weights;
   weights.reserve(emissive_triangles.size() + lights.size() + 1);
