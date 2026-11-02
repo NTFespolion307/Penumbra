@@ -119,9 +119,10 @@ void RemoteWorker::pause(bool paused) {
   connection_->send(m);
 }
 
-void RemoteWorker::complete() {
+void RemoteWorker::complete(bool more) {
   wire::RenderCompleteT m;
   m.render_id = render_id_;
+  m.more = more;
   connection_->send(m);
 }
 

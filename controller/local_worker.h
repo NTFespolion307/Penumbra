@@ -21,7 +21,7 @@ class LocalWorker final : public WorkerLink {
   void cancel(std::span<const LeaseId> leases) override;
   void ackTile(LeaseId lease, AckStatus status) override;
   void pause(bool paused) override;
-  void complete() override;
+  void complete(bool more) override;
 
  private:
   WorkerId id_;

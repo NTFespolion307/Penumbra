@@ -227,6 +227,47 @@ elseif(MODE STREQUAL "interrupt")
     message(FATAL_ERROR "--resume failed (exit ${rc}):\n${o}${e}")
   endif()
   diff("${NAME}_int.exr" "${NAME}_ref.exr" --exact)
+elseif(MODE STREQUAL "batch")
+  # --batch: two jobs (the command line's scene, each its own resolution and sample count) equal their solo renders.
+  # The first run is killed (test hook) during job 2, after job 1 finished; the same command again skips job 1 and
+  # continues job 2 from its checkpoint, bit for bit, then removes the batch state file.
+  reference("${NAME}_a_ref.exr" --res 640x360 --spp 4)
+  reference("${NAME}_b_ref.exr" --res 1080p --spp 16)
+  file(REMOVE "${WORKDIR}/${NAME}_a.exr" "${WORKDIR}/${NAME}_b.exr" "${WORKDIR}/${NAME}_b.penfilm"
+       "${WORKDIR}/${NAME}_b.session.json" "${WORKDIR}/${NAME}_jobs.batch-state.json")
+  file(WRITE "${WORKDIR}/${NAME}_jobs.json" "{ \"jobs\": [
+  { \"name\": \"small\", \"output\": \"${NAME}_a.exr\", \"res\": \"640x360\", \"spp\": 4 },
+  { \"output\": \"${NAME}_b.exr\", \"res\": \"1080p\", \"spp\": 16 }
+] }
+")
+  set(batch_cmd "${PENUMBRA}" ${common} ${pin_threads} --checkpoint 10m --batch "${NAME}_jobs.json")
+  set(ENV{PENUMBRA_TEST_KILL_AFTER_ITEMS} ${KILL_AFTER_ITEMS})
+  execute_process(COMMAND ${batch_cmd} WORKING_DIRECTORY "${WORKDIR}" TIMEOUT 1800 RESULT_VARIABLE rc
+                  OUTPUT_VARIABLE o ERROR_VARIABLE e)
+  unset(ENV{PENUMBRA_TEST_KILL_AFTER_ITEMS})
+  if(NOT rc EQUAL 137)
+    message(FATAL_ERROR "the batch was not cut during job 2 (exit ${rc}):\n${o}${e}")
+  endif()
+  if(NOT EXISTS "${WORKDIR}/${NAME}_a.exr" OR NOT EXISTS "${WORKDIR}/${NAME}_jobs.batch-state.json"
+     OR NOT EXISTS "${WORKDIR}/${NAME}_b.session.json")
+    message(FATAL_ERROR "after the cut, job 1's image, the batch state and job 2's session file should exist:\n${o}${e}")
+  endif()
+  execute_process(COMMAND ${batch_cmd} WORKING_DIRECTORY "${WORKDIR}" RESULT_VARIABLE rc OUTPUT_VARIABLE o
+                  ERROR_VARIABLE e)
+  if(NOT rc EQUAL 0)
+    message(FATAL_ERROR "the batch run again failed (exit ${rc}):\n${o}${e}")
+  endif()
+  foreach(expect "1 finished in an earlier run and skipped" "job 2: continuing from the checkpoint"
+                 "small: skipped" "batch finished: every job is done")
+    if(NOT "${o}${e}" MATCHES "${expect}")
+      message(FATAL_ERROR "the second run does not show '${expect}':\n${o}${e}")
+    endif()
+  endforeach()
+  diff("${NAME}_a.exr" "${NAME}_a_ref.exr" --exact)
+  diff("${NAME}_b.exr" "${NAME}_b_ref.exr" --exact)
+  if(EXISTS "${WORKDIR}/${NAME}_jobs.batch-state.json" OR EXISTS "${WORKDIR}/${NAME}_b.session.json")
+    message(FATAL_ERROR "the batch state and job 2's session file should be gone once the batch is done")
+  endif()
 elseif(MODE STREQUAL "merge_regions")
   reference("${NAME}_ref.exr")
   render("${NAME}_left.exr" --region 0,0,1024,1080)
@@ -288,6 +329,8 @@ elseif(MODE STREQUAL "network")
   #   TIME_SCALE          network and fault timers multiplier (default 0.2; 1 = real time)
   #   ITEM_SPAN           network workers get this many chunks per item (PENUMBRA_TEST_ITEM_SPAN)
   #   MAXRELMSE           compare with the solo render within this relMSE instead of bit for bit
+  #   BATCH               1: the controller renders a --batch of two jobs (outputs _net.exr and _net2.exr, both
+  #                       equal to the solo render); workers without --stay stay for the second
   string(REPLACE "|" ";" ref_args "${REF_ARGS}")
   reference("${NAME}_ref.exr" ${ref_args})
   # Network and fault timers x TIME_SCALE (default 0.2: heartbeats, 30 s peer timeout -> 6 s, backoff),
@@ -329,6 +372,14 @@ elseif(MODE STREQUAL "network")
   endif()
   if(SECOND_RENDER)
     list(APPEND procs --proc "${NAME}_ctl2" "after:${NAME}_ctl" 0 0 "${ctl}|${CONTROLLER_ARGS}")
+  endif()
+  if(BATCH)
+    file(WRITE "${WORKDIR}/${NAME}_jobs.json"
+         "[ { \"output\": \"${NAME}_net.exr\" }, { \"name\": \"again\", \"output\": \"${NAME}_net2.exr\" } ]\n")
+    file(REMOVE "${WORKDIR}/${NAME}_jobs.batch-state.json")
+    list(GET procs 5 first_ctl)
+    list(REMOVE_AT procs 5)
+    list(INSERT procs 5 "${first_ctl}|--batch|${NAME}_jobs.json")
   endif()
   set(join_port ${PORT})
   if(DEFINED NETEM_ARGS)
@@ -409,7 +460,7 @@ elseif(MODE STREQUAL "network")
   endwhile()
   file(WRITE "${WORKDIR}/${NAME}_procs.txt" "${spec}")
   foreach(run RANGE 1 ${RUNS})
-    file(REMOVE "${WORKDIR}/${NAME}_net.exr")
+    file(REMOVE "${WORKDIR}/${NAME}_net.exr" "${WORKDIR}/${NAME}_net2.exr")
     execute_process(COMMAND "${NETTEST}" --workdir "${WORKDIR}" --timeout 900 --procs "${WORKDIR}/${NAME}_procs.txt"
                     WORKING_DIRECTORY "${WORKDIR}" RESULT_VARIABLE rc OUTPUT_VARIABLE o ERROR_VARIABLE e)
     message(STATUS "run ${run}:\n${o}${e}")
@@ -420,6 +471,9 @@ elseif(MODE STREQUAL "network")
       diff("${NAME}_net.exr" "${NAME}_ref.exr" --max-relmse ${MAXRELMSE})
     else()
       diff("${NAME}_net.exr" "${NAME}_ref.exr" --exact)
+    endif()
+    if(BATCH)
+      diff("${NAME}_net2.exr" "${NAME}_ref.exr" --exact)
     endif()
   endforeach()
   file(READ "${WORKDIR}/${NAME}.log" ctl_log)

@@ -8,11 +8,12 @@
 #include <string_view>
 #include <vector>
 
+#include "core/config/batch.h"
 #include "core/settings/render_settings.h"
 
 namespace pen::cli {
 
-enum class Mode { Ui, Terminal, Worker, Resume, Merge, ListDevices, Version, Diagnose, Benchmark };
+enum class Mode { Ui, Terminal, Batch, Worker, Resume, Merge, ListDevices, Version, Diagnose, Benchmark };
 std::string_view toString(Mode m);
 
 // What the user asked for: the mode, its mode-only arguments, and the fully resolved settings.
@@ -26,8 +27,10 @@ struct Invocation {
   std::vector<std::filesystem::path> merge_inputs;
   std::filesystem::path merge_output;
   std::filesystem::path benchmark_output;  // --benchmark: the JSON report (-o)
+  std::filesystem::path batch_file;        // --batch
+  std::vector<BatchJob> batch;             // its jobs, resolved and checked
 
-  RenderSettings settings;  // resolved and finalized; not resolved for info modes
+  RenderSettings settings;  // resolved and finalized (--batch: the first job's); not resolved for info modes
   nlohmann::json cli_settings = nlohmann::json::object();  // settings given explicitly on the command line
   std::filesystem::path config_file;
   std::vector<std::string> warnings;  // to log once logging is up

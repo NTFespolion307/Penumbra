@@ -139,6 +139,7 @@ class Worker {
   bool welcomed_ = false;
   std::chrono::seconds unanswered_backoff_{1};  // --stay: wait before trying a controller that did not answer
   bool completed_ = false;  // RenderComplete received and Bye sent
+  bool batch_idle_ = false;  // RenderComplete said another render follows (a controller --batch): staying
 
   // The current render.
   uint64_t render_id_ = 0;
@@ -329,6 +330,10 @@ int Worker::session() {
     if (closed) {
       stopSlots(true);
       if (completed_) return toInt(ExitCode::Success);
+      if (batch_idle_ && !local_.stay) {
+        spdlog::info("the controller closed the session after its batch");
+        return toInt(ExitCode::Success);
+      }
       if (!welcomed_ && conn_->closedBeforeReply() && local_.stay) {
         // Through a relay (socat, an SSH tunnel) the TCP connection always opens, so a controller that is not
         // hosting yet shows up here, not as a refused connection: an always-on worker waits for it as well.
@@ -428,7 +433,10 @@ int Worker::handle(net::Message& msg) {
         stopSlots(true);
         return toInt(ExitCode::RejectedByController);
       }
-      case MsgType::SceneOffer: onSceneOffer(net::decode<wire::SceneOfferT>(msg.payload)); break;
+      case MsgType::SceneOffer:
+        batch_idle_ = false;
+        onSceneOffer(net::decode<wire::SceneOfferT>(msg.payload));
+        break;
       case MsgType::SceneChunk: onSceneChunk(net::decode<wire::SceneChunkT>(msg.payload)); break;
       case MsgType::Lease: onLease(net::decode<wire::LeaseT>(msg.payload)); break;
       case MsgType::Cancel: {
@@ -453,11 +461,18 @@ int Worker::handle(net::Message& msg) {
         break;
       }
       case MsgType::RenderComplete: {
+        const auto m = net::decode<wire::RenderCompleteT>(msg.payload);
         stopSlots(true);
         scene_.reset();
         if (local_.stay) {
           spdlog::info("render complete; waiting for the next render (--stay)");
           status([](WorkerStatus& st) { st.phase = "Render complete; waiting for the next render"; });
+          break;
+        }
+        if (m.more) {
+          batch_idle_ = true;
+          spdlog::info("render complete; the controller's batch has another render, staying connected");
+          status([](WorkerStatus& st) { st.phase = "Render complete; the next render of the batch follows"; });
           break;
         }
         spdlog::info("render complete");

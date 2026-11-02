@@ -71,6 +71,7 @@ struct RenderRunOptions {
   std::function<void(const RenderProgress&)> progress;          // about once per second
   std::function<void(const RenderProgress&)> after_checkpoint;  // after each periodic film checkpoint
   uint32_t live_view = 0;  // UI viewport: keep a downsampled copy of the film, this many pixels on the long side
+  bool more_renders = false;  // --batch: another render follows, so workers stay connected after this one
 };
 
 // What the UI's viewport shows: the film downsampled to at most `live_view` pixels on

@@ -55,6 +55,11 @@ int dispatch(const Invocation& inv, bool fromExplorer) {
       render.host = inv.host;
       render.code = inv.code;
       return pen::runLocalRender(inv.settings, render);
+    case Mode::Batch:
+      render.interrupt = &pen::app::installInterruptHandler();
+      render.host = inv.host;
+      render.code = inv.code;
+      return pen::runBatch(inv.batch_file, inv.batch, render);
     case Mode::Worker: {
       pen::WorkerOptions worker;
       worker.settings = inv.settings;

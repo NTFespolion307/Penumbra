@@ -30,7 +30,7 @@ class RemoteWorker final : public WorkerLink {
   void cancel(std::span<const LeaseId> leases) override;
   void ackTile(LeaseId lease, AckStatus status) override;
   void pause(bool paused) override;
-  void complete() override;
+  void complete(bool more) override;
   void kick(const std::string& reason) override;
   uint32_t itemSpan() const override { return span_.load(); }
 

@@ -37,7 +37,7 @@ On the GPU, an image matches the CPU's within float rounding (relMSE about 1e-8 
 
 ## Contents
 
-1. [Download a release (Linux)](#download-a-release-linux)
+1. [Download a release](#download-a-release)
 2. [Why you build it yourself](#why-you-build-it-yourself)
 3. [Prerequisites](#prerequisites)
 4. [Build](#build)
@@ -52,7 +52,13 @@ On the GPU, an image matches the CPU's within float rounding (relMSE about 1e-8 
 13. [License](#license)
 14. [Credits](#credits)
 
-## Download a release (Linux)
+## Download a release
+
+Every push to `main` is built by GitHub Actions and published as the
+[latest release](https://github.com/NTFespolion307/Penumbra/releases/latest), with a `.sha256` checksum next to each
+archive. Building it yourself ([Build](#build)) gives the same program.
+
+### Linux
 
 The quickest way onto a Linux server or worker: a ready-made, headless build (`--terminal` and `--worker`; no UI)
 with the Vulkan, CUDA and CPU backends and the denoiser. Nothing to install but a GPU driver.
@@ -78,15 +84,34 @@ Vulkan ray tracing) or any Vulkan driver with ray tracing; without a GPU the CPU
 Every machine of a render must run the same build: the controller and all workers use the same release, or all
 build from the same commit (step 1 again on every machine to update). The tarball also holds
 `scripts/get-scenes.sh` and the small sample scenes; `./penumbra/scripts/get-scenes.sh swiss-alps` works from it.
-Each release is built from `main` by GitHub Actions; `penumbra-linux-x64.tar.gz.sha256` next to it is its checksum.
+
+### Windows
+
+A zip with the UI, the Vulkan ray tracing and CPU backends and the denoiser (no CUDA backend: GPUs without ray
+tracing render on the CPU; build it yourself for CUDA). Needs Windows 10 or 11 (x64) and a GPU driver.
+
+1. Download and unpack it (PowerShell, into `.\penumbra`):
+   ```
+   Invoke-WebRequest https://github.com/NTFespolion307/Penumbra/releases/latest/download/penumbra-windows-x64.zip -OutFile penumbra.zip
+   Expand-Archive penumbra.zip .
+   ```
+2. Start the UI by double-clicking `penumbra\penumbra.exe`, or check the devices from PowerShell:
+   ```
+   .\penumbra\penumbra.exe --list-devices
+   ```
+   Success: your GPUs are listed with `vulkan`.
+
+The exe is not signed, so Windows SmartScreen asks once: **More info**, then **Run anyway** (see
+[Why you build it yourself](#why-you-build-it-yourself)). The zip also holds `scripts\get-scenes.ps1` and the sample
+scenes.
 
 ## Why you build it yourself
 
 Windows SmartScreen blocks unsigned `.exe` files downloaded from the internet, and Penumbra is not signed. An
 exe you build on your own machine carries no download mark and runs without a warning, so on Windows building
-from source is the way to install Penumbra (a Windows download comes with M12). On Linux you can build it the same
-way, or use the [release](#download-a-release-linux); build it yourself for the UI, a newer CUDA, or your own
-changes.
+from source is the recommended way to install Penumbra; the [Windows release](#windows) works too, after one
+SmartScreen prompt. On Linux you can build it the same way, or use the [release](#linux); build it yourself for the
+UI on Linux, CUDA on Windows, a newer CUDA, or your own changes.
 
 ## Prerequisites
 
@@ -314,6 +339,7 @@ cmake --preset linux-gcc-release -DPEN_ENABLE_CUDA=OFF -DPEN_ENABLE_UI=OFF
 | `penumbra --terminal scene.pen.json --res 4k --spp 1024 -o final.exr` | 4K final with settings from a `.pen.json` |
 | `penumbra --terminal scene.glb --integrator debug:normal -o normals.png` | Debug views: `ao`, `debug:normal`, `debug:albedo`, `debug:depth` |
 | `penumbra --terminal --resume final.session.json` | Continue an interrupted render (only output, logging and device flags may change) |
+| `penumbra --terminal --batch jobs.json` | Render a list of jobs one after another (see [Batch renders](#batch-renders)) |
 | `penumbra --terminal scene.glb --res 20k --region 0,0,10240,11520 -o left.exr` | Render part of the image; the `.penfilm` is kept for `merge` |
 | `penumbra merge left.penfilm right.penfilm -o full.exr` | Combine partial films (regions or `--sample-range` parts) into one image |
 | `penumbra --list-devices` | Lists the devices this machine can render with |
@@ -359,7 +385,7 @@ grey response), `aces` (the ACES fit) or `none` (the sRGB curve with clipping, B
 samples per pixel at the first hit, a few percent of the render's time. `--denoise oidn` removes the noise with
 Intel Open Image Denoise, guided by the albedo and normal passes (rendered for it automatically): on the
 controller's NVIDIA GPU when it has one, else on its CPU, tile by tile, with the same result as denoising the whole
-image at once (no seams at any size). It is off by default in `--terminal`, so renders stay unbiased. Images are written in bands of 256 rows, so even a 160K output never sits in memory whole. With
+image at once (no seams at any size). It is off by default in `--terminal`, so renders stay unbiased. Images are written in bands of 256 rows, so even a 160K output never sits in memory whole; the tonemap and PNG compression use every core. With
 `--region` the output file contains only that region. On the controller machine the CPU leaves 2 threads free
 unless you pass `--threads`.
 
@@ -495,6 +521,10 @@ Switzerland (the Italian side of the Matterhorn). Copernicus DEM (c) DLR e.V. 20
 Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA; downloaded from its public copy on AWS
 and checked against `scenes/copernicus.sha256`.
 
+**Every scene at once:** `.\scripts\get-scenes.ps1 -Scene all` (Linux: `./scripts/get-scenes.sh all`) gets Sponza,
+Intel's New Sponza and the four Swiss scenes one after another: about 6 GB of downloads and 9 GB on disk. A scene that
+fails does not stop the others; the end lists any that failed, and running it again only fetches what is missing.
+
 **Test scenes and image comparison.** The build also makes two tools next to `penumbra`:
 
 1. Write all test scenes (the three above plus the furnace spheres and a big-texture scene) into a folder:
@@ -509,6 +539,43 @@ and checked against `scenes/copernicus.sha256`.
    ```
    penumbra-diff a.exr b.exr
    ```
+
+### Batch renders
+
+`--batch` renders several jobs in one run: other cameras, resolutions, sample counts or scenes. Write the jobs in a
+JSON file; each job takes the same keys as the config file and the `.pen.json` `"render"` section (see the
+[CLI reference](#cli-reference), column "Config / `.pen.json` key"), plus `"scene"` and an optional `"name"` for the
+log:
+
+```json
+{
+  "jobs": [
+    { "name": "alps 8k", "scene": "scenes/swiss-alps.pen.json", "res": "8k", "spp": 1024, "output": "alps-8k.exr" },
+    { "name": "rigi 4k", "scene": "scenes/swiss-rigi.pen.json", "res": "4k", "output": "rigi-4k.png" },
+    { "name": "alps dusk", "scene": "scenes/swiss-alps.pen.json", "res": "4k", "exposure": -3.5, "output": "alps-dusk.png" }
+  ]
+}
+```
+
+```
+penumbra --terminal --batch jobs.json
+penumbra --terminal --batch jobs.json --host --spp 512      # with workers; flags on the command line apply to every job
+```
+
+- **Precedence:** a job's settings win over the command line, which wins over the `.pen.json`, the config file and
+  the defaults. A scene on the command line is used by every job that has none (several cameras of one scene).
+  Paths are relative to the folder you run Penumbra in, as on the command line.
+- **Checked first:** every job is read and checked before the first render starts: a misspelt key, a bad value, a
+  missing scene or two jobs writing the same output stop the batch at once, not hours in.
+- **Workers:** with `--host`, the workers' session lasts the whole batch, so workers stay connected from job to job,
+  even without `--stay`, and each job's scene is sent once. The session's settings (`port`, `bind`,
+  `approve_workers`, `upload_limit`, `no_upnp`) must therefore be the same in every job: give them on the command line.
+- **Failures and Ctrl+C:** a job that fails is logged and the next one starts; Ctrl+C stops the batch after writing
+  the current job's checkpoint. Run the same command again to continue: jobs that finished are skipped (they are
+  listed in `jobs.batch-state.json` next to the jobs file; delete it to render everything again) and the interrupted
+  job continues from its checkpoint. The batch ends with a summary per job and exits with 0 when every job is done,
+  else with the first failure's exit code.
+- The UI renders one scene at a time; batches are for `--terminal`.
 
 ### Using the UI
 
@@ -559,7 +626,7 @@ Add `--stay` on always-on machines: the worker then waits for the next render an
 the controller goes away (it retries after 1, 2, 4 and then every 5 seconds, forever; Ctrl+C stops it; an attempt
 gives up after 10 seconds without an answer). In the UI, use
 **Join a render**. Without `--stay`, a worker exits when the render ends (exit code 0) or the connection drops
-(exit code 7).
+(exit code 7); a controller running a `--batch` keeps it until the last job.
 
 **The scene.** Workers need nothing but Penumbra: when a render starts, the controller packages every file the
 scene reads (the `.glb`/`.gltf` and its buffers and textures, OBJ materials and textures, the HDRI) and each worker
@@ -677,6 +744,7 @@ full text on your machine.
 | --- | --- | --- | --- | --- | --- | --- |
 | General | `--terminal` |  | off | `penumbra --terminal scene.glb -o out.png` | CLI only | Headless controller: no window, no display server needed |
 | General | `--config` | path | per-OS user config | `penumbra --config defaults.json` | CLI only | Defaults file to use |
+| General | `--batch` | jobs file (.json) |  | `penumbra --terminal --batch jobs.json` | CLI only | Render several jobs one after another (scenes, cameras, resolutions...; see README "Batch renders"). With --host, workers stay connected for the whole batch; running it again skips finished jobs |
 | General | `--log-level` | trace, debug, info, warn, error, off | info | `penumbra --log-level debug` | `log_level` | Log verbosity for console and log file |
 | General | `--log-file` | path | per-OS log folder | `penumbra --log-file render.log` | `log_file` | Write the log here instead of the per-OS log folder |
 | General | `--progress` | bar, plain, json | bar | `penumbra --progress json` | `progress` | Progress output style; json prints one object per second on stdout |
@@ -949,7 +1017,7 @@ Start with `penumbra --diagnose` and include its output in any bug report.
 ## Updating
 
 Controller and workers must run exactly the same version and git commit. Machines on the Linux
-[release](#download-a-release-linux): download it again (step 1 there) on each of them. Machines built from source,
+[release](#download-a-release): download it again (step 1 there) on each of them. Machines built from source,
 on **every** one:
 
 1. Get the latest code, in the `Penumbra` folder:

@@ -7,7 +7,7 @@ namespace pen {
 LocalWorker::LocalWorker(WorkerId id, WorkerEvents& events, std::vector<std::unique_ptr<IBackend>> devices)
     : id_(id), events_(events), devices_(std::move(devices)) {}
 
-LocalWorker::~LocalWorker() { complete(); }
+LocalWorker::~LocalWorker() { complete(false); }
 
 WorkerInfo LocalWorker::info() const {
   WorkerInfo w;
@@ -57,9 +57,9 @@ void LocalWorker::cancel(std::span<const LeaseId>) {
   for (auto& d : devices_) d->cancel();
 }
 void LocalWorker::ackTile(LeaseId, AckStatus) {}  // in-process results need no acknowledgement
-void LocalWorker::pause(bool) {}                  // disk-full pause arrives with the UI (M10)
+void LocalWorker::pause(bool) {}  // the controller stops handing out work; the slots just wait
 
-void LocalWorker::complete() {
+void LocalWorker::complete(bool) {
   for (auto& s : slots_) s->finish();
   for (auto& s : slots_) s->join();
   slots_.clear();

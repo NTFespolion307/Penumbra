@@ -1,9 +1,10 @@
 name: Release
 
-# The Linux release tarball: built on Ubuntu 22.04 (the oldest supported system) with the
-# CUDA toolkit, so it has the Vulkan, CUDA and CPU backends and Open Image Denoise. Every push to main publishes it
-# as the latest release: https://github.com/NTFespolion307/Penumbra/releases/latest/download/penumbra-linux-x64.tar.gz
-# On milestone branches (m11, m12...) it only builds the tarball and keeps it as an artifact (for testing).
+# The release archives. Linux: a headless tarball built on Ubuntu 22.04 (the oldest supported system) with the CUDA
+# toolkit, so it has the Vulkan, CUDA and CPU backends and Open Image Denoise. Windows: a zip with the UI, Vulkan and
+# the CPU (no CUDA toolkit on the runner). Every push to main publishes both as the latest release:
+# https://github.com/NTFespolion307/Penumbra/releases/latest/download/penumbra-linux-x64.tar.gz (and
+# penumbra-windows-x64.zip). On milestone branches (m11, m12...) they are only kept as artifacts (for testing).
 on:
   push:
     branches: [main, 'm[0-9]*']
@@ -53,7 +54,7 @@ jobs:
       - name: Build the release
         run: ./scripts/package.sh
 
-      - name: Keep the tarball (every branch)
+      - name: Keep the tarball
         uses: actions/upload-artifact@v4
         with:
           name: penumbra-linux-x64
@@ -61,12 +62,65 @@ jobs:
             dist/penumbra-linux-x64.tar.gz
             dist/penumbra-linux-x64.tar.gz.sha256
 
-      - name: Publish the release (main)
-        if: github.ref == 'refs/heads/main'
+  windows:
+    if: github.repository == 'NTFespolion307/Penumbra'  # not in the private penumbra-dev
+    runs-on: windows-latest
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/../vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/../vcpkg-cache
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read vcpkg baseline
+        id: baseline
+        shell: bash
+        run: |
+          echo "commit=$(grep -oE '"builtin-baseline": *"[0-9a-f]+"' vcpkg.json | grep -oE '[0-9a-f]{40}')" >> "$GITHUB_OUTPUT"
+
+      - name: Clone and bootstrap vcpkg
+        shell: pwsh
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git "$env:VCPKG_ROOT"
+          New-Item -ItemType Directory -Force "$env:VCPKG_DEFAULT_BINARY_CACHE" | Out-Null
+          & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-windows-msvc-release-${{ steps.baseline.outputs.commit }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-windows-msvc-release-
+
+      - name: Build the release
+        shell: pwsh
+        run: ./scripts/package.ps1
+
+      - name: Keep the zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: penumbra-windows-x64
+          path: |
+            dist/penumbra-windows-x64.zip
+            dist/penumbra-windows-x64.zip.sha256
+
+  publish:
+    if: github.repository == 'NTFespolion307/Penumbra' && github.ref == 'refs/heads/main'
+    needs: [linux, windows]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           short="$(git rev-parse --short=12 HEAD)"
           gh release create "build-$short" dist/penumbra-linux-x64.tar.gz dist/penumbra-linux-x64.tar.gz.sha256 \
+            dist/penumbra-windows-x64.zip dist/penumbra-windows-x64.zip.sha256 \
             --title "Penumbra build $short" --latest \
-            --notes "Linux x64 release of $(git log -1 --format='%h %s'). Every machine of a render must run the same build."
+            --notes "Linux x64 and Windows x64 release of $(git log -1 --format='%h %s'). Every machine of a render must run the same build. The Windows exe is unsigned: SmartScreen asks once (More info > Run anyway)."

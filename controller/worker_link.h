@@ -115,7 +115,8 @@ class WorkerLink {
   virtual void cancel(std::span<const LeaseId> leases) = 0;
   virtual void ackTile(LeaseId lease, AckStatus status) = 0;
   virtual void pause(bool paused) = 0;
-  virtual void complete() = 0;
+  // The render is over; `more`: another render of this session follows (a --batch), so workers stay connected.
+  virtual void complete(bool more) = 0;
   // Disconnects a misbehaving worker with a reason (network workers; the local worker never is).
   virtual void kick(const std::string& reason) { (void)reason; }
   // Chunks per item for this worker's next leases: 1, or more while its upload cannot keep up.

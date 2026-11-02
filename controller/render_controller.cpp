@@ -590,7 +590,7 @@ RenderOutcome RenderController::run(const RenderRunOptions& options) {
     all = workerSnapshotLocked();
   }
   for (WorkerLink* w : all) w->cancel({});
-  for (WorkerLink* w : all) w->complete();
+  for (WorkerLink* w : all) w->complete(options.more_renders);
 
   std::lock_guard lock(mutex_);
   if (!failure_.empty()) throw std::runtime_error(failure_);

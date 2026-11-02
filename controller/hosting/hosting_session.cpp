@@ -34,7 +34,7 @@ class AttachedLink final : public WorkerLink {
   void cancel(std::span<const LeaseId> leases) override { w_.cancel(leases); }
   void ackTile(LeaseId lease, AckStatus status) override { w_.ackTile(lease, status); }
   void pause(bool paused) override { w_.pause(paused); }
-  void complete() override { w_.complete(); }
+  void complete(bool more) override { w_.complete(more); }
   void kick(const std::string& reason) override { w_.kick(reason); }
   uint32_t itemSpan() const override { return w_.itemSpan(); }
 

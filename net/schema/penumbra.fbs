@@ -148,6 +148,7 @@ table Pause {
 
 table RenderComplete {
   render_id:ulong;
+  more:bool;  // another render of this session follows (--batch): workers stay connected even without --stay
 }
 
 // ---- status ----

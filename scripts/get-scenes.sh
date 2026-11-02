@@ -8,10 +8,27 @@
 #   ./scripts/get-scenes.sh swiss-lauterbrunnen   The Lauterbrunnen valley (swisstopo, 330 MB): scenes/swiss-lauterbrunnen.pen.json
 #   ./scripts/get-scenes.sh swiss-matterhorn      The Matterhorn at sunrise (swisstopo + GLO-30, 340 MB): scenes/swiss-matterhorn.pen.json
 #   ./scripts/get-scenes.sh swiss-rigi            A sea of fog from Rigi (swisstopo + GLO-30, 770 MB): scenes/swiss-rigi.pen.json
+#   ./scripts/get-scenes.sh all                   Every scene above, one after another (about 6 GB of downloads)
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 scene="${1:-sponza}"
+all_scenes=(sponza intel-sponza swiss-alps swiss-lauterbrunnen swiss-matterhorn swiss-rigi)
+
+if [[ "$scene" == all ]]; then
+  # Each scene in its own run of this script; a scene that fails does not stop the others.
+  failed=()
+  for s in "${all_scenes[@]}"; do
+    echo -e "\033[36m==== $s\033[0m"
+    "$0" "$s" || failed+=("$s")
+  done
+  if [[ ${#failed[@]} -gt 0 ]]; then
+    echo -e "\033[31mERROR: these scenes failed: ${failed[*]} (run the script again with each name to retry)\033[0m" >&2
+    exit 1
+  fi
+  echo -e "\033[32mAll scenes ready: ${all_scenes[*]}\033[0m"
+  exit 0
+fi
 
 fail() { echo -e "\033[31mERROR: $*\033[0m" >&2; exit 1; }
 step() { echo -e "\033[36m==> $*\033[0m"; }
@@ -154,7 +171,7 @@ case "$scene" in
       2679500,1212200,1820 2672000,1160000,1300 40 2610,1125,2730,1235 \
       "N46_00_E007_00 N46_00_E008_00 N46_00_E009_00 N47_00_E007_00 N47_00_E008_00 N47_00_E009_00" ;;
   -h|--help) sed -n '2,11p' "$0"; exit 0 ;;
-  *) fail "unknown scene '$scene' (sponza, intel-sponza, swiss-alps, swiss-lauterbrunnen, swiss-matterhorn, swiss-rigi)" ;;
+  *) fail "unknown scene '$scene' (${all_scenes[*]}, or all)" ;;
 esac
 exe="${exe:-scenes/$scene.pen.json}"
 echo "Render it with: build/linux-gcc-release/bin/penumbra --terminal $exe --spp 1024 -o render.png"

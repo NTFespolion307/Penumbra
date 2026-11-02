@@ -5,6 +5,7 @@ set(PEN_TEST_DATA "${CMAKE_CURRENT_SOURCE_DIR}/data")
 
 # ---- Unit tests ----
 add_executable(penumbra_unit_tests
+  unit/test_batch.cpp
   unit/test_bsdf.cpp
   unit/test_cli.cpp
   unit/test_config.cpp
@@ -21,7 +22,8 @@ add_executable(penumbra_unit_tests
   unit/test_sampling.cpp
   unit/test_scheduler.cpp
   unit/test_settings.cpp)
-target_link_libraries(penumbra_unit_tests PRIVATE penumbra_cli penumbra_controller penumbra_net Catch2::Catch2WithMain)
+target_link_libraries(penumbra_unit_tests PRIVATE penumbra_cli penumbra_controller penumbra_net Catch2::Catch2WithMain
+                      PNG::PNG)  # reads the PNG writer's output back
 if(PEN_ENABLE_OIDN)
   pen_copy_oidn_runtime(penumbra_unit_tests)  # Open Image Denoise's libraries next to the binary (cmake/Oidn.cmake)
 endif()
@@ -131,6 +133,8 @@ pen_render_test(debug_normal runs spheres.pen.json "--res|160x90|--spp|1|--integ
 # single render; a --region render equals that crop of the full render; every preset renders.
 pen_render_test(resume resume cornell.pen.json "--res|1080p|--spp|16" -DKILL_AFTER_ITEMS=4 -DSMALL_CHUNKS=1)
 pen_render_test(merge_regions merge_regions cornell.pen.json "--res|1080p|--spp|4")
+# M12: --batch renders each job as its solo render; killed during job 2, running it again skips job 1 and resumes job 2.
+pen_render_test(batch batch cornell.pen.json "" -DKILL_AFTER_ITEMS=4 -DSMALL_CHUNKS=1)
 pen_render_test(merge_samples merge_samples cornell.pen.json "--res|1080p|--spp|8")
 pen_render_test(region_crop region_crop cornell.pen.json "--res|1080p|--spp|4")
 pen_render_test(presets presets cornell.pen.json "--spp|1|--scale|0.01")
@@ -275,6 +279,10 @@ pen_net_test(stay_resume 7518 2 cornell.pen.json "--res|1080p|--scale|0.5|--spp|
              "-DREF_ARGS=--devices|cpu" "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|4|--stay"
              -DWORKER_EXPECT=daemon -DCONTROLLER_KILL_MS=16000
              "-DEXPECT_LOG=this render was hosting workers.*w1/0 [^\n]*: [1-9][0-9]* items")
+# M12: a hosting --batch of two jobs; workers without --stay stay for the second job, then leave with exit 0.
+pen_net_test(batch 7525 2 cornell.pen.json "--res|1080p|--scale|0.25|--spp|16" "-DREF_ARGS=--devices|cpu"
+             "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|4" -DBATCH=1
+             "-DEXPECT_WORKER_LOG=the controller's batch has another render")
 pen_net_test(stay_next_render 7519 1 cornell.pen.json "--res|1080p|--scale|0.25|--spp|16" "-DREF_ARGS=--devices|cpu"
              "-DCONTROLLER_ARGS=--no-local" "-DWORKER_ARGS=--threads|4|--stay" -DWORKER_EXPECT=daemon -DSECOND_RENDER=1
              "-DEXPECT_LOG=has the scene in its cache" "-DEXPECT_WORKER_LOG=waiting for the next render")

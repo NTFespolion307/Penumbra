@@ -10,11 +10,29 @@
   .\scripts\get-scenes.ps1 -Scene swiss-lauterbrunnen   # The Lauterbrunnen valley (swisstopo, 330 MB)
   .\scripts\get-scenes.ps1 -Scene swiss-matterhorn      # The Matterhorn at sunrise (swisstopo + GLO-30, 340 MB)
   .\scripts\get-scenes.ps1 -Scene swiss-rigi            # A sea of fog from Rigi (swisstopo + GLO-30, 770 MB)
+  .\scripts\get-scenes.ps1 -Scene all                   # Every scene above, one after another (about 6 GB)
 #>
 [CmdletBinding()]
 param(
-  [ValidateSet('sponza', 'intel-sponza', 'swiss-alps', 'swiss-lauterbrunnen', 'swiss-matterhorn', 'swiss-rigi')] [string] $Scene = 'sponza'
+  [ValidateSet('sponza', 'intel-sponza', 'swiss-alps', 'swiss-lauterbrunnen', 'swiss-matterhorn', 'swiss-rigi', 'all')] [string] $Scene = 'sponza'
 )
+
+if ($Scene -eq 'all') {
+  # Each scene in its own run of this script; a scene that fails does not stop the others.
+  $all = 'sponza', 'intel-sponza', 'swiss-alps', 'swiss-lauterbrunnen', 'swiss-matterhorn', 'swiss-rigi'
+  $failed = @()
+  foreach ($s in $all) {
+    Write-Host "==== $s" -ForegroundColor Cyan
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath -Scene $s
+    if ($LASTEXITCODE -ne 0) { $failed += $s }
+  }
+  if ($failed.Count -gt 0) {
+    Write-Host "ERROR: these scenes failed: $($failed -join ', ') (run the script again with each name to retry)" -ForegroundColor Red
+    exit 1
+  }
+  Write-Host "All scenes ready: $($all -join ', ')" -ForegroundColor Green
+  exit 0
+}
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'  # Windows PowerShell 5.1 downloads many times slower with the progress bar
