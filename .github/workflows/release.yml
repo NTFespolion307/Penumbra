@@ -14,6 +14,7 @@ permissions:
 
 jobs:
   linux:
+    if: github.repository == 'NTFespolion307/Penumbra'  # not in the private penumbra-dev
     runs-on: ubuntu-22.04
     env:
       VCPKG_ROOT: ${{ github.workspace }}/../vcpkg

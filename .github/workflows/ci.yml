@@ -12,6 +12,7 @@ permissions:
 
 jobs:
   build:
+    if: github.repository == 'NTFespolion307/Penumbra'  # not in the private penumbra-dev
     strategy:
       fail-fast: false
       matrix:
