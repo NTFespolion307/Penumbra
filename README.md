@@ -11,8 +11,8 @@ combination of machines, GPUs and backends converges to the same image.
 ![Sponza rendered at 40K](media/sponza-40k.jpg)
 *Sponza at 40K (40960 × 23040, shown downscaled), rendered in 52 s on eight RTX 5090s and denoised.*
 
-> **Status: milestone M12 (release: batch queue, faster image output, build scripts and this README). Every planned
-> v1 feature is built; the optional OptiX backend (M13) is not.** Penumbra renders glTF and OBJ scenes on GPUs with
+> **Status: v1 is complete (milestones M0 to M12 and M14; M12 added the batch queue, faster image output, the build
+> scripts' smoke render and this README's audit). The optional OptiX backend (M13) is not built.** Penumbra renders glTF and OBJ scenes on GPUs with
 > hardware ray tracing (Vulkan RT), on any NVIDIA GPU through CUDA, and on the CPU (Embree), with a path tracer (next-event
 > estimation, MIS), the glTF PBR material with its common extensions and HDRI lighting, at any size up to 160K,
 > with checkpoints, `--resume` and `merge`, writing EXR, PNG, JPEG, TIFF or WebP. Every machine uses all its GPUs

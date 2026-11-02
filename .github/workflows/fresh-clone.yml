@@ -7,8 +7,6 @@ name: Fresh clone
 # change them together.
 on:
   workflow_dispatch:
-  push:
-    branches: [m12]  # the M12 gate: a hand-started run needs this file on main first; removed at the merge
 
 permissions:
   contents: read
