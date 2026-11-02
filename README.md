@@ -37,7 +37,7 @@ On the GPU, an image matches the CPU's within float rounding (relMSE about 1e-8 
 
 ## Contents
 
-1. [Download a release](#download-a-release)
+1. [Download a release (Linux)](#download-a-release-linux)
 2. [Why you build it yourself](#why-you-build-it-yourself)
 3. [Prerequisites](#prerequisites)
 4. [Build](#build)
@@ -52,13 +52,7 @@ On the GPU, an image matches the CPU's within float rounding (relMSE about 1e-8 
 13. [License](#license)
 14. [Credits](#credits)
 
-## Download a release
-
-Every push to `main` is built by GitHub Actions and published as the
-[latest release](https://github.com/NTFespolion307/Penumbra/releases/latest), with a `.sha256` checksum next to each
-archive. Building it yourself ([Build](#build)) gives the same program.
-
-### Linux
+## Download a release (Linux)
 
 The quickest way onto a Linux server or worker: a ready-made, headless build (`--terminal` and `--worker`; no UI)
 with the Vulkan, CUDA and CPU backends and the denoiser. Nothing to install but a GPU driver.
@@ -84,34 +78,15 @@ Vulkan ray tracing) or any Vulkan driver with ray tracing; without a GPU the CPU
 Every machine of a render must run the same build: the controller and all workers use the same release, or all
 build from the same commit (step 1 again on every machine to update). The tarball also holds
 `scripts/get-scenes.sh` and the small sample scenes; `./penumbra/scripts/get-scenes.sh swiss-alps` works from it.
-
-### Windows
-
-A zip with the UI, the Vulkan ray tracing and CPU backends and the denoiser (no CUDA backend: GPUs without ray
-tracing render on the CPU; build it yourself for CUDA). Needs Windows 10 or 11 (x64) and a GPU driver.
-
-1. Download and unpack it (PowerShell, into `.\penumbra`):
-   ```
-   Invoke-WebRequest https://github.com/NTFespolion307/Penumbra/releases/latest/download/penumbra-windows-x64.zip -OutFile penumbra.zip
-   Expand-Archive penumbra.zip .
-   ```
-2. Start the UI by double-clicking `penumbra\penumbra.exe`, or check the devices from PowerShell:
-   ```
-   .\penumbra\penumbra.exe --list-devices
-   ```
-   Success: your GPUs are listed with `vulkan`.
-
-The exe is not signed, so Windows SmartScreen asks once: **More info**, then **Run anyway** (see
-[Why you build it yourself](#why-you-build-it-yourself)). The zip also holds `scripts\get-scenes.ps1` and the sample
-scenes.
+Each release is built from `main` by GitHub Actions; `penumbra-linux-x64.tar.gz.sha256` next to it is its checksum.
 
 ## Why you build it yourself
 
-Windows SmartScreen blocks unsigned `.exe` files downloaded from the internet, and Penumbra is not signed. An
-exe you build on your own machine carries no download mark and runs without a warning, so on Windows building
-from source is the recommended way to install Penumbra; the [Windows release](#windows) works too, after one
-SmartScreen prompt. On Linux you can build it the same way, or use the [release](#linux); build it yourself for the
-UI on Linux, CUDA on Windows, a newer CUDA, or your own changes.
+Windows SmartScreen blocks unsigned `.exe` files downloaded from the internet, and Smart App Control blocks them
+outright; Penumbra is not signed. An exe you build on your own machine carries no download mark, so on Windows
+building from source is the way to install Penumbra, and there is no Windows download. (With Smart App Control on,
+even your own build can be blocked; see [Troubleshooting](#troubleshooting).) On Linux you can build it the same way,
+or use the [release](#download-a-release-linux); build it yourself for the UI, a newer CUDA, or your own changes.
 
 ## Prerequisites
 
@@ -995,6 +970,7 @@ Start with `penumbra --diagnose` and include its output in any bug report.
 
 | Problem | What to do |
 | --- | --- |
+| Windows: "Smart App Control blocked an app that may be unsafe" when running `penumbra.exe` | Smart App Control blocks unsigned programs, and Penumbra (also your own build) is not signed. Turn it off in Windows Security > App & browser control > Smart App Control settings > Off. On older Windows 11 versions it can only be turned back on by reinstalling Windows. SmartScreen's "Windows protected your PC" on a copied exe: More info > Run anyway. |
 | Build script: "vcpkg not found" | Follow [Prerequisites](#prerequisites) steps for vcpkg, then open a new terminal so `VCPKG_ROOT` is set. |
 | Build script: "Visual Studio ... without the C++ x64 tools" | In the Visual Studio Installer, add the "Desktop development with C++" workload. |
 | Windows: configure fails with `C1083 ... Invalid argument` or "Detecting CXX compiler ABI info - failed" | The folder path is too long for MSVC (260-character limit). Clone Penumbra to a short path such as `C:\dev\Penumbra`. |
@@ -1017,7 +993,7 @@ Start with `penumbra --diagnose` and include its output in any bug report.
 ## Updating
 
 Controller and workers must run exactly the same version and git commit. Machines on the Linux
-[release](#download-a-release): download it again (step 1 there) on each of them. Machines built from source,
+[release](#download-a-release-linux): download it again (step 1 there) on each of them. Machines built from source,
 on **every** one:
 
 1. Get the latest code, in the `Penumbra` folder:
