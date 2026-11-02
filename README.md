@@ -8,8 +8,12 @@ the image. Any number of **workers**, each with one or more GPUs, join with the 
 code, render tiles and send them back. A render on one machine is the same thing with no workers, and every
 combination of machines, GPUs and backends converges to the same image.
 
-> **Status: milestone M11 (denoising, tonemapping and AOVs; M12, the release polish, comes next).** Penumbra renders glTF and OBJ scenes on GPUs with hardware ray
-> tracing (Vulkan RT), on any NVIDIA GPU through CUDA, and on the CPU (Embree), with a path tracer (next-event
+![Sponza rendered at 40K](media/sponza-40k.jpg)
+*Sponza at 40K (40960 × 23040, shown downscaled), rendered in 52 s on eight RTX 5090s and denoised.*
+
+> **Status: milestone M12 (release: batch queue, faster image output, build scripts and this README). Every planned
+> v1 feature is built; the optional OptiX backend (M13) is not.** Penumbra renders glTF and OBJ scenes on GPUs with
+> hardware ray tracing (Vulkan RT), on any NVIDIA GPU through CUDA, and on the CPU (Embree), with a path tracer (next-event
 > estimation, MIS), the glTF PBR material with its common extensions and HDRI lighting, at any size up to 160K,
 > with checkpoints, `--resume` and `merge`, writing EXR, PNG, JPEG, TIFF or WebP. Every machine uses all its GPUs
 > at once, with Vulkan, CUDA and the CPU mixed freely; work is split into tile and sample chunks that the devices
@@ -25,7 +29,8 @@ combination of machines, GPUs and backends converges to the same image.
 > every backend; `scripts/get-scenes swiss-alps` builds the Eiger, Mönch and Jungfrau from swisstopo's open data.
 > Images can be denoised with Open Image Denoise (`--denoise oidn`, tiled without seams up to 160K), tonemapped with
 > AgX, Filmic or ACES, and written with albedo, normal and depth AOVs; a ready-built Linux tarball is published
-> with every release. Features marked *(planned, Mx)* below are not built yet.
+> with every release. `--batch` renders a list of jobs in one run. Features marked *(planned, Mx)* below are not built
+> yet.
 
 
 **Supported GPUs:** NVIDIA first: RTX 20 series and newer through Vulkan ray tracing (tested on an RTX 5060 Ti
@@ -186,7 +191,7 @@ Optional, the CUDA toolkit (for the CUDA backend; the toolkit only, it does not 
 
 9. Download NVIDIA's repository key for this distribution (Ubuntu 22.04/24.04, Debian 12):
    ```bash
-   . /etc/os-release && wget -O /tmp/cuda-keyring.deb "https://developer.download.nvidia.com/compute/cuda/repos/${ID}${VERSION_ID//./}/x86_64/cuda-keyring_1.1-1_all.deb"
+   . /etc/os-release && curl -fsSL -o /tmp/cuda-keyring.deb "https://developer.download.nvidia.com/compute/cuda/repos/${ID}${VERSION_ID//./}/x86_64/cuda-keyring_1.1-1_all.deb"
    ```
 10. Add the repository:
     ```bash
@@ -290,7 +295,7 @@ The binary is `build/<preset>/bin/penumbra` (`penumbra.exe` on Windows).
 | `PEN_ENABLE_VULKAN` | `ON` | Vulkan RT backend and the UI swapchain. `OFF` builds a CPU-only Penumbra |
 | `PEN_ENABLE_CUDA` | `ON` if the CUDA toolkit is found | CUDA backend. Nothing links against CUDA: the driver is loaded when Penumbra starts, so the binary also runs on machines without NVIDIA |
 | `PEN_ENABLE_OPTIX` | `OFF` | OptiX backend and denoiser *(planned, M13, optional)* |
-| `PEN_ENABLE_UI` | `ON` | The user interface (M10); off for headless servers (`build.sh` turns it off when there is no display). `--terminal` and `--worker` never need display libraries either way |
+| `PEN_ENABLE_UI` | `ON` | The user interface; off for headless servers (`build.sh` turns it off when there is no display). `--terminal` and `--worker` never need display libraries either way |
 | `PEN_CUDA_ARCHS` | `75;80;86;89;90;120` | CUDA architectures to compile for. Newer GPUs run the embedded PTX. CUDA 13 cannot build for GTX 10-series (61) or V100 (70); for those, build with CUDA 12.x and add the architecture, e.g. `-DPEN_CUDA_ARCHS="61;75;86"` |
 | `PEN_PORTABLE` | `OFF` | Linux: link libstdc++ and libgcc statically, as `scripts/package.sh` does for the release |
 | `PEN_ENABLE_OIDN` | `ON` | Denoising with Intel Open Image Denoise 2.5.1: configure downloads Intel's release binaries (about 60 MB, SHA-256 checked) into the build folder once, and the build copies its libraries next to `penumbra`. `OFF` builds without denoising |
@@ -453,7 +458,7 @@ reference photos by Katica Putica and Princino.photo. The full credits and licen
 `scenes/intel-sponza/main_sponza/credits_license.txt` after the download. Downloaded from Intel, not
 redistributed here.
 
-**The Swiss Alps** *(M14)*: Eiger, Mönch and Jungfrau from real elevation data and aerial photos, under the
+**The Swiss Alps**: Eiger, Mönch and Jungfrau from real elevation data and aerial photos, under the
 physical sky with haze, seen from above the Männlichen ridge. 16 × 16 km: a mesh with a vertex every 4 m (32 million
 triangles, 0.9 GB) and a 2 m photo texture.
 
@@ -923,7 +928,7 @@ More `.pen.json` options:
 Light units: glTF point and spot intensities (candela) and sun illuminance (lux) are divided by 683 lm/W, which
 matches Blender's "Standard" export; emissive materials use emissive colour × strength as radiance.
 
-**Atmosphere** *(M14; CPU, Vulkan and CUDA)*. An `"atmosphere"` object fills the scene with
+**Atmosphere** *(CPU, Vulkan and CUDA)*. An `"atmosphere"` object fills the scene with
 air, haze and an optional ground fog. Each layer thins out exponentially with height, so distant objects fade and
 turn blue, and light shafts form. With a `"sky"`, air and haze follow its `air` and `dust` values, so the haze
 matches the sky.
@@ -942,7 +947,7 @@ matches the sky.
 | `fog_height` | Fog scale height in metres: the density falls by e every this many metres up (100) |
 | `fog_base`, `fog_color`, `fog_anisotropy` | Fog base height (scene units, y), its colour `[r, g, b]` (single-scattering albedo, [1, 1, 1]) and *g* (0) |
 
-**Physical sky** *(M14; every backend: it becomes the environment map)*. A `"sky"` object replaces the environment with a sky computed from
+**Physical sky** *(every backend: it becomes the environment map)*. A `"sky"` object replaces the environment with a sky computed from
 the sun's position, like Blender's Nishita sky: air, haze and ozone scatter sunlight over a round Earth, computed per
 wavelength, with the sun's disc. It is in real units (the sun is 1361 W/m² above the air), so use an exposure of
 about -6 to -10 (`--exposure -8`), as with Blender's.
